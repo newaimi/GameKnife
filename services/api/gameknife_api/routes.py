@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
@@ -17,6 +18,9 @@ from gameknife_api.job_service import (
     run_asset_board_export_job,
     run_asset_board_refine_job,
     run_asset_board_region_job,
+    run_sequence_clean_job,
+    run_sequence_export_frames_job,
+    run_sequence_export_spine_job,
     run_upscale_job,
 )
 from gameknife_api.schemas import (
@@ -27,6 +31,11 @@ from gameknife_api.schemas import (
     ContextResponse,
     JobPageResponse,
     JobResponse,
+    SequenceFrameResponse,
+    SequenceFramesUpdateRequest,
+    SequenceResponse,
+    SequenceTaskRequest,
+    SequenceUpdateRequest,
     SettingsResponse,
     SoundEffectRequest,
 )
@@ -53,6 +62,21 @@ JOB_CATEGORY_TYPES = {
     "asset_board": ["asset_board_region_detect", "asset_board_cutout", "asset_board_region_refine", "asset_board_export"],
     "sequence": ["sequence_clean", "sequence_generate_video", "sequence_video_to_frames", "sequence_export_frames", "sequence_export_spine"],
     "character_rig": ["character_rig_analyze", "character_rig_refine_part", "character_rig_export_spine", "character_rig_export_dragonbones"],
+}
+ALLOWED_SEQUENCE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
+    "alpha_threshold": 24,
+    "alpha_smoothing": 0,
+    "trim_padding": 6,
+    "background_tolerance": 18,
+    "anchor_mode": "bottom_center",
+    "color_match": True,
+    "stabilize": False,
+    "stabilize_strength": 35,
 }
 
 
@@ -255,6 +279,210 @@ def create_asset_board_export_job(
     return _job_response(job, context, repository)
 
 
+@router.post("/sequences/import", response_model=SequenceResponse)
+async def import_sequence_frames(
+    files: list[UploadFile] = File(...),
+    name: str | None = Form(None),
+    fps: int = Form(12),
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> SequenceResponse:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一张序列帧。")
+    if fps < 1 or fps > 60:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帧率必须在 1 到 60 之间。")
+
+    ordered_files, warnings = _sort_sequence_uploads(files)
+    created_assets: list[AssetRecord] = []
+    frame_payloads: list[dict[str, object]] = []
+    try:
+        for upload in ordered_files:
+            asset, frame_payload = await _save_sequence_upload(upload, context, repository)
+            created_assets.append(asset)
+            frame_payloads.append(frame_payload)
+        sequence = repository.create_sequence_with_frames(
+            workspace_id=context.workspace.id,
+            created_by=context.principal.id,
+            name=(name or _guess_sequence_name(ordered_files)).strip() or "未命名序列帧",
+            fps=fps,
+            loop=True,
+            clean_parameters=DEFAULT_SEQUENCE_CLEAN_PARAMETERS,
+            frames=frame_payloads,
+            created_at=_now(),
+        )
+    except HTTPException:
+        _cleanup_created_assets(repository, context, created_assets)
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _cleanup_created_assets(repository, context, created_assets)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="序列帧导入失败。") from exc
+
+    return _sequence_response(sequence, context, repository, warnings=warnings)
+
+
+@router.post("/sequences/videos/import", response_model=AssetResponse)
+async def import_sequence_video(
+    file: UploadFile = File(...),
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> AssetResponse:
+    return await upload_video_asset(file, context, repository)
+
+
+@router.get("/sequences", response_model=list[SequenceResponse])
+def list_sequences(
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> list[SequenceResponse]:
+    return [_sequence_response(sequence, context, repository, include_frames=False) for sequence in repository.list_sequences_for_workspace(context.workspace.id)]
+
+
+@router.get("/sequences/{sequence_id}", response_model=SequenceResponse)
+def get_sequence(
+    sequence_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> SequenceResponse:
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if sequence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    return _sequence_response(sequence, context, repository)
+
+
+@router.patch("/sequences/{sequence_id}", response_model=SequenceResponse)
+def update_sequence(
+    sequence_id: str,
+    payload: SequenceUpdateRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> SequenceResponse:
+    sequence = repository.update_sequence(
+        sequence_id,
+        context.workspace.id,
+        name=payload.name.strip() if payload.name else None,
+        fps=payload.fps,
+        loop=payload.loop,
+        canvas_width=payload.canvas_width,
+        canvas_height=payload.canvas_height,
+        anchor_mode=payload.anchor_mode,
+        anchor_x=payload.anchor_x,
+        anchor_y=payload.anchor_y,
+        clean_parameters=payload.clean_parameters,
+        updated_at=_now(),
+    )
+    if sequence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    return _sequence_response(sequence, context, repository)
+
+
+@router.patch("/sequences/{sequence_id}/frames", response_model=SequenceResponse)
+def update_sequence_frames(
+    sequence_id: str,
+    payload: SequenceFramesUpdateRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> SequenceResponse:
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if sequence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    repository.update_sequence_frames(sequence_id, context.workspace.id, [frame.model_dump(exclude_none=True) for frame in payload.frames], updated_at=_now())
+    updated = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    return _sequence_response(updated, context, repository)
+
+
+@router.delete("/sequences/{sequence_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sequence(
+    sequence_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> Response:
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if sequence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+
+    asset_ids = repository.collect_sequence_asset_ids(sequence_id, context.workspace.id)
+    asset_records = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
+    deleted = repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    repository.delete_assets_for_workspace([asset.id for asset in asset_records], context.workspace.id)
+    for asset in asset_records:
+        context.storage.remove_asset_file(asset.path)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/sequences/{sequence_id}/clean", response_model=JobResponse)
+def create_sequence_clean_task(
+    sequence_id: str,
+    payload: SequenceTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="sequence_clean",
+        input_asset_id=input_asset_id,
+        parameters={"sequence_id": sequence_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_sequence_clean_job, repository, context, job.id, sequence_id)
+    return _job_response(job, context, repository)
+
+
+@router.post("/sequences/generate-from-image", response_model=JobResponse)
+def create_sequence_generate_video_task() -> JobResponse:
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="视频生成 API 尚未配置。")
+
+
+@router.post("/sequences/from-video", response_model=JobResponse)
+def create_sequence_from_video_task() -> JobResponse:
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+
+@router.post("/sequences/{sequence_id}/export/frames", response_model=JobResponse)
+def create_sequence_frames_export_task(
+    sequence_id: str,
+    payload: SequenceTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="sequence_export_frames",
+        input_asset_id=input_asset_id,
+        parameters={"sequence_id": sequence_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_sequence_export_frames_job, repository, context, job.id, sequence_id)
+    return _job_response(job, context, repository)
+
+
+@router.post("/sequences/{sequence_id}/export/spine", response_model=JobResponse)
+def create_sequence_spine_export_task(
+    sequence_id: str,
+    payload: SequenceTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="sequence_export_spine",
+        input_asset_id=input_asset_id,
+        parameters={"sequence_id": sequence_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_sequence_export_spine_job, repository, context, job.id, sequence_id)
+    return _job_response(job, context, repository)
+
+
 @router.post("/assets/images", response_model=AssetResponse)
 async def upload_image_asset(
     file: UploadFile = File(...),
@@ -370,6 +598,150 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
         size_bytes=asset.size_bytes,
         url=f"/api/assets/{asset.id}",
     )
+
+
+async def _save_sequence_upload(
+    upload: UploadFile,
+    context: RequestContext,
+    repository: SQLiteGameKnifeRepository,
+) -> tuple[AssetRecord, dict[str, object]]:
+    if upload.content_type not in ALLOWED_SEQUENCE_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{upload.filename or '文件'} 不是支持的图片格式。")
+
+    content = await upload.read()
+    _verify_image(content)
+
+    asset_id = uuid4().hex
+    filename = Path(upload.filename or "frame.png").name
+    now = _now()
+    relative_path = context.storage.write_asset(asset_id, filename, content)
+    asset = AssetRecord(
+        id=asset_id,
+        workspace_id=context.workspace.id,
+        created_by=context.principal.id,
+        kind="sequence_frame",
+        original_name=filename,
+        path=relative_path,
+        mime_type=upload.content_type or "application/octet-stream",
+        size_bytes=len(content),
+        created_at=now,
+        updated_at=now,
+    )
+    repository.create_asset(asset)
+
+    try:
+        with Image.open(BytesIO(content)) as opened:
+            image = opened.convert("RGBA")
+            bbox = image.getchannel("A").getbbox() or (0, 0, image.width, image.height)
+            width, height = image.size
+    except Exception as exc:  # noqa: BLE001
+        repository.delete_assets_for_workspace([asset.id], context.workspace.id)
+        context.storage.remove_asset_file(relative_path)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} 读取失败。") from exc
+
+    return asset, {
+        "source_asset_id": asset.id,
+        "original_name": asset.original_name,
+        "width": width,
+        "height": height,
+        "bbox": list(bbox),
+    }
+
+
+def _sequence_response(
+    sequence,
+    context: RequestContext,
+    repository: SQLiteGameKnifeRepository,
+    *,
+    include_frames: bool = True,
+    warnings: list[str] | None = None,
+) -> SequenceResponse:
+    frames = repository.list_sequence_frames(sequence["id"], context.workspace.id) if include_frames else []
+    return SequenceResponse(
+        id=sequence["id"],
+        name=sequence["name"],
+        fps=int(sequence["fps"]),
+        loop=bool(sequence["loop"]),
+        canvas_width=int(sequence["canvas_width"]),
+        canvas_height=int(sequence["canvas_height"]),
+        anchor_mode=sequence["anchor_mode"],
+        anchor_x=float(sequence["anchor_x"]),
+        anchor_y=float(sequence["anchor_y"]),
+        clean_parameters=json.loads(sequence["clean_parameters_json"]),
+        status=sequence["status"],
+        frame_count=int(sequence["frame_count"]),
+        enabled_frame_count=int(sequence["enabled_frame_count"]),
+        frames=[_sequence_frame_response(frame) for frame in frames],
+        warnings=warnings or [],
+        created_at=sequence["created_at"],
+        updated_at=sequence["updated_at"],
+    )
+
+
+def _sequence_frame_response(frame) -> SequenceFrameResponse:
+    processed_asset_id = frame["processed_asset_id"]
+    preview_asset_id = processed_asset_id or frame["source_asset_id"]
+    return SequenceFrameResponse(
+        id=frame["id"],
+        sequence_id=frame["sequence_id"],
+        source_asset_id=frame["source_asset_id"],
+        processed_asset_id=processed_asset_id,
+        frame_index=int(frame["frame_index"]),
+        original_name=frame["original_name"],
+        width=int(frame["width"]),
+        height=int(frame["height"]),
+        bbox=json.loads(frame["bbox_json"]),
+        offset_x=int(frame["offset_x"]),
+        offset_y=int(frame["offset_y"]),
+        duration_ms=int(frame["duration_ms"]),
+        enabled=bool(frame["enabled"]),
+        is_generated=bool(frame["is_generated"]),
+        source_url=f"/api/assets/{frame['source_asset_id']}",
+        preview_url=f"/api/assets/{preview_asset_id}",
+        created_at=frame["created_at"],
+        updated_at=frame["updated_at"],
+    )
+
+
+def _ensure_sequence_job_input(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    sequence_id: str,
+):
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if sequence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
+    if not frames:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="序列帧没有可用帧。")
+    return sequence, frames[0]["source_asset_id"]
+
+
+def _sort_sequence_uploads(files: list[UploadFile]) -> tuple[list[UploadFile], list[str]]:
+    number_pattern = re.compile(r"(\d+)(?!.*\d)")
+    warnings: list[str] = []
+
+    def sort_key(upload: UploadFile) -> tuple[int, int | str, str]:
+        filename = Path(upload.filename or "").name
+        match = number_pattern.search(filename)
+        if match:
+            return (0, int(match.group(1)), filename)
+        return (1, filename, filename)
+
+    if any(number_pattern.search(Path(upload.filename or "").name) is None for upload in files):
+        warnings.append("部分文件名没有数字序号，已按文件名字典序排在数字序号之后。")
+    return sorted(files, key=sort_key), warnings
+
+
+def _guess_sequence_name(files: list[UploadFile]) -> str:
+    first_name = Path(files[0].filename or "序列帧").stem
+    return re.sub(r"[_ -]*\d+$", "", first_name).strip(" _-") or first_name
+
+
+def _cleanup_created_assets(repository: SQLiteGameKnifeRepository, context: RequestContext, assets: list[AssetRecord]) -> None:
+    repository.delete_assets_for_workspace([asset.id for asset in assets], context.workspace.id)
+    for asset in assets:
+        context.storage.remove_asset_file(asset.path)
 
 
 def _job_response(job: JobRecord, context: RequestContext, repository: SQLiteGameKnifeRepository) -> JobResponse:

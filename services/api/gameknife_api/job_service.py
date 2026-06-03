@@ -8,10 +8,11 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
-from gameknife_processors import AssetBoardSplitProcessor, UpscaleProcessor
+from gameknife_processors import AssetBoardSplitProcessor, SequenceFrameProcessor, UpscaleProcessor
 
 upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
+sequence_processor = SequenceFrameProcessor()
 
 
 def create_job(
@@ -132,6 +133,80 @@ def run_asset_board_export_job(repository: SQLiteGameKnifeRepository, context: R
         _mark_failed(repository, context, job_id, str(exc))
 
 
+def run_sequence_clean_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if job is None:
+        return
+    if sequence is None:
+        _mark_failed(repository, context, job_id, "序列帧不存在。")
+        return
+
+    frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
+    if not frames:
+        _mark_failed(repository, context, job_id, "序列帧没有可用帧。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    repository.update_sequence(sequence_id, context.workspace.id, status="cleaning", updated_at=_now())
+    old_processed_ids = repository.list_sequence_processed_asset_ids(sequence_id, context.workspace.id)
+    old_records = repository.list_assets_by_ids_for_workspace(old_processed_ids, context.workspace.id)
+    try:
+        parameters = {**json.loads(sequence["clean_parameters_json"]), **json.loads(job.parameters_json)}
+        result, outputs = sequence_processor.clean_frames(
+            _sequence_mapping(sequence),
+            _frame_mappings(context, frames),
+            context.storage.root / "outputs" / job_id / "sequence_frames",
+            parameters,
+        )
+        for output in outputs:
+            output_assets = _register_output_assets(repository, context, [output.output_path], "sequence_frame_processed", "image/png")
+            repository.update_sequence_frame_processed_asset(output.frame_id, sequence_id, output_assets[0]["id"], updated_at=_now())
+
+        repository.delete_assets_for_workspace([asset.id for asset in old_records], context.workspace.id)
+        for asset in old_records:
+            context.storage.remove_asset_file(asset.path)
+
+        canvas_size = result.result.get("canvas_size", [sequence["canvas_width"], sequence["canvas_height"]])
+        repository.update_sequence(
+            sequence_id,
+            context.workspace.id,
+            canvas_width=int(canvas_size[0]),
+            canvas_height=int(canvas_size[1]),
+            clean_parameters=parameters,
+            status="ready",
+            updated_at=_now(),
+        )
+        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": []})
+    except Exception as exc:  # noqa: BLE001
+        repository.update_sequence(sequence_id, context.workspace.id, status="ready", updated_at=_now())
+        _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_sequence_export_frames_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
+    _run_sequence_export_job(
+        repository,
+        context,
+        job_id,
+        sequence_id,
+        output_suffix="_frames.zip",
+        output_kind="sequence_export",
+        processor=lambda sequence, frames, output_path, parameters: sequence_processor.export_frames_zip(sequence, frames, output_path, parameters),
+    )
+
+
+def run_sequence_export_spine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
+    _run_sequence_export_job(
+        repository,
+        context,
+        job_id,
+        sequence_id,
+        output_suffix="_spine.zip",
+        output_kind="sequence_spine",
+        processor=lambda sequence, frames, output_path, parameters: sequence_processor.export_spine_zip(sequence, frames, output_path, parameters),
+    )
+
+
 def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> bool:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
@@ -147,6 +222,43 @@ def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, j
     for asset in asset_records:
         context.storage.remove_asset_file(asset.path)
     return True
+
+
+def _run_sequence_export_job(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    sequence_id: str,
+    *,
+    output_suffix: str,
+    output_kind: str,
+    processor: Callable[[dict[str, Any], list[dict[str, Any]], Path, dict[str, Any]], ProcessResult],
+) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    if job is None:
+        return
+    if sequence is None:
+        _mark_failed(repository, context, job_id, "序列帧不存在。")
+        return
+    frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
+    if not frames:
+        _mark_failed(repository, context, job_id, "序列帧没有可导出的帧。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    try:
+        output_path = _output_path(context, job_id, f"{_safe_name(str(sequence['name']))}{output_suffix}")
+        result = processor(
+            _sequence_mapping(sequence),
+            _frame_mappings(context, frames),
+            output_path,
+            json.loads(job.parameters_json),
+        )
+        output_assets = _register_output_assets(repository, context, result.output_paths, output_kind, "application/zip")
+        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(repository, context, job_id, str(exc))
 
 
 def _run_image_output_job(
@@ -265,6 +377,53 @@ def _collect_result_asset_ids(result: dict[str, Any]) -> list[str]:
         if isinstance(component, dict):
             append_asset_id(component.get("preview_asset_id"))
     return asset_ids
+
+
+def _sequence_mapping(sequence: Any) -> dict[str, Any]:
+    return {
+        "id": sequence["id"],
+        "name": sequence["name"],
+        "fps": sequence["fps"],
+        "loop": sequence["loop"],
+        "canvas_width": sequence["canvas_width"],
+        "canvas_height": sequence["canvas_height"],
+        "anchor_mode": sequence["anchor_mode"],
+        "anchor_x": sequence["anchor_x"],
+        "anchor_y": sequence["anchor_y"],
+    }
+
+
+def _frame_mappings(context: RequestContext, frames: list[Any]) -> list[dict[str, Any]]:
+    mapped: list[dict[str, Any]] = []
+    for frame in frames:
+        source_path = context.storage.resolve_asset_path(frame["source_path"])
+        processed_path = context.storage.resolve_asset_path(frame["processed_path"]) if frame["processed_path"] else None
+        mapped.append(
+            {
+                "id": frame["id"],
+                "sequence_id": frame["sequence_id"],
+                "source_asset_id": frame["source_asset_id"],
+                "processed_asset_id": frame["processed_asset_id"],
+                "frame_index": int(frame["frame_index"]),
+                "original_name": frame["original_name"],
+                "width": int(frame["width"]),
+                "height": int(frame["height"]),
+                "bbox_json": frame["bbox_json"],
+                "offset_x": int(frame["offset_x"]),
+                "offset_y": int(frame["offset_y"]),
+                "duration_ms": int(frame["duration_ms"]),
+                "enabled": bool(frame["enabled"]),
+                "is_generated": bool(frame["is_generated"]),
+                "source_path": str(source_path),
+                "processed_path": str(processed_path) if processed_path else None,
+            }
+        )
+    return mapped
+
+
+def _safe_name(value: str) -> str:
+    name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.strip())
+    return name or "sequence"
 
 
 def _now() -> str:

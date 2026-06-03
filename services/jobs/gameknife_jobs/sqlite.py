@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord
 
@@ -354,6 +356,250 @@ class SQLiteGameKnifeRepository:
     def delete_job_for_workspace(self, job_id: str, workspace_id: str) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM jobs WHERE id = ? AND workspace_id = ?", (job_id, workspace_id))
+
+    def create_sequence_with_frames(
+        self,
+        *,
+        workspace_id: str,
+        created_by: str,
+        name: str,
+        fps: int,
+        loop: bool,
+        clean_parameters: dict[str, Any],
+        frames: list[dict[str, Any]],
+        created_at: str,
+    ) -> sqlite3.Row:
+        sequence_id = uuid4().hex
+        canvas_width = max((int(frame["width"]) for frame in frames), default=0)
+        canvas_height = max((int(frame["height"]) for frame in frames), default=0)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO sequences (
+                    id, workspace_id, created_by, name, fps, loop, canvas_width, canvas_height,
+                    anchor_mode, anchor_x, anchor_y, clean_parameters_json,
+                    status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bottom_center', 0.5, 1.0, ?, 'ready', ?, ?)
+                """,
+                (
+                    sequence_id,
+                    workspace_id,
+                    created_by,
+                    name,
+                    fps,
+                    1 if loop else 0,
+                    canvas_width,
+                    canvas_height,
+                    json.dumps(clean_parameters, ensure_ascii=False),
+                    created_at,
+                    created_at,
+                ),
+            )
+            for index, frame in enumerate(frames):
+                connection.execute(
+                    """
+                    INSERT INTO sequence_frames (
+                        id, sequence_id, source_asset_id, frame_index, original_name,
+                        width, height, bbox_json, duration_ms, enabled, is_generated, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid4().hex,
+                        sequence_id,
+                        frame["source_asset_id"],
+                        index,
+                        frame["original_name"],
+                        int(frame["width"]),
+                        int(frame["height"]),
+                        json.dumps(frame["bbox"], ensure_ascii=False),
+                        int(frame.get("duration_ms", 0)),
+                        1 if frame.get("enabled", True) else 0,
+                        1 if frame.get("is_generated", False) else 0,
+                        created_at,
+                        created_at,
+                    ),
+                )
+        sequence = self.get_sequence_for_workspace(sequence_id, workspace_id)
+        if sequence is None:
+            raise RuntimeError("序列帧创建失败。")
+        return sequence
+
+    def list_sequences_for_workspace(self, workspace_id: str) -> list[sqlite3.Row]:
+        with self._connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT s.*,
+                        COUNT(f.id) AS frame_count,
+                        COALESCE(SUM(CASE WHEN f.enabled = 1 THEN 1 ELSE 0 END), 0) AS enabled_frame_count
+                    FROM sequences s
+                    LEFT JOIN sequence_frames f ON f.sequence_id = s.id
+                    WHERE s.workspace_id = ?
+                    GROUP BY s.id
+                    ORDER BY s.updated_at DESC
+                    """,
+                    (workspace_id,),
+                ).fetchall()
+            )
+
+    def get_sequence_for_workspace(self, sequence_id: str, workspace_id: str) -> sqlite3.Row | None:
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT s.*,
+                    COUNT(f.id) AS frame_count,
+                    COALESCE(SUM(CASE WHEN f.enabled = 1 THEN 1 ELSE 0 END), 0) AS enabled_frame_count
+                FROM sequences s
+                LEFT JOIN sequence_frames f ON f.sequence_id = s.id
+                WHERE s.id = ? AND s.workspace_id = ?
+                GROUP BY s.id
+                """,
+                (sequence_id, workspace_id),
+            ).fetchone()
+
+    def list_sequence_frames(self, sequence_id: str, workspace_id: str, *, enabled_only: bool = False) -> list[sqlite3.Row]:
+        where_enabled = "AND f.enabled = 1" if enabled_only else ""
+        with self._connect() as connection:
+            return list(
+                connection.execute(
+                    f"""
+                    SELECT f.*, sa.path AS source_path, sa.mime_type AS source_mime_type,
+                        pa.path AS processed_path, pa.mime_type AS processed_mime_type
+                    FROM sequence_frames f
+                    JOIN sequences s ON s.id = f.sequence_id
+                    JOIN assets sa ON sa.id = f.source_asset_id
+                    LEFT JOIN assets pa ON pa.id = f.processed_asset_id
+                    WHERE f.sequence_id = ? AND s.workspace_id = ? {where_enabled}
+                    ORDER BY f.frame_index ASC, f.created_at ASC
+                    """,
+                    (sequence_id, workspace_id),
+                ).fetchall()
+            )
+
+    def update_sequence(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+        *,
+        name: str | None = None,
+        fps: int | None = None,
+        loop: bool | None = None,
+        canvas_width: int | None = None,
+        canvas_height: int | None = None,
+        anchor_mode: str | None = None,
+        anchor_x: float | None = None,
+        anchor_y: float | None = None,
+        clean_parameters: dict[str, Any] | None = None,
+        status: str | None = None,
+        updated_at: str,
+    ) -> sqlite3.Row | None:
+        current = self.get_sequence_for_workspace(sequence_id, workspace_id)
+        if current is None:
+            return None
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE sequences
+                SET name = COALESCE(?, name),
+                    fps = COALESCE(?, fps),
+                    loop = COALESCE(?, loop),
+                    canvas_width = COALESCE(?, canvas_width),
+                    canvas_height = COALESCE(?, canvas_height),
+                    anchor_mode = COALESCE(?, anchor_mode),
+                    anchor_x = COALESCE(?, anchor_x),
+                    anchor_y = COALESCE(?, anchor_y),
+                    clean_parameters_json = COALESCE(?, clean_parameters_json),
+                    status = COALESCE(?, status),
+                    updated_at = ?
+                WHERE id = ? AND workspace_id = ?
+                """,
+                (
+                    name,
+                    fps,
+                    None if loop is None else 1 if loop else 0,
+                    canvas_width,
+                    canvas_height,
+                    anchor_mode,
+                    anchor_x,
+                    anchor_y,
+                    None if clean_parameters is None else json.dumps(clean_parameters, ensure_ascii=False),
+                    status,
+                    updated_at,
+                    sequence_id,
+                    workspace_id,
+                ),
+            )
+        return self.get_sequence_for_workspace(sequence_id, workspace_id)
+
+    def update_sequence_frames(self, sequence_id: str, workspace_id: str, frames: list[dict[str, Any]], *, updated_at: str) -> None:
+        with self._connect() as connection:
+            for frame in frames:
+                connection.execute(
+                    """
+                    UPDATE sequence_frames
+                    SET frame_index = COALESCE(?, frame_index),
+                        offset_x = COALESCE(?, offset_x),
+                        offset_y = COALESCE(?, offset_y),
+                        duration_ms = COALESCE(?, duration_ms),
+                        enabled = COALESCE(?, enabled),
+                        updated_at = ?
+                    WHERE id = ?
+                    AND sequence_id = ?
+                    AND EXISTS (
+                        SELECT 1 FROM sequences
+                        WHERE sequences.id = sequence_frames.sequence_id
+                        AND sequences.workspace_id = ?
+                    )
+                    """,
+                    (
+                        frame.get("frame_index"),
+                        frame.get("offset_x"),
+                        frame.get("offset_y"),
+                        frame.get("duration_ms"),
+                        None if frame.get("enabled") is None else 1 if frame["enabled"] else 0,
+                        updated_at,
+                        frame["id"],
+                        sequence_id,
+                        workspace_id,
+                    ),
+                )
+            connection.execute(
+                "UPDATE sequences SET updated_at = ? WHERE id = ? AND workspace_id = ?",
+                (updated_at, sequence_id, workspace_id),
+            )
+
+    def update_sequence_frame_processed_asset(self, frame_id: str, sequence_id: str, processed_asset_id: str | None, *, updated_at: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE sequence_frames
+                SET processed_asset_id = ?, updated_at = ?
+                WHERE id = ? AND sequence_id = ?
+                """,
+                (processed_asset_id, updated_at, frame_id, sequence_id),
+            )
+
+    def collect_sequence_asset_ids(self, sequence_id: str, workspace_id: str) -> list[str]:
+        frames = self.list_sequence_frames(sequence_id, workspace_id)
+        asset_ids: list[str] = []
+        for frame in frames:
+            for key in ("source_asset_id", "processed_asset_id"):
+                value = frame[key]
+                if value and value not in asset_ids:
+                    asset_ids.append(value)
+        return asset_ids
+
+    def list_sequence_processed_asset_ids(self, sequence_id: str, workspace_id: str) -> list[str]:
+        frames = self.list_sequence_frames(sequence_id, workspace_id)
+        return [frame["processed_asset_id"] for frame in frames if frame["processed_asset_id"]]
+
+    def delete_sequence_for_workspace(self, sequence_id: str, workspace_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM sequences WHERE id = ? AND workspace_id = ?", (sequence_id, workspace_id))
+            return cursor.rowcount > 0
 
     def list_settings(self) -> dict[str, str]:
         with self._connect() as connection:

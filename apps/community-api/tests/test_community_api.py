@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from io import BytesIO
 from pathlib import Path
+import zipfile
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -34,6 +35,16 @@ def make_asset_board_png_bytes() -> bytes:
     for x in range(18, 26):
         for y in range(4, 12):
             image.putpixel((x, y), (0, 0, 255, 255))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def make_sequence_frame_bytes(color: tuple[int, int, int, int]) -> bytes:
+    image = Image.new("RGBA", (12, 12), (0, 0, 0, 0))
+    for x in range(3, 9):
+        for y in range(2, 10):
+            image.putpixel((x, y), color)
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -190,3 +201,69 @@ def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
     assert history.json()["total"] == 1
     assert deleted.status_code == 204
     assert deleted_asset.status_code == 404
+
+
+def test_sequence_import_sorts_frames_and_uses_assets(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/api/sequences/import",
+            data={"name": "walk", "fps": "12"},
+            files=[
+                ("files", ("walk_002.png", make_sequence_frame_bytes((0, 0, 255, 255)), "image/png")),
+                ("files", ("walk_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png")),
+            ],
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "walk"
+    assert data["frame_count"] == 2
+    assert [frame["original_name"] for frame in data["frames"]] == ["walk_001.png", "walk_002.png"]
+    assert data["frames"][0]["source_url"].startswith("/api/assets/")
+    assert "source_file_id" not in data["frames"][0]
+
+
+def test_sequence_clean_and_export_zip(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "idle", "fps": "8"},
+            files=[
+                ("files", ("idle_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png")),
+                ("files", ("idle_002.png", make_sequence_frame_bytes((0, 0, 255, 255)), "image/png")),
+            ],
+        ).json()
+        sequence_id = imported["id"]
+
+        clean_created = client.post(f"/api/sequences/{sequence_id}/clean", json={"parameters": {"canvas_padding": 2}})
+        clean_job = client.get(f"/api/jobs/{clean_created.json()['id']}").json()
+        cleaned_sequence = client.get(f"/api/sequences/{sequence_id}").json()
+        export_created = client.post(f"/api/sequences/{sequence_id}/export/frames", json={"parameters": {}})
+        export_job = client.get(f"/api/jobs/{export_created.json()['id']}").json()
+        archive_response = client.get(export_job["result"]["output_assets"][0]["url"])
+
+    assert clean_created.status_code == 200
+    assert clean_job["status"] == "success"
+    assert all(frame["processed_asset_id"] for frame in cleaned_sequence["frames"])
+    assert export_job["status"] == "success"
+    assert export_job["type"] == "sequence_export_frames"
+    with zipfile.ZipFile(BytesIO(archive_response.content)) as archive:
+        names = set(archive.namelist())
+    assert "manifest.json" in names
+    assert "spritesheet.png" in names
+
+
+def test_sequence_delete_removes_source_assets(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "delete-me", "fps": "12"},
+            files=[("files", ("frame_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        ).json()
+        sequence_id = imported["id"]
+        source_url = imported["frames"][0]["source_url"]
+        deleted = client.delete(f"/api/sequences/{sequence_id}")
+        source_after_delete = client.get(source_url)
+
+    assert deleted.status_code == 204
+    assert source_after_delete.status_code == 404

@@ -62,6 +62,76 @@ class SoundEffectRequest(BaseModel):
     cfg_scale: float = Field(default=7.0, ge=1, le=20)
 
 
+class SequenceFrameResponse(BaseModel):
+    id: str
+    sequence_id: str
+    source_asset_id: str
+    processed_asset_id: str | None = None
+    frame_index: int
+    original_name: str
+    width: int
+    height: int
+    bbox: list[int]
+    offset_x: int = 0
+    offset_y: int = 0
+    duration_ms: int = 0
+    enabled: bool = True
+    is_generated: bool = False
+    source_url: str
+    preview_url: str
+    created_at: str
+    updated_at: str
+
+
+class SequenceResponse(BaseModel):
+    id: str
+    name: str
+    fps: int
+    loop: bool
+    canvas_width: int
+    canvas_height: int
+    anchor_mode: str
+    anchor_x: float
+    anchor_y: float
+    clean_parameters: dict[str, Any]
+    status: str
+    frame_count: int
+    enabled_frame_count: int
+    frames: list[SequenceFrameResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+class SequenceUpdateRequest(BaseModel):
+    name: str | None = None
+    fps: int | None = Field(default=None, ge=1, le=60)
+    loop: bool | None = None
+    canvas_width: int | None = Field(default=None, ge=0, le=4096)
+    canvas_height: int | None = Field(default=None, ge=0, le=4096)
+    anchor_mode: str | None = None
+    anchor_x: float | None = Field(default=None, ge=0, le=1)
+    anchor_y: float | None = Field(default=None, ge=0, le=1)
+    clean_parameters: dict[str, Any] | None = None
+
+
+class SequenceFramePatch(BaseModel):
+    id: str
+    frame_index: int | None = Field(default=None, ge=0)
+    offset_x: int | None = Field(default=None, ge=-4096, le=4096)
+    offset_y: int | None = Field(default=None, ge=-4096, le=4096)
+    duration_ms: int | None = Field(default=None, ge=0, le=10000)
+    enabled: bool | None = None
+
+
+class SequenceFramesUpdateRequest(BaseModel):
+    frames: list[SequenceFramePatch]
+
+
+class SequenceTaskRequest(BaseModel):
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
 class PrincipalResponse(BaseModel):
     id: str
     kind: Literal["anonymous", "user"]
