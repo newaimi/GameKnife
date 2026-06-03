@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp*/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.env
+storage/
+*.sqlite3
+*.log

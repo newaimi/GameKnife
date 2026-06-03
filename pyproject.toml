@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gameknife"
+version = "0.1.0"
+description = "GameKnife Community open core backend packages"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "python-multipart",
+  "pillow",
+  "pydantic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["apps/community-api/tests", "services-extra/stable-audio-sfx/tests"]
+pythonpath = [
+  "apps/community-api",
+  "services/core",
+  "services/jobs",
+  "services/storage",
+  "services/api",
+  "services/processors",
+  "services/workflows",
+  "services-extra/stable-audio-sfx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "apps/community-api/community_api",
+  "services/core/gameknife_core",
+  "services/jobs/gameknife_jobs",
+  "services/storage/gameknife_storage",
+  "services/api/gameknife_api",
+  "services/processors/gameknife_processors",
+  "services/workflows/gameknife_workflows",
+]

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gameknife-stable-audio-sfx"
+version = "0.1.0"
+description = "GameKnife Stable Audio sound effect service"
+requires-python = ">=3.11"
+dependencies = ["fastapi", "uvicorn[standard]"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

@@ -1,0 +1,15 @@
+{
+  "name": "gameknife",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/community-web"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/community-web run dev",
+    "build": "npm --workspaces --if-present run build",
+    "typecheck": "npm --workspaces --if-present run typecheck"
+  }
+}

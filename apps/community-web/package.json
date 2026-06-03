@@ -1,0 +1,29 @@
+{
+  "name": "@gameknife/community-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@gameknife/api-client": "file:../../packages/api-client",
+    "@gameknife/app-context": "file:../../packages/app-context",
+    "@gameknife/image-workflows": "file:../../packages/image-workflows",
+    "@gameknife/shared-types": "file:../../packages/shared-types",
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-router-dom": "^7.15.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3"
+  }
+}

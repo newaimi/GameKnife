@@ -1,0 +1,16 @@
+services:
+  gameknife-community:
+    image: gameknife-community:dev
+    build:
+      context: ..
+      dockerfile: docker/community.Dockerfile
+    environment:
+      GAMEKNIFE_STORAGE_ROOT: /app/storage
+      GAMEKNIFE_SQLITE_PATH: /app/storage/gameknife.sqlite3
+    ports:
+      - "8000:8000"
+    volumes:
+      - gameknife-storage:/app/storage
+
+volumes:
+  gameknife-storage:
