@@ -13,6 +13,8 @@ dependencies = [
   "python-multipart",
   "pillow",
   "pydantic",
+  "numpy",
+  "opencv-python-headless",
 ]
 
 [project.optional-dependencies]

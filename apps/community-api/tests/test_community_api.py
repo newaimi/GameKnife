@@ -26,6 +26,19 @@ def make_png_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def make_asset_board_png_bytes() -> bytes:
+    image = Image.new("RGBA", (32, 16), (0, 0, 0, 0))
+    for x in range(2, 8):
+        for y in range(2, 8):
+            image.putpixel((x, y), (255, 0, 0, 255))
+    for x in range(18, 26):
+        for y in range(4, 12):
+            image.putpixel((x, y), (0, 0, 255, 255))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/context")
@@ -93,3 +106,87 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["edition"] == "community"
+
+
+def test_pixel_upscale_job_creates_output_asset(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        asset_id = upload.json()["id"]
+
+        created = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": asset_id, "parameters": {"style": "pixel", "scale": 2}},
+        )
+        job_id = created.json()["id"]
+        job = client.get(f"/api/jobs/{job_id}").json()
+
+        assert created.status_code == 200
+        assert job["status"] == "success"
+        assert job["result"]["output_size"] == [4, 4]
+        assert "output_files" not in job["result"]
+        output_asset = job["result"]["output_assets"][0]
+        output = client.get(output_asset["url"])
+
+    assert output.status_code == 200
+    assert Image.open(BytesIO(output.content)).size == (4, 4)
+
+
+def test_non_pixel_upscale_requires_installed_model(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        response = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"style": "general", "scale": 4}},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "图片放大模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_asset_board_region_job_does_not_create_output_assets(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/regions",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"min_component_area": 4, "alpha_threshold": 16}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "asset_board_region_detect"
+    assert job["result"]["component_count"] == 2
+    assert "output_assets" not in job["result"]
+
+
+def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"style": "pixel", "scale": 2}},
+        )
+        job_id = created.json()["id"]
+        job = client.get(f"/api/jobs/{job_id}").json()
+        output_url = job["result"]["output_assets"][0]["url"]
+
+        history = client.get("/api/jobs/history", params={"category": "upscale", "downloadable": "true"})
+        deleted = client.delete(f"/api/jobs/{job_id}")
+        deleted_asset = client.get(output_url)
+
+    assert history.status_code == 200
+    assert history.json()["total"] == 1
+    assert deleted.status_code == 204
+    assert deleted_asset.status_code == 404

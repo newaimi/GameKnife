@@ -1,6 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(slots=True)
+class ComponentCandidate:
+    id: int
+    bbox: tuple[int, int, int, int]
+    area: int
+    selected: bool = True
+
+
+@dataclass(slots=True)
+class ProcessResult:
+    output_paths: list[Path] = field(default_factory=list)
+    result: dict[str, Any] = field(default_factory=dict)
+    duration_ms: int = 0
+    device: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

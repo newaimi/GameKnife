@@ -189,6 +189,34 @@ class SQLiteGameKnifeRepository:
             ).fetchall()
         return [_asset_from_row(row) for row in rows]
 
+    def list_assets_by_ids_for_workspace(self, asset_ids: list[str], workspace_id: str) -> list[AssetRecord]:
+        if not asset_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in asset_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, workspace_id, created_by, kind, original_name, path,
+                       mime_type, size_bytes, created_at, updated_at
+                FROM assets
+                WHERE workspace_id = ? AND id IN ({placeholders})
+                """,
+                (workspace_id, *asset_ids),
+            ).fetchall()
+        return [_asset_from_row(row) for row in rows]
+
+    def delete_assets_for_workspace(self, asset_ids: list[str], workspace_id: str) -> None:
+        if not asset_ids:
+            return
+
+        placeholders = ",".join("?" for _ in asset_ids)
+        with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM assets WHERE workspace_id = ? AND id IN ({placeholders})",
+                (workspace_id, *asset_ids),
+            )
+
     def create_job(self, job: JobRecord) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -217,6 +245,116 @@ class SQLiteGameKnifeRepository:
                 ),
             )
 
+    def update_job(
+        self,
+        job_id: str,
+        workspace_id: str,
+        *,
+        status: str | None = None,
+        result_json: str | None = None,
+        device: str | None = None,
+        duration_ms: int | None = None,
+        error_message: str | None = None,
+        updated_at: str,
+    ) -> None:
+        assignments = ["updated_at = ?"]
+        values: list[Any] = [updated_at]
+        if status is not None:
+            assignments.append("status = ?")
+            values.append(status)
+        if result_json is not None:
+            assignments.append("result_json = ?")
+            values.append(result_json)
+        if device is not None:
+            assignments.append("device = ?")
+            values.append(device)
+        if duration_ms is not None:
+            assignments.append("duration_ms = ?")
+            values.append(duration_ms)
+        if error_message is not None:
+            assignments.append("error_message = ?")
+            values.append(error_message)
+        elif status in {"running", "success"}:
+            assignments.append("error_message = NULL")
+
+        values.extend([job_id, workspace_id])
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE jobs SET {', '.join(assignments)} WHERE id = ? AND workspace_id = ?",
+                values,
+            )
+
+    def get_job_for_workspace(self, job_id: str, workspace_id: str) -> JobRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, workspace_id, created_by, job_type, status, input_asset_id,
+                       parameters_json, result_json, device, duration_ms, error_message,
+                       created_at, updated_at
+                FROM jobs
+                WHERE id = ? AND workspace_id = ?
+                """,
+                (job_id, workspace_id),
+            ).fetchone()
+        return _job_from_row(row) if row else None
+
+    def list_jobs_for_workspace(self, workspace_id: str) -> list[JobRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, workspace_id, created_by, job_type, status, input_asset_id,
+                       parameters_json, result_json, device, duration_ms, error_message,
+                       created_at, updated_at
+                FROM jobs
+                WHERE workspace_id = ?
+                ORDER BY created_at DESC
+                """,
+                (workspace_id,),
+            ).fetchall()
+        return [_job_from_row(row) for row in rows]
+
+    def list_job_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        limit: int,
+        offset: int,
+        job_types: list[str] | None = None,
+        status: str | None = None,
+    ) -> list[JobRecord]:
+        where, values = _job_page_filter(workspace_id, job_types, status)
+        values.extend([limit, offset])
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, workspace_id, created_by, job_type, status, input_asset_id,
+                       parameters_json, result_json, device, duration_ms, error_message,
+                       created_at, updated_at
+                FROM jobs
+                WHERE {where}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                values,
+            ).fetchall()
+        return [_job_from_row(row) for row in rows]
+
+    def count_job_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        job_types: list[str] | None = None,
+        status: str | None = None,
+    ) -> int:
+        where, values = _job_page_filter(workspace_id, job_types, status)
+        with self._connect() as connection:
+            row = connection.execute(f"SELECT COUNT(*) AS total FROM jobs WHERE {where}", values).fetchone()
+        return int(row["total"] if row else 0)
+
+    def delete_job_for_workspace(self, job_id: str, workspace_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM jobs WHERE id = ? AND workspace_id = ?", (job_id, workspace_id))
+
     def list_settings(self) -> dict[str, str]:
         with self._connect() as connection:
             rows = connection.execute("SELECT key, value FROM system_settings ORDER BY key").fetchall()
@@ -238,3 +376,23 @@ class SQLiteGameKnifeRepository:
 def _asset_from_row(row: sqlite3.Row) -> AssetRecord:
     data: dict[str, Any] = dict(row)
     return AssetRecord(**data)
+
+
+def _job_from_row(row: sqlite3.Row) -> JobRecord:
+    data: dict[str, Any] = dict(row)
+    return JobRecord(**data)
+
+
+def _job_page_filter(workspace_id: str, job_types: list[str] | None, status: str | None) -> tuple[str, list[Any]]:
+    where = ["workspace_id = ?"]
+    values: list[Any] = [workspace_id]
+    if job_types is not None:
+        if not job_types:
+            return "1 = 0", []
+        placeholders = ",".join("?" for _ in job_types)
+        where.append(f"job_type IN ({placeholders})")
+        values.extend(job_types)
+    if status is not None:
+        where.append("status = ?")
+        values.append(status)
+    return " AND ".join(where), values
