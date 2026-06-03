@@ -96,13 +96,15 @@ a {
 }
 
 .workflow-page,
-.page-panel {
+.page-panel,
+.manual-edit-page {
   display: grid;
   gap: 16px;
 }
 
 .workflow-page h1,
-.page-panel h1 {
+.page-panel h1,
+.manual-edit-page h1 {
   margin: 0;
   font-size: 24px;
 }
@@ -250,6 +252,41 @@ a {
   gap: 8px;
 }
 
+.segmented-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.secondary-button.is-active {
+  border-color: #176b87;
+  color: #176b87;
+  background: #e8f4f7;
+}
+
+.manual-edit-shell {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(320px, 1fr) minmax(200px, 260px);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.manual-edit-stage {
+  min-width: 0;
+}
+
+.manual-edit-canvas {
+  max-width: 100%;
+  max-height: 520px;
+  image-rendering: pixelated;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.manual-edit-canvas.is-empty {
+  display: none;
+}
+
 .mini-list a,
 .mini-list button,
 .mini-list span {
@@ -332,6 +369,7 @@ a {
   }
 
   .workflow-grid,
+  .manual-edit-shell,
   .job-card,
   .settings-grid {
     grid-template-columns: 1fr;

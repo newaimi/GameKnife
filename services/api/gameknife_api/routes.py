@@ -70,6 +70,11 @@ ALLOWED_SEQUENCE_TYPES = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+ALLOWED_MANUAL_EDIT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
 DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "alpha_threshold": 24,
     "alpha_smoothing": 0,
@@ -611,6 +616,50 @@ def get_asset(
     return FileResponse(file_path, media_type=asset.mime_type, filename=asset.original_name)
 
 
+@router.post("/manual-edits/save", response_model=AssetResponse)
+async def save_manual_edit_asset(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    source_asset_id: str | None = Form(None),
+    source_context: str | None = Form(None),
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> AssetResponse:
+    if source_asset_id:
+        _ensure_asset_exists(repository, context, source_asset_id)
+    if file.content_type not in ALLOWED_MANUAL_EDIT_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 图片。")
+
+    content = await file.read()
+    _verify_image(content)
+
+    suffix = ALLOWED_MANUAL_EDIT_TYPES[file.content_type]
+    filename = _manual_edit_name(name, file.filename, "manual-edit", suffix)
+    asset_id = uuid4().hex
+    now = _now()
+    relative_path = context.storage.write_asset(asset_id, filename, content)
+    asset = AssetRecord(
+        id=asset_id,
+        workspace_id=context.workspace.id,
+        created_by=context.principal.id,
+        kind="manual_edit",
+        original_name=filename,
+        path=relative_path,
+        mime_type=file.content_type,
+        size_bytes=len(content),
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        repository.create_asset(asset)
+    except Exception:
+        # 手动编辑保存必须生成新 asset。数据库写入失败时清理刚写入的文件，
+        # 避免用户下次打开任务历史时遇到没有记录可追踪的编辑结果。
+        context.storage.remove_asset_file(relative_path)
+        raise
+    return _asset_response(asset)
+
+
 def _verify_image(content: bytes) -> None:
     if not content:
         raise HTTPException(status_code=400, detail="上传文件不能为空。")
@@ -618,6 +667,13 @@ def _verify_image(content: bytes) -> None:
         Image.open(BytesIO(content)).verify()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=400, detail="上传文件不是有效图片。") from exc
+
+
+def _manual_edit_name(name: str | None, filename: str | None, fallback: str, suffix: str) -> str:
+    raw_name = Path(name or filename or fallback).name.strip() or fallback
+    if Path(raw_name).suffix:
+        return raw_name
+    return f"{raw_name}{suffix}"
 
 
 def _asset_response(asset: AssetRecord) -> AssetResponse:

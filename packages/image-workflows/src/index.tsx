@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Download, Image as ImageIcon, Play, RefreshCw, Trash2, UploadCloud, Volume2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { Brush, Download, Eraser, Image as ImageIcon, Play, RefreshCw, Save, Trash2, UploadCloud, Volume2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
+import { createManualEditDocument, drawBlobToCanvas, drawBrushStroke, exportCanvasAsPngBlob, readCanvasPoint, type BrushMode, type EditorDocument } from "@gameknife/editor-core";
 import type { AssetResponse, JobResponse, OutputAssetRef, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 
@@ -311,6 +312,132 @@ export function SoundEffectWorkspace() {
   );
 }
 
+export function ManualEditWorkspace() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const [sourceAsset, setSourceAsset] = useState<AssetResponse | null>(null);
+  const [savedAsset, setSavedAsset] = useState<AssetResponse | null>(null);
+  const [document, setDocument] = useState<EditorDocument | null>(null);
+  const [mode, setMode] = useState<BrushMode>("paint");
+  const [brushSize, setBrushSize] = useState(12);
+  const [brushColor, setBrushColor] = useState("#ff365f");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError("");
+    setSavedAsset(null);
+    try {
+      const uploaded = await gameKnifeApiClient.uploadImage(file);
+      const blob = await gameKnifeApiClient.requestBlob(uploaded.url);
+      const canvas = requireManualEditCanvas(canvasRef.current);
+      const size = await drawBlobToCanvas(canvas, blob);
+      setSourceAsset(uploaded);
+      setDocument(createManualEditDocument(uploaded.id, uploaded.filename, size, uploaded.id));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!document) {
+      return;
+    }
+    const canvas = requireManualEditCanvas(canvasRef.current);
+    drawBrushStroke(canvas, readCanvasPoint(canvas, event.clientX, event.clientY), {
+      mode,
+      size: brushSize,
+      color: brushColor,
+    });
+  }
+
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    drawingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    draw(event);
+  }
+
+  function moveDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    if (drawingRef.current) {
+      draw(event);
+    }
+  }
+
+  function stopDrawing() {
+    drawingRef.current = false;
+  }
+
+  async function save() {
+    if (!document || !sourceAsset) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const canvas = requireManualEditCanvas(canvasRef.current);
+      const blob = await exportCanvasAsPngBlob(canvas);
+      const filename = manualEditFilename(document.name);
+      const file = new File([blob], filename, { type: "image/png" });
+      setSavedAsset(await gameKnifeApiClient.saveManualEditAsset(file, filename, sourceAsset.id, "manual-edit"));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="manual-edit-page">
+      <h1>手动编辑</h1>
+      <div className="manual-edit-shell">
+        <aside className="tool-panel">
+          <ImageUploadBox onFile={upload} />
+          <div className="segmented-controls">
+            <button className={`secondary-button ${mode === "paint" ? "is-active" : ""}`} onClick={() => setMode("paint")} type="button">
+              <Brush size={18} />
+              画笔
+            </button>
+            <button className={`secondary-button ${mode === "erase" ? "is-active" : ""}`} onClick={() => setMode("erase")} type="button">
+              <Eraser size={18} />
+              橡皮
+            </button>
+          </div>
+          <NumberField label="笔刷" value={brushSize} min={1} max={96} step={1} onChange={setBrushSize} />
+          <label className="field-label">
+            颜色
+            <input value={brushColor} onChange={(event) => setBrushColor(event.target.value)} type="color" />
+          </label>
+        </aside>
+        <section className="manual-edit-stage">
+          <WorkbenchPreview emptyLabel="暂无素材">
+            {document ? null : <span>暂无素材</span>}
+            <canvas
+              className={`manual-edit-canvas ${document ? "" : "is-empty"}`}
+              onPointerCancel={stopDrawing}
+              onPointerDown={startDrawing}
+              onPointerLeave={stopDrawing}
+              onPointerMove={moveDrawing}
+              onPointerUp={stopDrawing}
+              ref={canvasRef}
+            />
+          </WorkbenchPreview>
+        </section>
+        <aside className="tool-panel">
+          <button className="primary-button" disabled={!document || busy} onClick={save} type="button">
+            <Save size={18} />
+            保存
+          </button>
+          <StatusLine error={error} job={null} />
+          <AssetSaveResult asset={savedAsset} />
+        </aside>
+      </div>
+    </section>
+  );
+}
+
 export function CommunityJobsPage() {
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [error, setError] = useState("");
@@ -489,6 +616,21 @@ function JobResult({ job }: { job: JobResponse | null }) {
   );
 }
 
+function AssetSaveResult({ asset }: { asset: AssetResponse | null }) {
+  if (!asset) {
+    return null;
+  }
+  return (
+    <div className="job-result">
+      <span>{asset.filename}</span>
+      <button className="secondary-button" onClick={() => downloadAsset({ id: asset.id, url: asset.url })} type="button">
+        <Download size={18} />
+        下载
+      </button>
+    </div>
+  );
+}
+
 function StatusLine({ error, job }: { error: string; job: JobResponse | null }) {
   if (error) {
     return <p className="error-text">{error}</p>;
@@ -543,6 +685,18 @@ function readOutputAssets(job: JobResponse | null): OutputAssetRef[] {
     return [];
   }
   return value.filter((item): item is OutputAssetRef => Boolean(item && typeof item === "object" && "id" in item && "url" in item));
+}
+
+function requireManualEditCanvas(canvas: HTMLCanvasElement | null) {
+  if (!canvas) {
+    throw new Error("手动编辑画布尚未准备好。");
+  }
+  return canvas;
+}
+
+function manualEditFilename(name: string) {
+  const cleanName = name.trim() || "manual-edit";
+  return `${cleanName.replace(/\.[^.]+$/, "")}.png`;
 }
 
 async function downloadAsset(asset: OutputAssetRef) {

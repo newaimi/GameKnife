@@ -37,6 +37,24 @@ export class GameKnifeApiClient {
     });
   }
 
+  async saveManualEditAsset(file: File, name?: string, sourceAssetId?: string, sourceContext?: string): Promise<AssetResponse> {
+    const form = new FormData();
+    form.append("file", file);
+    if (name) {
+      form.append("name", name);
+    }
+    if (sourceAssetId) {
+      form.append("source_asset_id", sourceAssetId);
+    }
+    if (sourceContext) {
+      form.append("source_context", sourceContext);
+    }
+    return this.requestJson<AssetResponse>("/api/manual-edits/save", {
+      method: "POST",
+      body: form,
+    });
+  }
+
   async listJobs(): Promise<JobResponse[]> {
     return this.requestJson<JobResponse[]>("/api/jobs");
   }

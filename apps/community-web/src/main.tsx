@@ -10,6 +10,7 @@ import {
   CommunityJobsPage,
   CommunitySettingsPage,
   CommunityToolHome,
+  ManualEditWorkspace,
   ModelRequiredWorkspace,
   SequenceWorkspace,
   SoundEffectWorkspace,
@@ -82,7 +83,7 @@ function App() {
               <Route path="/tools/video-to-sequence" element={<ModelRequiredWorkspace title="视频转帧" />} />
               <Route path="/tools/character-rig" element={<ModelRequiredWorkspace title="骨骼拆分" />} />
               <Route path="/tools/sound-effect" element={<SoundEffectWorkspace />} />
-              <Route path="/manual-edit" element={<ModelRequiredWorkspace title="手动编辑" />} />
+              <Route path="/manual-edit" element={<ManualEditWorkspace />} />
               <Route path="*" element={<CommunityToolHome />} />
             </Routes>
           </main>

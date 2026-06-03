@@ -27,6 +27,16 @@ def make_png_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def make_transparent_png_bytes() -> bytes:
+    image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    for x in range(2, 6):
+        for y in range(2, 6):
+            image.putpixel((x, y), (255, 0, 0, 255))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def make_asset_board_png_bytes() -> bytes:
     image = Image.new("RGBA", (32, 16), (0, 0, 0, 0))
     for x in range(2, 8):
@@ -125,6 +135,52 @@ def test_invalid_image_returns_chinese_error(tmp_path: Path) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "上传文件不是有效图片。"
+
+
+def test_manual_edit_save_creates_new_asset_and_preserves_alpha(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        source = client.post(
+            "/api/assets/images",
+            files={"file": ("source.png", make_png_bytes(), "image/png")},
+        ).json()
+        response = client.post(
+            "/api/manual-edits/save",
+            data={"name": "edited-zombie", "source_asset_id": source["id"], "source_context": "manual-edit"},
+            files={"file": ("edited.png", make_transparent_png_bytes(), "image/png")},
+        )
+        saved = response.json()
+        saved_file = client.get(saved["url"])
+
+    assert response.status_code == 200
+    assert saved["filename"] == "edited-zombie.png"
+    assert saved["mime_type"] == "image/png"
+    with Image.open(BytesIO(saved_file.content)) as image:
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0
+        assert image.getpixel((4, 4))[3] == 255
+    with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+        source_row = connection.execute("SELECT kind FROM assets WHERE id = ?", (source["id"],)).fetchone()
+        saved_row = connection.execute("SELECT workspace_id, created_by, kind FROM assets WHERE id = ?", (saved["id"],)).fetchone()
+    assert source_row == ("image",)
+    assert saved_row == ("local", "anonymous", "manual_edit")
+
+
+def test_manual_edit_save_rejects_invalid_image_and_missing_source(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        bad_file = client.post(
+            "/api/manual-edits/save",
+            files={"file": ("note.txt", b"not image", "text/plain")},
+        )
+        missing_source = client.post(
+            "/api/manual-edits/save",
+            data={"source_asset_id": "missing-source"},
+            files={"file": ("edited.png", make_transparent_png_bytes(), "image/png")},
+        )
+
+    assert bad_file.status_code == 400
+    assert bad_file.json()["detail"] == "只支持 JPG、PNG 和 WebP 图片。"
+    assert missing_source.status_code == 404
+    assert missing_source.json()["detail"] == "输入素材不存在。"
 
 
 def test_settings_are_readable_without_login(tmp_path: Path) -> None:
