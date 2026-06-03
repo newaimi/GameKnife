@@ -15,6 +15,16 @@ upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
 sequence_processor = SequenceFrameProcessor()
 character_rig_processor = CharacterRigProcessor()
+DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
+    "alpha_threshold": 24,
+    "alpha_smoothing": 0,
+    "trim_padding": 6,
+    "background_tolerance": 18,
+    "anchor_mode": "bottom_center",
+    "color_match": True,
+    "stabilize": False,
+    "stabilize_strength": 35,
+}
 
 
 def create_job(
@@ -251,6 +261,64 @@ def run_sequence_export_spine_job(repository: SQLiteGameKnifeRepository, context
         output_kind="sequence_spine",
         processor=lambda sequence, frames, output_path, parameters: sequence_processor.export_spine_zip(sequence, frames, output_path, parameters),
     )
+
+
+def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    if job is None:
+        return
+    video_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
+    if video_asset is None:
+        _mark_failed(repository, context, job_id, "视频素材不存在。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    frame_asset_ids: list[str] = []
+    try:
+        parameters = json.loads(job.parameters_json)
+        result, outputs = sequence_processor.extract_video_frames(
+            context.storage.resolve_asset_path(video_asset.path),
+            context.storage.root / "outputs" / job_id / "video_frames",
+            parameters,
+        )
+        frame_payloads: list[dict[str, Any]] = []
+        for output in outputs:
+            asset = _register_output_assets(repository, context, [output.output_path], "sequence_frame", "image/png")[0]
+            frame_asset_ids.append(asset["id"])
+            frame_payloads.append(
+                {
+                    "source_asset_id": asset["id"],
+                    "original_name": output.original_name,
+                    "width": output.width,
+                    "height": output.height,
+                    "bbox": output.bbox,
+                    "duration_ms": output.duration_ms,
+                    "enabled": True,
+                    "is_generated": False,
+                }
+            )
+        sequence = repository.create_sequence_with_frames(
+            workspace_id=context.workspace.id,
+            created_by=context.principal.id,
+            name=str(parameters.get("name") or Path(video_asset.original_name).stem or "video_sequence"),
+            fps=int(result.result["fps"]),
+            loop=True,
+            clean_parameters=DEFAULT_SEQUENCE_CLEAN_PARAMETERS,
+            frames=frame_payloads,
+            created_at=_now(),
+        )
+        final_result = {
+            **result.result,
+            "sequence_id": sequence["id"],
+            "video_asset_id": video_asset.id,
+        }
+        _mark_success(repository, context, job_id, result, final_result)
+    except Exception as exc:  # noqa: BLE001
+        frame_assets = repository.list_assets_by_ids_for_workspace(frame_asset_ids, context.workspace.id)
+        repository.delete_assets_for_workspace([asset.id for asset in frame_assets], context.workspace.id)
+        for asset in frame_assets:
+            context.storage.remove_asset_file(asset.path)
+        _mark_failed(repository, context, job_id, str(exc))
 
 
 def run_character_rig_analyze_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:

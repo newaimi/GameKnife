@@ -25,6 +25,7 @@ from gameknife_api.job_service import (
     run_sequence_clean_job,
     run_sequence_export_frames_job,
     run_sequence_export_spine_job,
+    run_sequence_from_video_job,
     run_sound_effect_job,
     run_upscale_job,
 )
@@ -48,6 +49,7 @@ from gameknife_api.schemas import (
     SequenceUpdateRequest,
     SettingsResponse,
     SoundEffectRequest,
+    VideoToSequenceRequest,
 )
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
@@ -488,8 +490,36 @@ def create_sequence_generate_video_task() -> JobResponse:
 
 
 @router.post("/sequences/from-video", response_model=JobResponse)
-def create_sequence_from_video_task() -> JobResponse:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+def create_sequence_from_video_task(
+    payload: VideoToSequenceRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
+    if not video_asset.mime_type.startswith("video/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是视频。")
+    if payload.remove_background:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+    parameters = {
+        **payload.parameters,
+        "name": (payload.name or Path(video_asset.original_name).stem or "video_sequence").strip(),
+        "fps": payload.fps,
+        "max_frames": payload.max_frames,
+        "start_second": payload.start_second,
+        "duration_seconds": payload.duration_seconds,
+        "remove_background": payload.remove_background,
+    }
+    job = create_job(
+        repository,
+        context,
+        job_type="sequence_video_to_frames",
+        input_asset_id=video_asset.id,
+        parameters=parameters,
+    )
+    background_tasks.add_task(run_sequence_from_video_job, repository, context, job.id)
+    return _job_response(job, context, repository)
 
 
 @router.post("/sequences/{sequence_id}/export/frames", response_model=JobResponse)

@@ -132,6 +132,17 @@ class SequenceTaskRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class VideoToSequenceRequest(BaseModel):
+    video_asset_id: str
+    name: str | None = None
+    fps: int = Field(default=12, ge=1, le=60)
+    max_frames: int = Field(default=48, ge=1, le=300)
+    start_second: float = Field(default=0, ge=0)
+    duration_seconds: float | None = Field(default=None, ge=0.1, le=3600)
+    remove_background: bool = False
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
 class CharacterPartResponse(BaseModel):
     id: str
     rig_id: str

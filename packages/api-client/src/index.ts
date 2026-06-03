@@ -171,6 +171,32 @@ export class GameKnifeApiClient {
     });
   }
 
+  async createSequenceFromVideoJob(payload: {
+    video_asset_id: string;
+    name?: string;
+    fps: number;
+    max_frames: number;
+    start_second?: number;
+    duration_seconds?: number | null;
+    remove_background?: boolean;
+    parameters?: Record<string, unknown>;
+  }): Promise<JobResponse> {
+    return this.requestJson<JobResponse>("/api/sequences/from-video", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        video_asset_id: payload.video_asset_id,
+        name: payload.name,
+        fps: payload.fps,
+        max_frames: payload.max_frames,
+        start_second: payload.start_second ?? 0,
+        duration_seconds: payload.duration_seconds ?? null,
+        remove_background: payload.remove_background ?? false,
+        parameters: payload.parameters ?? {},
+      }),
+    });
+  }
+
   async deleteSequence(sequenceId: string): Promise<void> {
     await this.requestVoid(`/api/sequences/${sequenceId}`, { method: "DELETE" });
   }

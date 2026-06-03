@@ -5,6 +5,8 @@ from io import BytesIO
 from pathlib import Path
 import zipfile
 
+import cv2
+import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -67,6 +69,22 @@ def make_opaque_character_png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGBA", (16, 16), (255, 255, 255, 255)).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def make_video_bytes(tmp_path: Path) -> bytes:
+    video_path = tmp_path / "clip.avi"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 4.0, (16, 12))
+    if not writer.isOpened():
+        raise RuntimeError("测试视频编码器不可用。")
+    try:
+        for index, color in enumerate([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]):
+            frame = np.zeros((12, 16, 3), dtype=np.uint8)
+            frame[:, :] = color
+            frame[2:10, 4:12] = (index * 40, 255 - index * 30, 120)
+            writer.write(frame)
+    finally:
+        writer.release()
+    return video_path.read_bytes()
 
 
 def make_sequence_frame_bytes(color: tuple[int, int, int, int]) -> bytes:
@@ -402,6 +420,52 @@ def test_sequence_delete_removes_source_assets(tmp_path: Path) -> None:
 
     assert deleted.status_code == 204
     assert source_after_delete.status_code == 404
+
+
+def test_video_to_sequence_extracts_frames_into_sequence(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/videos",
+            files={"file": ("walk.avi", make_video_bytes(tmp_path), "video/avi")},
+        )
+        created = client.post(
+            "/api/sequences/from-video",
+            json={"video_asset_id": upload.json()["id"], "name": "walk-video", "fps": 4, "max_frames": 3},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        sequence = client.get(f"/api/sequences/{job['result']['sequence_id']}").json()
+        frame_asset = client.get(sequence["frames"][0]["source_url"])
+
+    assert upload.status_code == 200
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "sequence_video_to_frames"
+    assert job["result"]["frame_count"] == 3
+    assert "output_files" not in job["result"]
+    assert "output_assets" not in job["result"]
+    assert sequence["name"] == "walk-video"
+    assert sequence["frame_count"] == 3
+    assert sequence["fps"] == 4
+    assert frame_asset.status_code == 200
+    assert Image.open(BytesIO(frame_asset.content)).size == (16, 12)
+    with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+        frame_count = connection.execute("SELECT COUNT(*) FROM assets WHERE kind = 'sequence_frame'").fetchone()[0]
+    assert frame_count == 3
+
+
+def test_video_to_sequence_background_remove_requires_model_at_creation(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/videos",
+            files={"file": ("walk.avi", make_video_bytes(tmp_path), "video/avi")},
+        ).json()
+        response = client.post(
+            "/api/sequences/from-video",
+            json={"video_asset_id": upload["id"], "name": "walk-video", "fps": 4, "max_frames": 3, "remove_background": True},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
 
 
 def test_character_rig_import_analyze_refine_export_and_delete(tmp_path: Path) -> None:

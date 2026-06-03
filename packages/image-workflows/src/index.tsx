@@ -248,6 +248,92 @@ export function SequenceWorkspace() {
   );
 }
 
+export function VideoToSequenceWorkspace() {
+  const [videoAsset, setVideoAsset] = useState<AssetResponse | null>(null);
+  const [sequence, setSequence] = useState<SequenceResponse | null>(null);
+  const [name, setName] = useState("video-sequence");
+  const [fps, setFps] = useState(12);
+  const [maxFrames, setMaxFrames] = useState(48);
+  const [job, setJob] = useState<JobResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const uploaded = await gameKnifeApiClient.uploadVideo(file);
+      setVideoAsset(uploaded);
+      setSequence(null);
+      setJob(null);
+      setName(file.name.replace(/\.[^.]+$/, "") || "video-sequence");
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function extract() {
+    if (!videoAsset) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await gameKnifeApiClient.createSequenceFromVideoJob({
+        video_asset_id: videoAsset.id,
+        name,
+        fps,
+        max_frames: maxFrames,
+        remove_background: false,
+      });
+      const finished = await waitForJob(created.id);
+      setJob(finished);
+      const sequenceId = typeof finished.result.sequence_id === "string" ? finished.result.sequence_id : "";
+      if (sequenceId) {
+        setSequence(await gameKnifeApiClient.getSequence(sequenceId));
+      }
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const previewFrame = sequence?.frames[0] ?? null;
+
+  return (
+    <ToolLayout
+      title="视频转帧"
+      left={
+        <div className="tool-panel">
+          <label className="field-label">
+            名称
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <VideoUploadBox onFile={upload} />
+          {videoAsset ? <span>{videoAsset.filename}</span> : null}
+        </div>
+      }
+      center={<RemoteImagePreview title={previewFrame?.original_name ?? ""} url={previewFrame?.preview_url ?? ""} />}
+      right={
+        <div className="tool-panel">
+          <NumberField label="FPS" value={fps} min={1} max={60} onChange={setFps} />
+          <NumberField label="帧数" value={maxFrames} min={1} max={300} onChange={setMaxFrames} />
+          <button className="primary-button" disabled={!videoAsset || busy} onClick={extract} type="button">
+            <Play size={18} />
+            抽帧
+          </button>
+          <StatusLine error={error} job={job} />
+          {sequence ? <span>{sequence.frame_count} 帧</span> : null}
+        </div>
+      }
+      results={<JobResult job={job} />}
+    />
+  );
+}
+
 export function SoundEffectWorkspace() {
   const [prompt, setPrompt] = useState("coin pickup");
   const [durationSeconds, setDurationSeconds] = useState(4);
@@ -759,6 +845,16 @@ function ImageUploadBox({ onFile }: { onFile: (file: File) => void }) {
       <UploadCloud size={22} />
       上传
       <input accept="image/*" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} type="file" />
+    </label>
+  );
+}
+
+function VideoUploadBox({ onFile }: { onFile: (file: File) => void }) {
+  return (
+    <label className="upload-box">
+      <UploadCloud size={22} />
+      上传
+      <input accept="video/*" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} type="file" />
     </label>
   );
 }

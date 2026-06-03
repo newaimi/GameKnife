@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -24,7 +25,95 @@ class SequenceFrameOutput:
     offset_y: int
 
 
+@dataclass(slots=True)
+class VideoFrameExtractionOutput:
+    output_path: Path
+    original_name: str
+    width: int
+    height: int
+    bbox: list[int]
+    duration_ms: int
+
+
 class SequenceFrameProcessor:
+    def extract_video_frames(
+        self,
+        video_path: Path,
+        output_dir: Path,
+        parameters: dict[str, Any],
+    ) -> tuple[ProcessResult, list[VideoFrameExtractionOutput]]:
+        if bool(parameters.get("remove_background", False)):
+            # 视频抽帧本身是本地能力，去背景属于额外模型能力。
+            # 在真实 BiRefNet 链路迁完前直接失败，避免抽帧任务偷偷联网下载模型。
+            raise RuntimeError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+        started = time.perf_counter()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        capture = cv2.VideoCapture(str(video_path))
+        if not capture.isOpened():
+            raise RuntimeError("视频文件无法读取。")
+
+        try:
+            source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0) or 24.0
+            total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            target_fps = max(1, min(60, int(parameters.get("fps") or parameters.get("target_fps") or 12)))
+            max_frames = max(1, min(300, int(parameters.get("max_frames") or 48)))
+            start_second = max(0.0, float(parameters.get("start_second") or 0))
+            duration_seconds = parameters.get("duration_seconds")
+            start_frame = int(round(start_second * source_fps))
+            if duration_seconds is None:
+                end_frame = total_frames if total_frames > 0 else 2**31 - 1
+            else:
+                end_frame = start_frame + max(1, int(round(float(duration_seconds) * source_fps)))
+                if total_frames > 0:
+                    end_frame = min(end_frame, total_frames)
+            frame_step = max(1, int(round(source_fps / target_fps))) if source_fps > target_fps else 1
+            capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+            outputs: list[VideoFrameExtractionOutput] = []
+            frame_number = start_frame
+            while frame_number < end_frame and len(outputs) < max_frames:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                if (frame_number - start_frame) % frame_step == 0:
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    image = Image.fromarray(rgb_frame, mode="RGB").convert("RGBA")
+                    filename = f"video_frame_{len(outputs) + 1:03d}.png"
+                    output_path = output_dir / filename
+                    image.save(output_path, format="PNG")
+                    outputs.append(
+                        VideoFrameExtractionOutput(
+                            output_path=output_path,
+                            original_name=filename,
+                            width=image.width,
+                            height=image.height,
+                            bbox=[0, 0, image.width, image.height],
+                            duration_ms=int(round(1000 / target_fps)),
+                        )
+                    )
+                frame_number += 1
+        finally:
+            capture.release()
+
+        if not outputs:
+            raise RuntimeError("视频没有可抽取的画面。")
+
+        return (
+            ProcessResult(
+                output_paths=[output.output_path for output in outputs],
+                result={
+                    "frame_count": len(outputs),
+                    "fps": target_fps,
+                    "source_fps": round(source_fps, 3),
+                    "warnings": [],
+                },
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                device="CPU",
+            ),
+            outputs,
+        )
+
     def clean_frames(
         self,
         sequence: Any,
