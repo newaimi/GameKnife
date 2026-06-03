@@ -252,6 +252,13 @@ a {
   gap: 8px;
 }
 
+.part-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .segmented-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -371,6 +378,7 @@ a {
   .workflow-grid,
   .manual-edit-shell,
   .job-card,
+  .part-row,
   .settings-grid {
     grid-template-columns: 1fr;
   }

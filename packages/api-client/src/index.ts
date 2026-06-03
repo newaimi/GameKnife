@@ -1,4 +1,4 @@
-import type { AppContext, AssetResponse, JobPageResponse, JobResponse, SequenceResponse } from "@gameknife/shared-types";
+import type { AppContext, AssetResponse, CharacterRigResponse, JobPageResponse, JobResponse, SequenceResponse } from "@gameknife/shared-types";
 
 export interface GameKnifeApiClientOptions {
   baseUrl?: string;
@@ -173,6 +173,78 @@ export class GameKnifeApiClient {
 
   async deleteSequence(sequenceId: string): Promise<void> {
     await this.requestVoid(`/api/sequences/${sequenceId}`, { method: "DELETE" });
+  }
+
+  async importCharacterRig(file: File, name?: string): Promise<CharacterRigResponse> {
+    const form = new FormData();
+    form.append("file", file);
+    if (name) {
+      form.append("name", name);
+    }
+    return this.requestJson<CharacterRigResponse>("/api/character-rigs/import", {
+      method: "POST",
+      body: form,
+    });
+  }
+
+  async listCharacterRigs(): Promise<CharacterRigResponse[]> {
+    return this.requestJson<CharacterRigResponse[]>("/api/character-rigs");
+  }
+
+  async getCharacterRig(rigId: string): Promise<CharacterRigResponse> {
+    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}`);
+  }
+
+  async updateCharacterRig(rigId: string, payload: { name?: string; export_format?: string }): Promise<CharacterRigResponse> {
+    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateCharacterParts(rigId: string, parts: Record<string, unknown>[]): Promise<CharacterRigResponse> {
+    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}/parts`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parts }),
+    });
+  }
+
+  async createCharacterRigAnalyzeJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/analyze`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parameters }),
+    });
+  }
+
+  async createCharacterPartRefineJob(rigId: string, partId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/parts/${partId}/refine`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parameters }),
+    });
+  }
+
+  async createCharacterRigSpineExportJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/spine`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parameters }),
+    });
+  }
+
+  async createCharacterRigDragonBonesExportJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/dragonbones`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parameters }),
+    });
+  }
+
+  async deleteCharacterRig(rigId: string): Promise<void> {
+    await this.requestVoid(`/api/character-rigs/${rigId}`, { method: "DELETE" });
   }
 
   async requestBlob(url: string): Promise<Blob> {

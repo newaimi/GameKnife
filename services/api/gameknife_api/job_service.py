@@ -8,12 +8,13 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
-from gameknife_processors import AssetBoardSplitProcessor, SequenceFrameProcessor, UpscaleProcessor
+from gameknife_processors import AssetBoardSplitProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
 from gameknife_api.stable_audio import StableAudioService
 
 upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
 sequence_processor = SequenceFrameProcessor()
+character_rig_processor = CharacterRigProcessor()
 
 
 def create_job(
@@ -252,6 +253,136 @@ def run_sequence_export_spine_job(repository: SQLiteGameKnifeRepository, context
     )
 
 
+def run_character_rig_analyze_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if job is None:
+        return
+    if rig is None:
+        _mark_failed(repository, context, job_id, "骨骼素材项目不存在。")
+        return
+    source_asset = repository.get_asset_for_workspace(rig["source_asset_id"], context.workspace.id)
+    if source_asset is None:
+        _mark_failed(repository, context, job_id, "骨骼素材源图不存在。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    repository.update_character_rig(rig_id, context.workspace.id, status="analyzing", updated_at=_now())
+    old_asset_ids = repository.collect_character_part_asset_ids(rig_id, context.workspace.id)
+    old_assets = repository.list_assets_by_ids_for_workspace(old_asset_ids, context.workspace.id)
+    try:
+        result, outputs = character_rig_processor.analyze_transparent_source(
+            context.storage.resolve_asset_path(source_asset.path),
+            context.storage.root / "outputs" / job_id / "character_rig",
+            json.loads(job.parameters_json),
+        )
+        part_payloads: list[dict[str, Any]] = []
+        for output in outputs:
+            part_asset = _register_output_assets(repository, context, [output.part_path], "character_part", "image/png")[0]
+            mask_asset = _register_output_assets(repository, context, [output.mask_path], "character_part_mask", "image/png")[0]
+            part_payloads.append(
+                {
+                    "part_asset_id": part_asset["id"],
+                    "mask_asset_id": mask_asset["id"],
+                    "name": output.name,
+                    "semantic_type": output.semantic_type,
+                    "bbox": output.bbox,
+                    "pivot_x": output.pivot_x,
+                    "pivot_y": output.pivot_y,
+                    "parent_id": output.parent_id,
+                    "z_index": output.z_index,
+                    "enabled": True,
+                    "needs_completion": output.needs_completion,
+                }
+            )
+        repository.replace_character_parts(rig_id, context.workspace.id, part_payloads, updated_at=_now())
+        repository.delete_assets_for_workspace([asset.id for asset in old_assets], context.workspace.id)
+        for asset in old_assets:
+            context.storage.remove_asset_file(asset.path)
+        final_result = {**result.result, "rig_id": rig_id, "output_assets": []}
+        _mark_success(repository, context, job_id, result, final_result)
+    except Exception as exc:  # noqa: BLE001
+        repository.update_character_rig(rig_id, context.workspace.id, status="ready", updated_at=_now())
+        _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_character_part_refine_job(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    rig_id: str,
+    part_id: str,
+) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    part = repository.get_character_part_for_workspace(rig_id, part_id, context.workspace.id)
+    if job is None:
+        return
+    if rig is None:
+        _mark_failed(repository, context, job_id, "骨骼素材项目不存在。")
+        return
+    if part is None:
+        _mark_failed(repository, context, job_id, "骨骼部件不存在。")
+        return
+    source_asset = repository.get_asset_for_workspace(rig["source_asset_id"], context.workspace.id)
+    if source_asset is None:
+        _mark_failed(repository, context, job_id, "骨骼素材源图不存在。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    old_asset_ids = [asset_id for asset_id in [part["part_asset_id"], part["mask_asset_id"]] if asset_id]
+    old_assets = repository.list_assets_by_ids_for_workspace(old_asset_ids, context.workspace.id)
+    try:
+        result, output = character_rig_processor.refine_part(
+            context.storage.resolve_asset_path(source_asset.path),
+            part,
+            context.storage.root / "outputs" / job_id / "character_rig_refine",
+            json.loads(job.parameters_json),
+        )
+        part_asset = _register_output_assets(repository, context, [output.part_path], "character_part", "image/png")[0]
+        mask_asset = _register_output_assets(repository, context, [output.mask_path], "character_part_mask", "image/png")[0]
+        repository.update_character_part_assets(
+            rig_id,
+            part_id,
+            context.workspace.id,
+            part_asset_id=part_asset["id"],
+            mask_asset_id=mask_asset["id"],
+            bbox=output.bbox,
+            needs_completion=output.needs_completion,
+            updated_at=_now(),
+        )
+        repository.delete_assets_for_workspace([asset.id for asset in old_assets], context.workspace.id)
+        for asset in old_assets:
+            context.storage.remove_asset_file(asset.path)
+        _mark_success(repository, context, job_id, result, {**result.result, "rig_id": rig_id, "part_id": part_id, "output_assets": [part_asset]})
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_character_rig_export_spine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+    _run_character_rig_export_job(
+        repository,
+        context,
+        job_id,
+        rig_id,
+        output_suffix="_spine_rig.zip",
+        output_kind="character_rig_spine",
+        processor=lambda rig, parts, output_path, parameters: character_rig_processor.export_spine_zip(rig, parts, output_path, parameters),
+    )
+
+
+def run_character_rig_export_dragonbones_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+    _run_character_rig_export_job(
+        repository,
+        context,
+        job_id,
+        rig_id,
+        output_suffix="_dragonbones_rig.zip",
+        output_kind="character_rig_dragonbones",
+        processor=lambda rig, parts, output_path, parameters: character_rig_processor.export_dragonbones_zip(rig, parts, output_path, parameters),
+    )
+
+
 def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> bool:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
@@ -267,6 +398,38 @@ def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, j
     for asset in asset_records:
         context.storage.remove_asset_file(asset.path)
     return True
+
+
+def _run_character_rig_export_job(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    rig_id: str,
+    *,
+    output_suffix: str,
+    output_kind: str,
+    processor: Callable[[dict[str, Any], list[dict[str, Any]], Path, dict[str, Any]], ProcessResult],
+) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if job is None:
+        return
+    if rig is None:
+        _mark_failed(repository, context, job_id, "骨骼素材项目不存在。")
+        return
+    parts = repository.list_character_parts(rig_id, context.workspace.id, enabled_only=True)
+    if not parts:
+        _mark_failed(repository, context, job_id, "没有可导出的骨骼部件。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    try:
+        output_path = _output_path(context, job_id, f"{_safe_name(str(rig['name']))}{output_suffix}")
+        result = processor(_rig_mapping(rig), _part_mappings(context, parts), output_path, json.loads(job.parameters_json))
+        output_assets = _register_output_assets(repository, context, result.output_paths, output_kind, "application/zip")
+        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(repository, context, job_id, str(exc))
 
 
 def _run_sequence_export_job(
@@ -461,6 +624,44 @@ def _frame_mappings(context: RequestContext, frames: list[Any]) -> list[dict[str
                 "is_generated": bool(frame["is_generated"]),
                 "source_path": str(source_path),
                 "processed_path": str(processed_path) if processed_path else None,
+            }
+        )
+    return mapped
+
+
+def _rig_mapping(rig: Any) -> dict[str, Any]:
+    return {
+        "id": rig["id"],
+        "name": rig["name"],
+        "source_asset_id": rig["source_asset_id"],
+        "canvas_width": int(rig["canvas_width"]),
+        "canvas_height": int(rig["canvas_height"]),
+        "export_format": rig["export_format"],
+        "status": rig["status"],
+    }
+
+
+def _part_mappings(context: RequestContext, parts: list[Any]) -> list[dict[str, Any]]:
+    mapped: list[dict[str, Any]] = []
+    for part in parts:
+        mapped.append(
+            {
+                "id": part["id"],
+                "rig_id": part["rig_id"],
+                "part_asset_id": part["part_asset_id"],
+                "mask_asset_id": part["mask_asset_id"],
+                "name": part["name"],
+                "semantic_type": part["semantic_type"],
+                "bbox": json.loads(part["bbox_json"]),
+                "bbox_json": part["bbox_json"],
+                "pivot_x": float(part["pivot_x"]),
+                "pivot_y": float(part["pivot_y"]),
+                "parent_id": part["parent_id"],
+                "z_index": int(part["z_index"]),
+                "enabled": bool(part["enabled"]),
+                "needs_completion": bool(part["needs_completion"]),
+                "part_path": str(context.storage.resolve_asset_path(part["part_path"])) if part["part_path"] else None,
+                "mask_path": str(context.storage.resolve_asset_path(part["mask_path"])) if part["mask_path"] else None,
             }
         )
     return mapped

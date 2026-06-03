@@ -102,6 +102,42 @@ export interface SequenceResponse {
   updated_at: string;
 }
 
+export interface CharacterPartResponse {
+  id: string;
+  rig_id: string;
+  part_asset_id?: string | null;
+  mask_asset_id?: string | null;
+  part_url?: string | null;
+  mask_url?: string | null;
+  name: string;
+  semantic_type: string;
+  bbox: number[];
+  pivot_x: number;
+  pivot_y: number;
+  parent_id?: string | null;
+  z_index: number;
+  enabled: boolean;
+  needs_completion: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CharacterRigResponse {
+  id: string;
+  name: string;
+  source_asset_id: string;
+  source_url: string;
+  canvas_width: number;
+  canvas_height: number;
+  export_format: string;
+  status: string;
+  part_count: number;
+  parts: CharacterPartResponse[];
+  warnings: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OutputAssetRef {
   id: string;
   url: string;

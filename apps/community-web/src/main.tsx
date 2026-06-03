@@ -6,6 +6,7 @@ import { GameKnifeAppContext, communityContext } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import {
   AssetBoardWorkspace,
+  CharacterRigWorkspace,
   CommunityHelpPage,
   CommunityJobsPage,
   CommunitySettingsPage,
@@ -81,7 +82,7 @@ function App() {
               <Route path="/tools/sequence" element={<SequenceWorkspace />} />
               <Route path="/tools/video-generate" element={<ModelRequiredWorkspace title="AI生成视频" />} />
               <Route path="/tools/video-to-sequence" element={<ModelRequiredWorkspace title="视频转帧" />} />
-              <Route path="/tools/character-rig" element={<ModelRequiredWorkspace title="骨骼拆分" />} />
+              <Route path="/tools/character-rig" element={<CharacterRigWorkspace />} />
               <Route path="/tools/sound-effect" element={<SoundEffectWorkspace />} />
               <Route path="/manual-edit" element={<ManualEditWorkspace />} />
               <Route path="*" element={<CommunityToolHome />} />

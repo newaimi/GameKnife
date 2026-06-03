@@ -50,6 +50,25 @@ def make_asset_board_png_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def make_character_rig_png_bytes() -> bytes:
+    image = Image.new("RGBA", (40, 24), (0, 0, 0, 0))
+    for x in range(3, 13):
+        for y in range(5, 17):
+            image.putpixel((x, y), (255, 0, 0, 255))
+    for x in range(24, 34):
+        for y in range(4, 18):
+            image.putpixel((x, y), (0, 0, 255, 255))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def make_opaque_character_png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGBA", (16, 16), (255, 255, 255, 255)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def make_sequence_frame_bytes(color: tuple[int, int, int, int]) -> bytes:
     image = Image.new("RGBA", (12, 12), (0, 0, 0, 0))
     for x in range(3, 9):
@@ -383,3 +402,83 @@ def test_sequence_delete_removes_source_assets(tmp_path: Path) -> None:
 
     assert deleted.status_code == 204
     assert source_after_delete.status_code == 404
+
+
+def test_character_rig_import_analyze_refine_export_and_delete(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/character-rigs/import",
+            data={"name": "hero"},
+            files={"file": ("hero.png", make_character_rig_png_bytes(), "image/png")},
+        )
+        rig = imported.json()
+        analyze_created = client.post(
+            f"/api/character-rigs/{rig['id']}/analyze",
+            json={"parameters": {"min_component_area": 8, "padding": 1}},
+        )
+        analyze_job = client.get(f"/api/jobs/{analyze_created.json()['id']}").json()
+        analyzed = client.get(f"/api/character-rigs/{rig['id']}").json()
+        first_part = analyzed["parts"][0]
+        patched = client.patch(
+            f"/api/character-rigs/{rig['id']}/parts",
+            json={"parts": [{"id": first_part["id"], "name": "head", "pivot_x": 0.4, "pivot_y": 0.6}]},
+        ).json()
+        refine_created = client.post(
+            f"/api/character-rigs/{rig['id']}/parts/{first_part['id']}/refine",
+            json={"parameters": {"padding": 2}},
+        )
+        refine_job = client.get(f"/api/jobs/{refine_created.json()['id']}").json()
+        spine_created = client.post(f"/api/character-rigs/{rig['id']}/export/spine", json={"parameters": {}})
+        spine_job = client.get(f"/api/jobs/{spine_created.json()['id']}").json()
+        spine_zip = client.get(spine_job["result"]["output_assets"][0]["url"])
+        dragonbones_created = client.post(f"/api/character-rigs/{rig['id']}/export/dragonbones", json={"parameters": {}})
+        dragonbones_job = client.get(f"/api/jobs/{dragonbones_created.json()['id']}").json()
+        dragonbones_zip = client.get(dragonbones_job["result"]["output_assets"][0]["url"])
+        source_url = analyzed["source_url"]
+        part_url = analyzed["parts"][0]["part_url"]
+        deleted = client.delete(f"/api/character-rigs/{rig['id']}")
+        deleted_source = client.get(source_url)
+        deleted_part = client.get(part_url)
+
+    assert imported.status_code == 200
+    assert rig["source_asset_id"]
+    assert analyze_created.status_code == 200
+    assert analyze_job["status"] == "success"
+    assert analyze_job["type"] == "character_rig_analyze"
+    assert analyze_job["result"]["part_count"] == 2
+    assert analyzed["part_count"] == 2
+    assert analyzed["parts"][0]["part_asset_id"]
+    assert "part_file_id" not in analyzed["parts"][0]
+    assert patched["parts"][0]["name"] == "head"
+    assert patched["parts"][0]["pivot_x"] == 0.4
+    assert refine_job["status"] == "success"
+    assert spine_job["status"] == "success"
+    with zipfile.ZipFile(BytesIO(spine_zip.content)) as archive:
+        spine_names = set(archive.namelist())
+    assert "rig_manifest.json" in spine_names
+    assert "hero.json" in spine_names
+    assert any(name.startswith("parts/") for name in spine_names)
+    assert dragonbones_job["status"] == "success"
+    with zipfile.ZipFile(BytesIO(dragonbones_zip.content)) as archive:
+        dragonbones_names = set(archive.namelist())
+    assert "hero_ske.json" in dragonbones_names
+    assert "hero_tex.json" in dragonbones_names
+    assert deleted.status_code == 204
+    assert deleted_source.status_code == 404
+    assert deleted_part.status_code == 404
+
+
+def test_character_rig_opaque_source_requires_models_at_creation(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        rig = client.post(
+            "/api/character-rigs/import",
+            data={"name": "opaque"},
+            files={"file": ("opaque.png", make_opaque_character_png_bytes(), "image/png")},
+        ).json()
+        response = client.post(
+            f"/api/character-rigs/{rig['id']}/analyze",
+            json={"parameters": {}},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。"

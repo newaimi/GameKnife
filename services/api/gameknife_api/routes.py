@@ -18,6 +18,10 @@ from gameknife_api.job_service import (
     run_asset_board_export_job,
     run_asset_board_refine_job,
     run_asset_board_region_job,
+    run_character_part_refine_job,
+    run_character_rig_analyze_job,
+    run_character_rig_export_dragonbones_job,
+    run_character_rig_export_spine_job,
     run_sequence_clean_job,
     run_sequence_export_frames_job,
     run_sequence_export_spine_job,
@@ -29,6 +33,11 @@ from gameknife_api.schemas import (
     AssetBoardRefineRequest,
     AssetJobRequest,
     AssetResponse,
+    CharacterPartResponse,
+    CharacterPartsUpdateRequest,
+    CharacterRigResponse,
+    CharacterRigTaskRequest,
+    CharacterRigUpdateRequest,
     ContextResponse,
     JobPageResponse,
     JobResponse,
@@ -71,6 +80,11 @@ ALLOWED_SEQUENCE_TYPES = {
     "image/webp": ".webp",
 }
 ALLOWED_MANUAL_EDIT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+ALLOWED_CHARACTER_RIG_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
@@ -518,6 +532,227 @@ def create_sequence_spine_export_task(
     return _job_response(job, context, repository)
 
 
+@router.post("/character-rigs/import", response_model=CharacterRigResponse)
+async def import_character_rig(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> CharacterRigResponse:
+    if file.content_type not in ALLOWED_CHARACTER_RIG_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 角色图。")
+
+    content = await file.read()
+    _verify_image(content)
+    filename = Path(file.filename or "character.png").name
+    try:
+        with Image.open(BytesIO(content)) as opened:
+            image = opened.convert("RGBA")
+            canvas_width, canvas_height = image.size
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色图读取失败。") from exc
+
+    asset_id = uuid4().hex
+    now = _now()
+    relative_path = context.storage.write_asset(asset_id, filename, content)
+    asset = AssetRecord(
+        id=asset_id,
+        workspace_id=context.workspace.id,
+        created_by=context.principal.id,
+        kind="character_rig_source",
+        original_name=filename,
+        path=relative_path,
+        mime_type=file.content_type,
+        size_bytes=len(content),
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        repository.create_asset(asset)
+        rig = repository.create_character_rig(
+            workspace_id=context.workspace.id,
+            created_by=context.principal.id,
+            source_asset_id=asset.id,
+            name=(name or Path(filename).stem or "骨骼素材").strip(),
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            export_format="spine",
+            created_at=now,
+        )
+    except Exception:
+        # 骨骼项目和源图必须同时成功，否则后续分析会找不到源资产。
+        # 这里清理刚写入的文件和资产记录，避免留下无法从项目入口访问的游离素材。
+        repository.delete_assets_for_workspace([asset.id], context.workspace.id)
+        context.storage.remove_asset_file(relative_path)
+        raise
+    return _character_rig_response(rig, context, repository)
+
+
+@router.get("/character-rigs", response_model=list[CharacterRigResponse])
+def list_character_rigs(
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> list[CharacterRigResponse]:
+    return [_character_rig_response(rig, context, repository, include_parts=False) for rig in repository.list_character_rigs_for_workspace(context.workspace.id)]
+
+
+@router.get("/character-rigs/{rig_id}", response_model=CharacterRigResponse)
+def get_character_rig(
+    rig_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> CharacterRigResponse:
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if rig is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    return _character_rig_response(rig, context, repository)
+
+
+@router.patch("/character-rigs/{rig_id}", response_model=CharacterRigResponse)
+def update_character_rig(
+    rig_id: str,
+    payload: CharacterRigUpdateRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> CharacterRigResponse:
+    rig = repository.update_character_rig(
+        rig_id,
+        context.workspace.id,
+        name=payload.name.strip() if payload.name else None,
+        export_format=payload.export_format,
+        updated_at=_now(),
+    )
+    if rig is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    return _character_rig_response(rig, context, repository)
+
+
+@router.patch("/character-rigs/{rig_id}/parts", response_model=CharacterRigResponse)
+def update_character_parts(
+    rig_id: str,
+    payload: CharacterPartsUpdateRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> CharacterRigResponse:
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if rig is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    repository.update_character_parts(rig_id, context.workspace.id, [part.model_dump(exclude_none=True) for part in payload.parts], updated_at=_now())
+    updated = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    return _character_rig_response(updated, context, repository)
+
+
+@router.delete("/character-rigs/{rig_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_character_rig(
+    rig_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> Response:
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if rig is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    asset_ids = repository.collect_character_rig_asset_ids(rig_id, context.workspace.id)
+    asset_records = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
+    deleted = repository.delete_character_rig_for_workspace(rig_id, context.workspace.id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    repository.delete_assets_for_workspace([asset.id for asset in asset_records], context.workspace.id)
+    for asset in asset_records:
+        context.storage.remove_asset_file(asset.path)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/character-rigs/{rig_id}/analyze", response_model=JobResponse)
+def create_character_rig_analyze_task(
+    rig_id: str,
+    payload: CharacterRigTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    rig = _ensure_character_rig(repository, context, rig_id)
+    source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
+    if not _asset_has_transparency(context, source_asset):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
+    job = create_job(
+        repository,
+        context,
+        job_type="character_rig_analyze",
+        input_asset_id=source_asset.id,
+        parameters={"rig_id": rig_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_character_rig_analyze_job, repository, context, job.id, rig_id)
+    return _job_response(job, context, repository)
+
+
+@router.post("/character-rigs/{rig_id}/parts/{part_id}/refine", response_model=JobResponse)
+def create_character_part_refine_task(
+    rig_id: str,
+    part_id: str,
+    payload: CharacterRigTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    rig = _ensure_character_rig(repository, context, rig_id)
+    source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
+    if repository.get_character_part_for_workspace(rig_id, part_id, context.workspace.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼部件不存在。")
+    if not _asset_has_transparency(context, source_asset):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
+    job = create_job(
+        repository,
+        context,
+        job_type="character_rig_refine_part",
+        input_asset_id=source_asset.id,
+        parameters={"rig_id": rig_id, "part_id": part_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_character_part_refine_job, repository, context, job.id, rig_id, part_id)
+    return _job_response(job, context, repository)
+
+
+@router.post("/character-rigs/{rig_id}/export/spine", response_model=JobResponse)
+def create_character_rig_spine_export_task(
+    rig_id: str,
+    payload: CharacterRigTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    rig = _ensure_character_rig(repository, context, rig_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="character_rig_export_spine",
+        input_asset_id=rig["source_asset_id"],
+        parameters={"rig_id": rig_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_character_rig_export_spine_job, repository, context, job.id, rig_id)
+    return _job_response(job, context, repository)
+
+
+@router.post("/character-rigs/{rig_id}/export/dragonbones", response_model=JobResponse)
+def create_character_rig_dragonbones_export_task(
+    rig_id: str,
+    payload: CharacterRigTaskRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    rig = _ensure_character_rig(repository, context, rig_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="character_rig_export_dragonbones",
+        input_asset_id=rig["source_asset_id"],
+        parameters={"rig_id": rig_id, **payload.parameters},
+    )
+    background_tasks.add_task(run_character_rig_export_dragonbones_job, repository, context, job.id, rig_id)
+    return _job_response(job, context, repository)
+
+
 @router.post("/assets/images", response_model=AssetResponse)
 async def upload_image_asset(
     file: UploadFile = File(...),
@@ -658,6 +893,73 @@ async def save_manual_edit_asset(
         context.storage.remove_asset_file(relative_path)
         raise
     return _asset_response(asset)
+
+
+def _character_rig_response(
+    rig,
+    context: RequestContext,
+    repository: SQLiteGameKnifeRepository,
+    *,
+    include_parts: bool = True,
+    warnings: list[str] | None = None,
+) -> CharacterRigResponse:
+    parts = repository.list_character_parts(rig["id"], context.workspace.id) if include_parts else []
+    return CharacterRigResponse(
+        id=rig["id"],
+        name=rig["name"],
+        source_asset_id=rig["source_asset_id"],
+        source_url=f"/api/assets/{rig['source_asset_id']}",
+        canvas_width=int(rig["canvas_width"]),
+        canvas_height=int(rig["canvas_height"]),
+        export_format=rig["export_format"],
+        status=rig["status"],
+        part_count=int(rig["part_count"]),
+        parts=[_character_part_response(part) for part in parts],
+        warnings=warnings or [],
+        created_at=rig["created_at"],
+        updated_at=rig["updated_at"],
+    )
+
+
+def _character_part_response(part) -> CharacterPartResponse:
+    part_asset_id = part["part_asset_id"]
+    mask_asset_id = part["mask_asset_id"]
+    return CharacterPartResponse(
+        id=part["id"],
+        rig_id=part["rig_id"],
+        part_asset_id=part_asset_id,
+        mask_asset_id=mask_asset_id,
+        part_url=f"/api/assets/{part_asset_id}" if part_asset_id else None,
+        mask_url=f"/api/assets/{mask_asset_id}" if mask_asset_id else None,
+        name=part["name"],
+        semantic_type=part["semantic_type"],
+        bbox=json.loads(part["bbox_json"]),
+        pivot_x=float(part["pivot_x"]),
+        pivot_y=float(part["pivot_y"]),
+        parent_id=part["parent_id"],
+        z_index=int(part["z_index"]),
+        enabled=bool(part["enabled"]),
+        needs_completion=bool(part["needs_completion"]),
+        created_at=part["created_at"],
+        updated_at=part["updated_at"],
+    )
+
+
+def _ensure_character_rig(repository: SQLiteGameKnifeRepository, context: RequestContext, rig_id: str):
+    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
+    if rig is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
+    return rig
+
+
+def _asset_has_transparency(context: RequestContext, asset: AssetRecord) -> bool:
+    try:
+        with Image.open(context.storage.resolve_asset_path(asset.path)) as opened:
+            image = opened.convert("RGBA")
+            alpha = image.getchannel("A")
+            return alpha.getextrema()[0] < 250
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色图读取失败。") from exc
 
 
 def _verify_image(content: bytes) -> None:

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import { Brush, Download, Eraser, Image as ImageIcon, Play, RefreshCw, Save, Trash2, UploadCloud, Volume2 } from "lucide-react";
+import { Bone, Brush, Download, Eraser, Play, RefreshCw, Save, Trash2, UploadCloud, Volume2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import { createManualEditDocument, drawBlobToCanvas, drawBrushStroke, exportCanvasAsPngBlob, readCanvasPoint, type BrushMode, type EditorDocument } from "@gameknife/editor-core";
-import type { AssetResponse, JobResponse, OutputAssetRef, SequenceResponse } from "@gameknife/shared-types";
+import type { AssetResponse, CharacterPartResponse, CharacterRigResponse, JobResponse, OutputAssetRef, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 
 export const communityToolEntries = [
@@ -312,6 +312,169 @@ export function SoundEffectWorkspace() {
   );
 }
 
+export function CharacterRigWorkspace() {
+  const [rig, setRig] = useState<CharacterRigResponse | null>(null);
+  const [rigs, setRigs] = useState<CharacterRigResponse[]>([]);
+  const [name, setName] = useState("character");
+  const [minArea, setMinArea] = useState(12);
+  const [padding, setPadding] = useState(2);
+  const [job, setJob] = useState<JobResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void refreshRigs();
+  }, []);
+
+  async function refreshRigs() {
+    setRigs(await gameKnifeApiClient.listCharacterRigs());
+  }
+
+  async function importRig(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const imported = await gameKnifeApiClient.importCharacterRig(file, name);
+      setRig(imported);
+      setJob(null);
+      await refreshRigs();
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectRig(rigId: string) {
+    try {
+      setError("");
+      setRig(await gameKnifeApiClient.getCharacterRig(rigId));
+      setJob(null);
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
+  async function runAnalyze() {
+    if (!rig) {
+      return;
+    }
+    await runRigJob(() => gameKnifeApiClient.createCharacterRigAnalyzeJob(rig.id, { min_component_area: minArea, padding, alpha_threshold: 16 }), true);
+  }
+
+  async function runExport(kind: "spine" | "dragonbones") {
+    if (!rig) {
+      return;
+    }
+    await runRigJob(
+      () =>
+        kind === "spine"
+          ? gameKnifeApiClient.createCharacterRigSpineExportJob(rig.id, {})
+          : gameKnifeApiClient.createCharacterRigDragonBonesExportJob(rig.id, {}),
+      false,
+    );
+  }
+
+  async function refinePart(part: CharacterPartResponse) {
+    if (!rig) {
+      return;
+    }
+    await runRigJob(() => gameKnifeApiClient.createCharacterPartRefineJob(rig.id, part.id, { padding }), true);
+  }
+
+  async function removeRig() {
+    if (!rig) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await gameKnifeApiClient.deleteCharacterRig(rig.id);
+      setRig(null);
+      setJob(null);
+      await refreshRigs();
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runRigJob(create: () => Promise<JobResponse>, refreshRig: boolean) {
+    if (!rig) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await create();
+      const finished = await waitForJob(created.id);
+      setJob(finished);
+      if (refreshRig) {
+        setRig(await gameKnifeApiClient.getCharacterRig(rig.id));
+        await refreshRigs();
+      }
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolLayout
+      title="骨骼拆分"
+      left={
+        <div className="tool-panel">
+          <label className="field-label">
+            名称
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <ImageUploadBox onFile={importRig} />
+          <div className="mini-list">
+            {rigs.map((item) => (
+              <button key={item.id} onClick={() => selectRig(item.id)} type="button">
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      }
+      center={<RemoteImagePreview title={rig?.name ?? ""} url={rig?.source_url ?? ""} />}
+      right={
+        <div className="tool-panel">
+          <NumberField label="面积" value={minArea} min={1} max={4096} step={1} onChange={setMinArea} />
+          <NumberField label="留边" value={padding} min={0} max={32} step={1} onChange={setPadding} />
+          <button className="primary-button" disabled={!rig || busy} onClick={runAnalyze} type="button">
+            <Bone size={18} />
+            分析
+          </button>
+          <button className="secondary-button" disabled={!rig || !rig.part_count || busy} onClick={() => runExport("spine")} type="button">
+            <Download size={18} />
+            Spine
+          </button>
+          <button className="secondary-button" disabled={!rig || !rig.part_count || busy} onClick={() => runExport("dragonbones")} type="button">
+            <Download size={18} />
+            DragonBones
+          </button>
+          <button className="secondary-button" disabled={!rig || busy} onClick={removeRig} type="button">
+            <Trash2 size={18} />
+            删除
+          </button>
+          <StatusLine error={error} job={job} />
+          {rig ? <span>{rig.part_count} 个部件</span> : null}
+        </div>
+      }
+      results={
+        <>
+          <JobResult job={job} />
+          <CharacterPartList busy={busy} parts={rig?.parts ?? []} onRefine={refinePart} />
+        </>
+      }
+    />
+  );
+}
+
 export function ManualEditWorkspace() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -435,6 +598,27 @@ export function ManualEditWorkspace() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function CharacterPartList({ busy, parts, onRefine }: { busy: boolean; parts: CharacterPartResponse[]; onRefine: (part: CharacterPartResponse) => void }) {
+  if (!parts.length) {
+    return null;
+  }
+  return (
+    <div className="mini-list">
+      {parts.map((part) => (
+        <div className="part-row" key={part.id}>
+          <span>
+            {part.name} {formatBbox(part.bbox)}
+          </span>
+          <button className="secondary-button" disabled={busy} onClick={() => onRefine(part)} type="button">
+            <RefreshCw size={18} />
+            精修
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
