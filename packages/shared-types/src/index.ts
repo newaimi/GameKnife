@@ -102,6 +102,13 @@ export interface SequenceResponse {
   updated_at: string;
 }
 
+export interface VideoGenerationConfig {
+  provider: "aliyun_dashscope" | "seedance";
+  base_url: string;
+  api_key_configured: boolean;
+  masked_api_key?: string | null;
+}
+
 export interface CharacterPartResponse {
   id: string;
   rig_id: string;

@@ -10,6 +10,7 @@ from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_processors import AssetBoardSplitProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
 from gameknife_api.stable_audio import StableAudioService
+from gameknife_api.video_generation import VideoGenerationClient
 
 upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
@@ -318,6 +319,48 @@ def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: 
         repository.delete_assets_for_workspace([asset.id for asset in frame_assets], context.workspace.id)
         for asset in frame_assets:
             context.storage.remove_asset_file(asset.path)
+        _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_sequence_generate_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    if job is None:
+        return
+    input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
+    if input_asset is None:
+        _mark_failed(repository, context, job_id, "输入素材不存在。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    try:
+        started = datetime.now(UTC)
+        parameters = json.loads(job.parameters_json)
+        output_path = _output_path(context, job.id, f"{Path(input_asset.original_name).stem}_generated.mp4")
+        generated = VideoGenerationClient(repository).generate_video(
+            context.storage.resolve_asset_path(input_asset.path),
+            output_path,
+            parameters,
+        )
+        result = ProcessResult(
+            output_paths=[generated.output_path],
+            result={
+                "external_task_id": generated.external_task_id,
+                "provider": generated.provider,
+                "remote_video_url": generated.video_url,
+            },
+            duration_ms=round((datetime.now(UTC) - started).total_seconds() * 1000),
+            device="外部API",
+        )
+        output_assets = _register_output_assets(repository, context, result.output_paths, "sequence_video", "video/mp4")
+        video_asset = output_assets[0]
+        final_result = {
+            **result.result,
+            "video_asset_id": video_asset["id"],
+            "video_url": video_asset["url"],
+            "output_assets": output_assets,
+        }
+        _mark_success(repository, context, job_id, result, final_result)
+    except Exception as exc:  # noqa: BLE001
         _mark_failed(repository, context, job_id, str(exc))
 
 

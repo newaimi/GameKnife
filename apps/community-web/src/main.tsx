@@ -16,6 +16,7 @@ import {
   SequenceWorkspace,
   SoundEffectWorkspace,
   UpscaleWorkspace,
+  VideoGenerateWorkspace,
   VideoToSequenceWorkspace,
 } from "@gameknife/image-workflows";
 import type { AppContext } from "@gameknife/shared-types";
@@ -81,7 +82,7 @@ function App() {
               <Route path="/tools/upscale" element={<UpscaleWorkspace />} />
               <Route path="/tools/asset-board" element={<AssetBoardWorkspace />} />
               <Route path="/tools/sequence" element={<SequenceWorkspace />} />
-              <Route path="/tools/video-generate" element={<ModelRequiredWorkspace title="AI生成视频" />} />
+              <Route path="/tools/video-generate" element={<VideoGenerateWorkspace />} />
               <Route path="/tools/video-to-sequence" element={<VideoToSequenceWorkspace />} />
               <Route path="/tools/character-rig" element={<CharacterRigWorkspace />} />
               <Route path="/tools/sound-effect" element={<SoundEffectWorkspace />} />

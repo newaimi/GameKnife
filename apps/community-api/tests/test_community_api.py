@@ -12,6 +12,7 @@ from PIL import Image
 
 from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
+from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -466,6 +467,101 @@ def test_video_to_sequence_background_remove_requires_model_at_creation(tmp_path
 
     assert response.status_code == 409
     assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_video_generation_settings_save_test_and_mask_secret(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        saved = client.patch(
+            "/api/settings/video-generation",
+            json={"provider": "seedance", "base_url": "https://ark.example.com", "api_key": "sk-1234567890"},
+        )
+        tested = client.post(
+            "/api/settings/video-generation/test",
+            json={"provider": "seedance", "base_url": "https://ark.example.com"},
+        )
+        settings = client.get("/api/settings").json()
+
+    assert saved.status_code == 200
+    assert saved.json()["provider"] == "seedance"
+    assert saved.json()["api_key_configured"] is True
+    assert saved.json()["masked_api_key"] == "sk-1****7890"
+    assert tested.status_code == 200
+    assert tested.json()["ok"] is True
+    assert settings["video_generation"]["api_key_configured"] is True
+
+
+def test_video_generation_requires_confirmation_and_config(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_transparent_png_bytes(), "image/png")},
+        ).json()
+        not_confirmed = client.post(
+            "/api/sequences/generate-from-image",
+            json={"input_asset_id": upload["id"], "confirmed_external_api": False},
+        )
+        not_configured = client.post(
+            "/api/sequences/generate-from-image",
+            json={"input_asset_id": upload["id"], "confirmed_external_api": True},
+        )
+
+    assert not_confirmed.status_code == 400
+    assert not_confirmed.json()["detail"] == "请先确认调用外部视频生成 API。"
+    assert not_configured.status_code == 409
+    assert not_configured.json()["detail"] == "视频生成 API 缺少 API Key。"
+
+
+def test_video_generation_job_creates_video_asset(tmp_path: Path, monkeypatch) -> None:
+    def fake_generate(self: VideoGenerationClient, image_path: Path, output_path: Path, parameters: dict) -> VideoGenerationResult:
+        assert image_path.is_file()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake mp4")
+        return VideoGenerationResult(
+            external_task_id="external-1",
+            video_url="https://example.com/video.mp4",
+            output_path=output_path,
+            provider="seedance",
+            final_response={"status": "succeeded"},
+        )
+
+    monkeypatch.setattr(VideoGenerationClient, "generate_video", fake_generate)
+    with make_client(tmp_path) as client:
+        client.patch(
+            "/api/settings/video-generation",
+            json={"provider": "seedance", "base_url": "https://ark.example.com", "api_key": "sk-1234567890"},
+        )
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_transparent_png_bytes(), "image/png")},
+        ).json()
+        created = client.post(
+            "/api/sequences/generate-from-image",
+            json={
+                "input_asset_id": upload["id"],
+                "action": "idle",
+                "duration": 2,
+                "resolution": "720P",
+                "confirmed_external_api": True,
+            },
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        video = client.get(job["result"]["video_url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "sequence_generate_video"
+    assert job["result"]["external_task_id"] == "external-1"
+    assert job["result"]["provider"] == "seedance"
+    assert job["result"]["video_asset_id"]
+    assert job["result"]["output_assets"][0]["url"] == job["result"]["video_url"]
+    assert video.status_code == 200
+    assert video.content == b"fake mp4"
+    with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+        row = connection.execute(
+            "SELECT kind, mime_type FROM assets WHERE id = ?",
+            (job["result"]["video_asset_id"],),
+        ).fetchone()
+    assert row == ("sequence_video", "video/mp4")
 
 
 def test_character_rig_import_analyze_refine_export_and_delete(tmp_path: Path) -> None:

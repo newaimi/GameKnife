@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode
 import { Bone, Brush, Download, Eraser, Play, RefreshCw, Save, Trash2, UploadCloud, Volume2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import { createManualEditDocument, drawBlobToCanvas, drawBrushStroke, exportCanvasAsPngBlob, readCanvasPoint, type BrushMode, type EditorDocument } from "@gameknife/editor-core";
-import type { AssetResponse, CharacterPartResponse, CharacterRigResponse, JobResponse, OutputAssetRef, SequenceResponse } from "@gameknife/shared-types";
+import type { AssetResponse, CharacterPartResponse, CharacterRigResponse, JobResponse, OutputAssetRef, SequenceResponse, VideoGenerationConfig } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 
 export const communityToolEntries = [
@@ -327,6 +327,99 @@ export function VideoToSequenceWorkspace() {
           </button>
           <StatusLine error={error} job={job} />
           {sequence ? <span>{sequence.frame_count} 帧</span> : null}
+        </div>
+      }
+      results={<JobResult job={job} />}
+    />
+  );
+}
+
+export function VideoGenerateWorkspace() {
+  const [asset, setAsset] = useState<AssetResponse | null>(null);
+  const [action, setAction] = useState("walk_down");
+  const [prompt, setPrompt] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
+  const [duration, setDuration] = useState(5);
+  const [resolution, setResolution] = useState("720P");
+  const [confirmed, setConfirmed] = useState(false);
+  const [job, setJob] = useState<JobResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      setAsset(await gameKnifeApiClient.uploadImage(file));
+      setJob(null);
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function run() {
+    if (!asset) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await gameKnifeApiClient.createVideoGenerationJob({
+        input_asset_id: asset.id,
+        action,
+        prompt,
+        negative_prompt: negativePrompt,
+        duration,
+        resolution,
+        confirmed_external_api: confirmed,
+      });
+      setJob(await waitForJob(created.id, 30, 1000));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolLayout
+      title="AI生成视频"
+      left={<ImageUploadBox onFile={upload} />}
+      center={<AssetPreview asset={asset} />}
+      right={
+        <div className="tool-panel">
+          <label className="field-label">
+            动作
+            <input value={action} onChange={(event) => setAction(event.target.value)} />
+          </label>
+          <label className="field-label">
+            提示词
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} />
+          </label>
+          <label className="field-label">
+            负向词
+            <textarea value={negativePrompt} onChange={(event) => setNegativePrompt(event.target.value)} rows={3} />
+          </label>
+          <NumberField label="时长" value={duration} min={2} max={15} step={1} onChange={setDuration} />
+          <label className="field-label">
+            分辨率
+            <select value={resolution} onChange={(event) => setResolution(event.target.value)}>
+              <option value="480P">480P</option>
+              <option value="720P">720P</option>
+              <option value="1080P">1080P</option>
+            </select>
+          </label>
+          <label className="check-row">
+            <input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />
+            确认调用外部 API
+          </label>
+          <button className="primary-button" disabled={!asset || busy} onClick={run} type="button">
+            <Play size={18} />
+            生成
+          </button>
+          <StatusLine error={error} job={job} />
         </div>
       }
       results={<JobResult job={job} />}
@@ -765,14 +858,59 @@ export function CommunityJobsPage() {
 
 export function CommunitySettingsPage() {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  const [videoConfig, setVideoConfig] = useState<VideoGenerationConfig | null>(null);
+  const [videoProvider, setVideoProvider] = useState<VideoGenerationConfig["provider"]>("aliyun_dashscope");
+  const [videoBaseUrl, setVideoBaseUrl] = useState("");
+  const [videoApiKey, setVideoApiKey] = useState("");
+  const [videoMessage, setVideoMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    gameKnifeApiClient
-      .getSettings()
-      .then(setSettings)
-      .catch((exc) => setError(readMessage(exc)));
+    void refreshSettings();
   }, []);
+
+  async function refreshSettings() {
+    try {
+      setError("");
+      const [nextSettings, nextVideoConfig] = await Promise.all([gameKnifeApiClient.getSettings(), gameKnifeApiClient.getVideoGenerationSettings()]);
+      setSettings(nextSettings);
+      setVideoConfig(nextVideoConfig);
+      setVideoProvider(nextVideoConfig.provider);
+      setVideoBaseUrl(nextVideoConfig.base_url);
+      setVideoApiKey("");
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
+  async function saveVideoConfig() {
+    try {
+      setError("");
+      setVideoMessage("");
+      const payload = { provider: videoProvider, base_url: videoBaseUrl, ...(videoApiKey ? { api_key: videoApiKey } : {}) };
+      const saved = await gameKnifeApiClient.updateVideoGenerationSettings(payload);
+      setVideoConfig(saved);
+      setVideoApiKey("");
+      setVideoMessage("已保存");
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
+  async function testVideoConfig() {
+    try {
+      setError("");
+      setVideoMessage("");
+      const result = await gameKnifeApiClient.testVideoGenerationSettings({
+        provider: videoProvider,
+        base_url: videoBaseUrl,
+        ...(videoApiKey ? { api_key: videoApiKey } : {}),
+      });
+      setVideoMessage(String(result.message ?? "ok"));
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
 
   return (
     <section className="page-panel">
@@ -785,6 +923,35 @@ export function CommunitySettingsPage() {
         <strong>{String(settings?.workspace_id ?? "")}</strong>
         <span>存储</span>
         <strong>{String(settings?.storage ?? "")}</strong>
+      </div>
+      <div className="settings-form">
+        <h2>视频生成 API</h2>
+        <label className="field-label">
+          供应商
+          <select value={videoProvider} onChange={(event) => setVideoProvider(event.target.value as VideoGenerationConfig["provider"])}>
+            <option value="aliyun_dashscope">阿里云 DashScope</option>
+            <option value="seedance">Seedance</option>
+          </select>
+        </label>
+        <label className="field-label">
+          Base URL
+          <input value={videoBaseUrl} onChange={(event) => setVideoBaseUrl(event.target.value)} />
+        </label>
+        <label className="field-label">
+          API Key
+          <input placeholder={videoConfig?.masked_api_key ?? ""} value={videoApiKey} onChange={(event) => setVideoApiKey(event.target.value)} />
+        </label>
+        <div className="job-result">
+          <button className="primary-button" onClick={saveVideoConfig} type="button">
+            <Save size={18} />
+            保存
+          </button>
+          <button className="secondary-button" onClick={testVideoConfig} type="button">
+            <RefreshCw size={18} />
+            测试
+          </button>
+          {videoMessage ? <span className="status-text">{videoMessage}</span> : null}
+        </div>
       </div>
     </section>
   );
@@ -950,10 +1117,10 @@ function useObjectUrl(url: string) {
   return objectUrl;
 }
 
-async function waitForJob(jobId: string): Promise<JobResponse> {
+async function waitForJob(jobId: string, maxTries = 10, intervalMs = 350): Promise<JobResponse> {
   let current = await gameKnifeApiClient.getJob(jobId);
-  for (let index = 0; index < 10 && (current.status === "pending" || current.status === "running"); index += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+  for (let index = 0; index < maxTries && (current.status === "pending" || current.status === "running"); index += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
     current = await gameKnifeApiClient.getJob(jobId);
   }
   return current;

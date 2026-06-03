@@ -25,6 +25,7 @@ from gameknife_api.job_service import (
     run_sequence_clean_job,
     run_sequence_export_frames_job,
     run_sequence_export_spine_job,
+    run_sequence_generate_video_job,
     run_sequence_from_video_job,
     run_sound_effect_job,
     run_upscale_job,
@@ -49,11 +50,15 @@ from gameknife_api.schemas import (
     SequenceUpdateRequest,
     SettingsResponse,
     SoundEffectRequest,
+    VideoGenerationConfigRequest,
+    VideoGenerationConfigResponse,
+    VideoSequenceGenerateRequest,
     VideoToSequenceRequest,
 )
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_api.stable_audio import StableAudioService
+from gameknife_api.video_generation import VideoGenerationClient
 
 router = APIRouter()
 
@@ -131,6 +136,7 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 @router.get("/settings", response_model=SettingsResponse)
 def settings(
     context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
     return SettingsResponse(
@@ -138,6 +144,7 @@ def settings(
         workspace_id=context.workspace.id,
         storage="local_file_storage",
         models={"stable_audio": stable_audio.install_status()},
+        video_generation=VideoGenerationClient(repository).read_config(),
     )
 
 
@@ -485,8 +492,32 @@ def create_sequence_clean_task(
 
 
 @router.post("/sequences/generate-from-image", response_model=JobResponse)
-def create_sequence_generate_video_task() -> JobResponse:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="视频生成 API 尚未配置。")
+def create_sequence_generate_video_task(
+    payload: VideoSequenceGenerateRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> JobResponse:
+    if not payload.confirmed_external_api:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
+    input_asset = _ensure_asset_exists(repository, context, payload.input_asset_id)
+    if not input_asset.mime_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是图片。")
+    try:
+        VideoGenerationClient(repository).ensure_configured()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    parameters = payload.model_dump()
+    job = create_job(
+        repository,
+        context,
+        job_type="sequence_generate_video",
+        input_asset_id=input_asset.id,
+        parameters=parameters,
+    )
+    background_tasks.add_task(run_sequence_generate_video_job, repository, context, job.id)
+    return _job_response(job, context, repository)
 
 
 @router.post("/sequences/from-video", response_model=JobResponse)
@@ -1029,6 +1060,33 @@ def start_stable_audio_install(stable_audio: StableAudioService = Depends(get_st
         return stable_audio.start_install()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.get("/settings/video-generation", response_model=VideoGenerationConfigResponse)
+def read_video_generation_settings(
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> VideoGenerationConfigResponse:
+    return VideoGenerationConfigResponse(**VideoGenerationClient(repository).read_config())
+
+
+@router.patch("/settings/video-generation", response_model=VideoGenerationConfigResponse)
+def update_video_generation_settings(
+    payload: VideoGenerationConfigRequest,
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> VideoGenerationConfigResponse:
+    data = payload.model_dump()
+    return VideoGenerationConfigResponse(**VideoGenerationClient(repository).save_config(data, updated_at=_now()))
+
+
+@router.post("/settings/video-generation/test")
+def test_video_generation_settings(
+    payload: VideoGenerationConfigRequest,
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+) -> dict[str, object]:
+    try:
+        return VideoGenerationClient(repository).test_config(payload.model_dump())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _create_prompt_asset(repository: SQLiteGameKnifeRepository, context: RequestContext, prompt: str) -> AssetRecord:

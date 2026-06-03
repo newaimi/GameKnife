@@ -920,6 +920,22 @@ class SQLiteGameKnifeRepository:
             rows = connection.execute("SELECT key, value FROM system_settings ORDER BY key").fetchall()
         return {row["key"]: row["value"] for row in rows}
 
+    def read_setting(self, key: str, default: str = "") -> str:
+        with self._connect() as connection:
+            row = connection.execute("SELECT value FROM system_settings WHERE key = ?", (key,)).fetchone()
+        return str(row["value"]) if row else default
+
+    def write_setting(self, key: str, value: str, *, updated_at: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO system_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, value, updated_at),
+            )
+
     def table_columns(self, table_name: str) -> list[str]:
         # 测试通过真实 schema 检查字段，避免 Community 数据表重新混入账号字段。
         with self._connect() as connection:

@@ -162,6 +162,7 @@ a {
 
 .field-label input,
 .field-label textarea,
+.field-label select,
 .number-field input {
   width: 100%;
   min-height: 36px;
@@ -175,6 +176,15 @@ a {
 .field-label textarea {
   min-height: 140px;
   resize: vertical;
+}
+
+.check-row {
+  min-height: 36px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  color: #475467;
 }
 
 .primary-button,
@@ -333,6 +343,17 @@ a {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 10px;
+}
+
+.settings-form {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-form h2 {
+  margin: 0;
+  font-size: 18px;
 }
 
 .error-text {
