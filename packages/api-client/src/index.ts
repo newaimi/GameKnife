@@ -64,6 +64,20 @@ export class GameKnifeApiClient {
     return this.createAssetJob("/api/jobs/upscale", inputAssetId, parameters);
   }
 
+  async createSoundEffectJob(payload: {
+    prompt: string;
+    duration_seconds: number;
+    seed?: number | null;
+    steps: number;
+    cfg_scale: number;
+  }): Promise<JobResponse> {
+    return this.requestJson<JobResponse>("/api/jobs/sound-effect", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+  }
+
   async createAssetBoardRegionJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/asset-board/regions", inputAssetId, parameters);
   }

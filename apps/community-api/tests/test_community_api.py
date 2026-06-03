@@ -50,6 +50,22 @@ def make_sequence_frame_bytes(color: tuple[int, int, int, int]) -> bytes:
     return buffer.getvalue()
 
 
+class FakeStableAudioService:
+    def install_status(self) -> dict[str, object]:
+        return {"status": "success", "installed": True, "message": "ok", "error": None}
+
+    def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, object]) -> dict[str, object]:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
+        return {
+            "model": "fake-stable-audio",
+            "device": "cpu",
+            "sample_rate": 44100,
+            "queue_wait_ms": 0,
+            "duration_ms": 5,
+        }
+
+
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/context")
@@ -117,6 +133,50 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["edition"] == "community"
+    assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
+
+
+def test_sound_effect_unconfigured_returns_chinese_error(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/api/jobs/sound-effect",
+            json={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Stable Audio 声效服务未配置。"
+
+
+def test_sound_effect_job_creates_wav_asset(tmp_path: Path) -> None:
+    settings = CommunitySettings(
+        storage_root=tmp_path / "storage",
+        database_path=tmp_path / "storage" / "gameknife.sqlite3",
+        cors_origins=["*"],
+        stable_audio_base_url="http://stable-audio",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        app.state.stable_audio = FakeStableAudioService()
+        created = client.post(
+            "/api/jobs/sound-effect",
+            json={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        output = client.get(job["result"]["output_assets"][0]["url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "sound_effect_generate"
+    assert job["result"]["prompt"] == "coin pickup"
+    assert job["result"]["output_assets"][0]["url"].startswith("/api/assets/")
+    assert output.status_code == 200
+    assert output.content.startswith(b"RIFF")
+    with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+        row = connection.execute(
+            "SELECT kind, mime_type FROM assets WHERE id = ?",
+            (job["input_asset_id"],),
+        ).fetchone()
+    assert row == ("sound_prompt", "text/plain")
 
 
 def test_pixel_upscale_job_creates_output_asset(tmp_path: Path) -> None:

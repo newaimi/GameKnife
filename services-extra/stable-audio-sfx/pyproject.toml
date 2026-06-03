@@ -7,7 +7,7 @@ name = "gameknife-stable-audio-sfx"
 version = "0.1.0"
 description = "GameKnife Stable Audio sound effect service"
 requires-python = ">=3.11"
-dependencies = ["fastapi", "uvicorn[standard]"]
+dependencies = ["fastapi", "uvicorn[standard]", "numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]

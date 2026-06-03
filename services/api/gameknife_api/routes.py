@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
-from gameknife_api.deps import get_repository, get_request_context
+from gameknife_api.deps import get_repository, get_request_context, get_stable_audio_service
 from gameknife_api.job_service import (
     create_job,
     delete_job,
@@ -21,6 +21,7 @@ from gameknife_api.job_service import (
     run_sequence_clean_job,
     run_sequence_export_frames_job,
     run_sequence_export_spine_job,
+    run_sound_effect_job,
     run_upscale_job,
 )
 from gameknife_api.schemas import (
@@ -41,6 +42,7 @@ from gameknife_api.schemas import (
 )
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_api.stable_audio import StableAudioService
 
 router = APIRouter()
 
@@ -106,12 +108,15 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 
 
 @router.get("/settings", response_model=SettingsResponse)
-def settings(context: RequestContext = Depends(get_request_context)) -> SettingsResponse:
+def settings(
+    context: RequestContext = Depends(get_request_context),
+    stable_audio: StableAudioService = Depends(get_stable_audio_service),
+) -> SettingsResponse:
     return SettingsResponse(
         edition="community",
         workspace_id=context.workspace.id,
         storage="local_file_storage",
-        models={},
+        models={"stable_audio": stable_audio.install_status()},
     )
 
 
@@ -208,8 +213,33 @@ def create_upscale_job(
 
 
 @router.post("/jobs/sound-effect", response_model=JobResponse)
-def create_sound_effect_job(payload: SoundEffectRequest) -> JobResponse:
-    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stable Audio 声效服务不可用。")
+def create_sound_effect_job(
+    payload: SoundEffectRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    stable_audio: StableAudioService = Depends(get_stable_audio_service),
+) -> JobResponse:
+    prompt = payload.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入声效提示词。")
+
+    install_status = stable_audio.install_status()
+    if install_status.get("status") in {"unconfigured", "unavailable"}:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(install_status.get("message") or "Stable Audio 声效服务不可用。"))
+    if not install_status.get("installed"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
+
+    prompt_asset = _create_prompt_asset(repository, context, prompt)
+    job = create_job(
+        repository,
+        context,
+        job_type="sound_effect_generate",
+        input_asset_id=prompt_asset.id,
+        parameters=payload.model_dump(),
+    )
+    background_tasks.add_task(run_sound_effect_job, repository, context, stable_audio, job.id)
+    return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/regions", response_model=JobResponse)
@@ -598,6 +628,46 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
         size_bytes=asset.size_bytes,
         url=f"/api/assets/{asset.id}",
     )
+
+
+@router.get("/settings/stable-audio/install")
+def read_stable_audio_install(stable_audio: StableAudioService = Depends(get_stable_audio_service)) -> dict[str, object]:
+    return stable_audio.install_status()
+
+
+@router.post("/settings/stable-audio/install")
+def start_stable_audio_install(stable_audio: StableAudioService = Depends(get_stable_audio_service)) -> dict[str, object]:
+    try:
+        return stable_audio.start_install()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+def _create_prompt_asset(repository: SQLiteGameKnifeRepository, context: RequestContext, prompt: str) -> AssetRecord:
+    # 声效任务也走统一的 input_asset_id，是为了让任务历史、删除清理和商用 repository 注入保持同一套形态。
+    # 提示词保存为文本 asset 后，后续审计和失败重试都能从资产链路找到原始输入。
+    asset_id = uuid4().hex
+    content = prompt.encode("utf-8")
+    now = _now()
+    relative_path = context.storage.write_asset(asset_id, "sound_prompt.txt", content)
+    asset = AssetRecord(
+        id=asset_id,
+        workspace_id=context.workspace.id,
+        created_by=context.principal.id,
+        kind="sound_prompt",
+        original_name="sound_prompt.txt",
+        path=relative_path,
+        mime_type="text/plain",
+        size_bytes=len(content),
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        repository.create_asset(asset)
+    except Exception:
+        context.storage.remove_asset_file(relative_path)
+        raise
+    return asset
 
 
 async def _save_sequence_upload(

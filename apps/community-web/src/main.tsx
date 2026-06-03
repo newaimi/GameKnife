@@ -12,6 +12,7 @@ import {
   CommunityToolHome,
   ModelRequiredWorkspace,
   SequenceWorkspace,
+  SoundEffectWorkspace,
   UpscaleWorkspace,
 } from "@gameknife/image-workflows";
 import type { AppContext } from "@gameknife/shared-types";
@@ -80,7 +81,7 @@ function App() {
               <Route path="/tools/video-generate" element={<ModelRequiredWorkspace title="AI生成视频" />} />
               <Route path="/tools/video-to-sequence" element={<ModelRequiredWorkspace title="视频转帧" />} />
               <Route path="/tools/character-rig" element={<ModelRequiredWorkspace title="骨骼拆分" />} />
-              <Route path="/tools/sound-effect" element={<ModelRequiredWorkspace title="声效生成" />} />
+              <Route path="/tools/sound-effect" element={<SoundEffectWorkspace />} />
               <Route path="/manual-edit" element={<ModelRequiredWorkspace title="手动编辑" />} />
               <Route path="*" element={<CommunityToolHome />} />
             </Routes>

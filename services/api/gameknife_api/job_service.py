@@ -9,6 +9,7 @@ from uuid import uuid4
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_processors import AssetBoardSplitProcessor, SequenceFrameProcessor, UpscaleProcessor
+from gameknife_api.stable_audio import StableAudioService
 
 upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
@@ -128,6 +129,50 @@ def run_asset_board_export_job(repository: SQLiteGameKnifeRepository, context: R
             parameters.get("components") if isinstance(parameters.get("components"), list) else None,
         )
         output_assets = _register_output_assets(repository, context, result.output_paths, "asset_component", "application/zip")
+        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_sound_effect_job(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    stable_audio: StableAudioService,
+    job_id: str,
+) -> None:
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    if job is None:
+        return
+    prompt_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
+    if prompt_asset is None:
+        _mark_failed(repository, context, job_id, "声效提示词不存在。")
+        return
+
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    try:
+        prompt_path = context.storage.resolve_asset_path(prompt_asset.path)
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+        if not prompt:
+            raise RuntimeError("声效提示词不能为空。")
+        parameters = json.loads(job.parameters_json)
+        output_path = _output_path(context, job.id, "sound_effect.wav")
+        metadata = stable_audio.generate_sound_effect(prompt, output_path, parameters)
+        result = ProcessResult(
+            output_paths=[output_path],
+            result={
+                "prompt": prompt,
+                "duration_seconds": parameters.get("duration_seconds"),
+                "seed": parameters.get("seed"),
+                "steps": parameters.get("steps"),
+                "cfg_scale": parameters.get("cfg_scale"),
+                "model": metadata.get("model"),
+                "sample_rate": metadata.get("sample_rate"),
+                "queue_wait_ms": metadata.get("queue_wait_ms"),
+            },
+            duration_ms=int(metadata.get("duration_ms") or 0),
+            device=str(metadata.get("device") or ""),
+        )
+        output_assets = _register_output_assets(repository, context, result.output_paths, "sound_effect", "audio/wav")
         _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
     except Exception as exc:  # noqa: BLE001
         _mark_failed(repository, context, job_id, str(exc))

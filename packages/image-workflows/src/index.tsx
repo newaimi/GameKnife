@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Download, Image as ImageIcon, Play, RefreshCw, Trash2, UploadCloud } from "lucide-react";
+import { Download, Image as ImageIcon, Play, RefreshCw, Trash2, UploadCloud, Volume2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { AssetResponse, JobResponse, OutputAssetRef, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
@@ -240,6 +240,70 @@ export function SequenceWorkspace() {
           </button>
           <StatusLine error={error} job={job} />
           {sequence ? <span>{sequence.frame_count} 帧</span> : null}
+        </div>
+      }
+      results={<JobResult job={job} />}
+    />
+  );
+}
+
+export function SoundEffectWorkspace() {
+  const [prompt, setPrompt] = useState("coin pickup");
+  const [durationSeconds, setDurationSeconds] = useState(4);
+  const [steps, setSteps] = useState(100);
+  const [cfgScale, setCfgScale] = useState(7);
+  const [seed, setSeed] = useState(-1);
+  const [job, setJob] = useState<JobResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function run() {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      setError("请输入声效提示词。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await gameKnifeApiClient.createSoundEffectJob({
+        prompt: trimmedPrompt,
+        duration_seconds: durationSeconds,
+        seed,
+        steps,
+        cfg_scale: cfgScale,
+      });
+      setJob(await waitForJob(created.id));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolLayout
+      title="声效生成"
+      left={
+        <div className="tool-panel">
+          <label className="field-label">
+            提示词
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={7} />
+          </label>
+        </div>
+      }
+      center={<WorkbenchPreview emptyLabel="暂无声效" />}
+      right={
+        <div className="tool-panel">
+          <NumberField label="时长" value={durationSeconds} min={1} max={30} step={1} onChange={setDurationSeconds} />
+          <NumberField label="步数" value={steps} min={10} max={250} step={10} onChange={setSteps} />
+          <NumberField label="CFG" value={cfgScale} min={1} max={20} step={0.5} onChange={setCfgScale} />
+          <NumberField label="种子" value={seed} min={-1} max={2147483647} step={1} onChange={setSeed} />
+          <button className="primary-button" disabled={busy} onClick={run} type="button">
+            <Volume2 size={18} />
+            生成
+          </button>
+          <StatusLine error={error} job={job} />
         </div>
       }
       results={<JobResult job={job} />}

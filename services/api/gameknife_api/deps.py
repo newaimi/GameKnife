@@ -9,6 +9,7 @@ from fastapi import Request
 from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_storage import LocalStorageProvider
+from gameknife_api.stable_audio import StableAudioService
 
 COMMUNITY_FEATURES = frozenset(
     {
@@ -33,23 +34,44 @@ class CommunitySettings:
     storage_root: Path
     database_path: Path
     cors_origins: list[str]
+    stable_audio_base_url: str = ""
+    stable_audio_token: str = ""
+    stable_audio_timeout_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> "CommunitySettings":
         storage_root = Path(os.getenv("GAMEKNIFE_STORAGE_ROOT", "storage")).resolve()
-        database_path = Path(os.getenv("GAMEKNIFE_SQLITE_PATH", storage_root / "gameknife.sqlite3")).resolve()
+        # Community 数据库路径使用 GAMEKNIFE_DB_PATH，保持品牌迁移后的统一环境变量口径。
+        database_path = Path(os.getenv("GAMEKNIFE_DB_PATH", storage_root / "gameknife.sqlite3")).resolve()
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
-        return cls(storage_root=storage_root, database_path=database_path, cors_origins=cors_origins or ["*"])
+        stable_audio_timeout_seconds = int(os.getenv("GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS", "900"))
+        return cls(
+            storage_root=storage_root,
+            database_path=database_path,
+            cors_origins=cors_origins or ["*"],
+            stable_audio_base_url=os.getenv("GAMEKNIFE_STABLE_AUDIO_BASE_URL", "").strip(),
+            stable_audio_token=os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "").strip(),
+            stable_audio_timeout_seconds=stable_audio_timeout_seconds,
+        )
 
 
 def build_runtime_state(app, settings: CommunitySettings) -> None:
     app.state.settings = settings
     app.state.repository = SQLiteGameKnifeRepository(settings.database_path)
     app.state.storage = LocalStorageProvider(settings.storage_root)
+    app.state.stable_audio = StableAudioService(
+        settings.stable_audio_base_url,
+        settings.stable_audio_token,
+        settings.stable_audio_timeout_seconds,
+    )
 
 
 def get_repository(request: Request) -> SQLiteGameKnifeRepository:
     return request.app.state.repository
+
+
+def get_stable_audio_service(request: Request) -> StableAudioService:
+    return request.app.state.stable_audio
 
 
 def get_request_context(request: Request) -> RequestContext:

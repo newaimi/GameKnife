@@ -159,13 +159,20 @@ a {
 }
 
 .field-label input,
+.field-label textarea,
 .number-field input {
   width: 100%;
   min-height: 36px;
-  padding: 0 10px;
+  padding: 8px 10px;
   border: 1px solid #c8cfda;
   border-radius: 8px;
   color: #172033;
+  font: inherit;
+}
+
+.field-label textarea {
+  min-height: 140px;
+  resize: vertical;
 }
 
 .primary-button,
