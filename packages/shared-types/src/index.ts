@@ -53,3 +53,56 @@ export interface JobResponse {
   created_at: string;
   updated_at: string;
 }
+
+export interface JobPageResponse {
+  items: JobResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface SequenceFrameResponse {
+  id: string;
+  sequence_id: string;
+  source_asset_id: string;
+  processed_asset_id?: string | null;
+  frame_index: number;
+  original_name: string;
+  width: number;
+  height: number;
+  bbox: number[];
+  offset_x: number;
+  offset_y: number;
+  duration_ms: number;
+  enabled: boolean;
+  is_generated: boolean;
+  source_url: string;
+  preview_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SequenceResponse {
+  id: string;
+  name: string;
+  fps: number;
+  loop: boolean;
+  canvas_width: number;
+  canvas_height: number;
+  anchor_mode: string;
+  anchor_x: number;
+  anchor_y: number;
+  clean_parameters: Record<string, unknown>;
+  status: string;
+  frame_count: number;
+  enabled_frame_count: number;
+  frames: SequenceFrameResponse[];
+  warnings: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OutputAssetRef {
+  id: string;
+  url: string;
+}

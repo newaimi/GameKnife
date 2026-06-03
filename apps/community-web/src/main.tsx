@@ -4,7 +4,16 @@ import { Link, BrowserRouter, Route, Routes } from "react-router-dom";
 import { Settings, HelpCircle, ClipboardList, Home } from "lucide-react";
 import { GameKnifeAppContext, communityContext } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
-import { CommunityToolHome } from "@gameknife/image-workflows";
+import {
+  AssetBoardWorkspace,
+  CommunityHelpPage,
+  CommunityJobsPage,
+  CommunitySettingsPage,
+  CommunityToolHome,
+  ModelRequiredWorkspace,
+  SequenceWorkspace,
+  UpscaleWorkspace,
+} from "@gameknife/image-workflows";
 import type { AppContext } from "@gameknife/shared-types";
 import "./styles.css";
 
@@ -61,9 +70,18 @@ function App() {
           <main className="content">
             <Routes>
               <Route path="/" element={<CommunityToolHome />} />
-              <Route path="/jobs" element={<Placeholder title="任务" />} />
-              <Route path="/settings" element={<Placeholder title="设置" />} />
-              <Route path="/help" element={<Placeholder title="帮助" />} />
+              <Route path="/jobs" element={<CommunityJobsPage />} />
+              <Route path="/settings" element={<CommunitySettingsPage />} />
+              <Route path="/help" element={<CommunityHelpPage />} />
+              <Route path="/tools/background-remove" element={<ModelRequiredWorkspace title="去背景" />} />
+              <Route path="/tools/upscale" element={<UpscaleWorkspace />} />
+              <Route path="/tools/asset-board" element={<AssetBoardWorkspace />} />
+              <Route path="/tools/sequence" element={<SequenceWorkspace />} />
+              <Route path="/tools/video-generate" element={<ModelRequiredWorkspace title="AI生成视频" />} />
+              <Route path="/tools/video-to-sequence" element={<ModelRequiredWorkspace title="视频转帧" />} />
+              <Route path="/tools/character-rig" element={<ModelRequiredWorkspace title="骨骼拆分" />} />
+              <Route path="/tools/sound-effect" element={<ModelRequiredWorkspace title="声效生成" />} />
+              <Route path="/manual-edit" element={<ModelRequiredWorkspace title="手动编辑" />} />
               <Route path="*" element={<CommunityToolHome />} />
             </Routes>
           </main>
@@ -71,10 +89,6 @@ function App() {
       </BrowserRouter>
     </GameKnifeAppContext.Provider>
   );
-}
-
-function Placeholder({ title }: { title: string }) {
-  return <section className="placeholder">{title}</section>;
 }
 
 createRoot(document.getElementById("root")!).render(

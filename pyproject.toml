@@ -34,6 +34,15 @@ pythonpath = [
 ]
 
 [tool.hatch.build.targets.wheel]
+dev-mode-dirs = [
+  "apps/community-api",
+  "services/core",
+  "services/jobs",
+  "services/storage",
+  "services/api",
+  "services/processors",
+  "services/workflows",
+]
 packages = [
   "apps/community-api/community_api",
   "services/core/gameknife_core",
