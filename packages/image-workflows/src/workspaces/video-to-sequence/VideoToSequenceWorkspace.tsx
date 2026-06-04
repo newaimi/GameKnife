@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
-import type { JobResponse, OutputAssetRef, SequenceResponse, VideoToSequenceParameters } from "@gameknife/shared-types";
+import type { JobResponse, SequenceResponse, VideoToSequenceParameters } from "@gameknife/shared-types";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { VideoUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
@@ -11,6 +11,7 @@ import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { readString } from "../../utils/jobs";
 import { VideoToSequenceEditor } from "../sequence/VideoSequenceEditors";
+import { consumeVideoToSequenceTransfer } from "../sequence/videoToSequenceTransfer";
 
 const DEFAULT_VIDEO_TO_SEQUENCE_PARAMS: VideoToSequenceParameters = {
   action: "walk_down",
@@ -53,21 +54,11 @@ export function VideoToSequenceWorkspace() {
   const error = uploadError || jobError;
 
   useEffect(() => {
-    const raw = window.sessionStorage.getItem("gameknife-video-to-sequence-asset");
-    if (!raw) {
-      return;
-    }
-    window.sessionStorage.removeItem("gameknife-video-to-sequence-asset");
     try {
-      const asset = JSON.parse(raw) as OutputAssetRef;
-      if (asset?.id && asset.url) {
-        setVideo({
-          id: asset.id,
-          filename: "generated-video.mp4",
-          mime_type: "video/mp4",
-          size_bytes: 0,
-          url: asset.url,
-        });
+      const transfer = consumeVideoToSequenceTransfer();
+      if (transfer) {
+        setVideo(transfer.asset);
+        setParams((current) => ({ ...current, action: transfer.action }));
       }
     } catch {
       setError("读取生成视频失败。");

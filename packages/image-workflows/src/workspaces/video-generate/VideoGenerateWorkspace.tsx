@@ -10,6 +10,7 @@ import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { VideoGenerateEditor } from "../sequence/VideoSequenceEditors";
+import { saveVideoToSequenceTransfer } from "../sequence/videoToSequenceTransfer";
 
 const DEFAULT_VIDEO_PARAMS: VideoSequenceGenerateParameters = {
   action: "walk_down",
@@ -23,6 +24,7 @@ type VideoJobResponse = JobResponse & {
   result: JobResponse["result"] & {
     video_url?: string;
     video_filename?: string;
+    video_size_bytes?: number;
   };
 };
 
@@ -62,7 +64,16 @@ export function VideoGenerateWorkspace() {
     if (!outputAsset) {
       return;
     }
-    window.sessionStorage.setItem("gameknife-video-to-sequence-asset", JSON.stringify(outputAsset));
+    saveVideoToSequenceTransfer({
+      asset: {
+        id: outputAsset.id,
+        filename: job?.result.video_filename || "generated-video.mp4",
+        mime_type: "video/mp4",
+        size_bytes: job?.result.video_size_bytes ?? 0,
+        url: outputAsset.url,
+      },
+      action: params.action,
+    });
     window.location.href = "/tools/video-to-sequence";
   }
 
@@ -101,6 +112,7 @@ function toVideoJob(job: JobResponse): VideoJobResponse {
       ...job.result,
       video_url: typeof job.result.video_url === "string" ? job.result.video_url : outputAsset?.url,
       video_filename: typeof job.result.video_filename === "string" ? job.result.video_filename : "generated-video.mp4",
+      video_size_bytes: typeof job.result.video_size_bytes === "number" ? job.result.video_size_bytes : 0,
     },
   };
 }
