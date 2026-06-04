@@ -29,6 +29,8 @@ export const communityWorkflowRoutes = createFeatureRegistry(
     id: tool.id,
     path: tool.route,
     label: tool.label,
+    badge: tool.badge,
+    permission: tool.permission,
     component: workflowComponentById[tool.id],
   })),
 );
