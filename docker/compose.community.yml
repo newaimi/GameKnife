@@ -6,11 +6,29 @@ services:
       dockerfile: docker/community.Dockerfile
     environment:
       GAMEKNIFE_STORAGE_ROOT: /app/storage
-      GAMEKNIFE_SQLITE_PATH: /app/storage/gameknife.sqlite3
+      GAMEKNIFE_DB_PATH: /app/storage/gameknife.sqlite3
+      GAMEKNIFE_STABLE_AUDIO_BASE_URL: http://gameknife-stable-audio-sfx:8090
+      GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}
     ports:
       - "8000:8000"
     volumes:
       - gameknife-storage:/app/storage
+    depends_on:
+      - gameknife-stable-audio-sfx
+
+  gameknife-stable-audio-sfx:
+    image: gameknife-stable-audio-sfx:dev
+    build:
+      context: ..
+      dockerfile: docker/stable-audio-sfx.Dockerfile
+    environment:
+      GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}
+      GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE: 12
+    ports:
+      - "8090:8090"
+    volumes:
+      - gameknife-stable-audio-cache:/root/.cache
 
 volumes:
   gameknife-storage:
+  gameknife-stable-audio-cache:

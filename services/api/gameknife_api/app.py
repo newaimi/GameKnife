@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from gameknife_api.deps import CommunitySettings, build_runtime_state
 from gameknife_api.routes import router
@@ -30,4 +32,20 @@ def create_community_app(settings: CommunitySettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api")
+    if resolved_settings.web_dist and (resolved_settings.web_dist / "index.html").is_file():
+        assets_dir = resolved_settings.web_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="community-assets")
+
+        @app.get("/")
+        def community_index() -> FileResponse:
+            return FileResponse(resolved_settings.web_dist / "index.html")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def community_spa(path: str) -> FileResponse:
+            # 生产镜像由 FastAPI 同端口托管前端，SPA 路由统一回落到 index.html。
+            # API 路由已经挂在 /api 前缀下，静态回落不会接管后端接口。
+            if path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="接口不存在。")
+            return FileResponse(resolved_settings.web_dist / "index.html")
     return app

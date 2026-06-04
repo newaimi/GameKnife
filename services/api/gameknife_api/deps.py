@@ -37,6 +37,7 @@ class CommunitySettings:
     storage_root: Path
     database_path: Path
     cors_origins: list[str]
+    web_dist: Path | None = None
     stable_audio_base_url: str = ""
     stable_audio_token: str = ""
     stable_audio_timeout_seconds: int = 900
@@ -48,6 +49,7 @@ class CommunitySettings:
         storage_root = Path(os.getenv("GAMEKNIFE_STORAGE_ROOT", "storage")).resolve()
         # Community 数据库路径使用 GAMEKNIFE_DB_PATH，保持品牌迁移后的统一环境变量口径。
         database_path = Path(os.getenv("GAMEKNIFE_DB_PATH", storage_root / "gameknife.sqlite3")).resolve()
+        web_dist = Path(os.getenv("GAMEKNIFE_WEB_DIST", "apps/community-web/dist")).resolve()
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
         stable_audio_timeout_seconds = int(os.getenv("GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS", "900"))
         model_input_size = int(os.getenv("GAMEKNIFE_MODEL_INPUT_SIZE", "1024"))
@@ -56,6 +58,7 @@ class CommunitySettings:
             storage_root=storage_root,
             database_path=database_path,
             cors_origins=cors_origins or ["*"],
+            web_dist=web_dist,
             stable_audio_base_url=os.getenv("GAMEKNIFE_STABLE_AUDIO_BASE_URL", "").strip(),
             stable_audio_token=os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "").strip(),
             stable_audio_timeout_seconds=stable_audio_timeout_seconds,

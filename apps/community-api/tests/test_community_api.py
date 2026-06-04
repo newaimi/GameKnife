@@ -25,6 +25,19 @@ def make_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(settings))
 
 
+def make_client_with_web_dist(tmp_path: Path) -> TestClient:
+    web_dist = tmp_path / "web-dist"
+    web_dist.mkdir(parents=True)
+    (web_dist / "index.html").write_text("<!doctype html><title>GameKnife</title>", encoding="utf-8")
+    settings = CommunitySettings(
+        storage_root=tmp_path / "storage",
+        database_path=tmp_path / "storage" / "gameknife.sqlite3",
+        cors_origins=["*"],
+        web_dist=web_dist,
+    )
+    return TestClient(create_app(settings))
+
+
 def make_png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(buffer, format="PNG")
@@ -219,6 +232,18 @@ def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     assert data["workspace"]["id"] == "local"
     assert data["workspace"]["kind"] == "local"
     assert data["capabilities"]["edition"] == "community"
+
+
+def test_community_serves_web_dist_on_same_port(tmp_path: Path) -> None:
+    with make_client_with_web_dist(tmp_path) as client:
+        root_response = client.get("/")
+        spa_response = client.get("/tools/background-remove")
+        api_response = client.get("/api/health")
+
+    assert root_response.status_code == 200
+    assert "GameKnife" in root_response.text
+    assert spa_response.status_code == 200
+    assert api_response.status_code == 200
 
 
 def test_image_upload_creates_local_anonymous_asset(tmp_path: Path) -> None:
