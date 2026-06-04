@@ -7,6 +7,7 @@ import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { VideoGenerateEditor } from "../sequence/VideoSequenceEditors";
@@ -32,12 +33,13 @@ export function VideoGenerateWorkspace() {
   const [params, setParams] = useState<VideoSequenceGenerateParameters>(DEFAULT_VIDEO_PARAMS);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob<VideoJobResponse>();
   const device = useWorkflowDevice("video-generation");
+  const canWrite = useWorkflowWritePermission("video-generate");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({ onBeforeUpload: resetJob });
   const busy = uploading || jobBusy;
   const error = uploadError || jobError;
 
   async function run() {
-    if (!asset) {
+    if (!asset || !canWrite) {
       return;
     }
     await runJob({
@@ -82,6 +84,7 @@ export function VideoGenerateWorkspace() {
       <ImageUploadStrip
         title={asset ? "已导入角色图" : "上传角色图"}
         description="支持 PNG / JPG / WebP，调用外部 API 生成动作视频"
+        disabled={!canWrite}
         onFile={upload}
       />
       <ToolWorkspaceLayout activeToolId="video-generate">
@@ -91,6 +94,7 @@ export function VideoGenerateWorkspace() {
           videoTask={job}
           params={params}
           device={device}
+          canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}
           onStartProcess={run}

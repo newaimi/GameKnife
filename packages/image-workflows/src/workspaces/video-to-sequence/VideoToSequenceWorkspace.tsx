@@ -9,6 +9,7 @@ import { useAssetUpload } from "../../hooks/useAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { readString } from "../../utils/jobs";
 import { VideoToSequenceEditor } from "../sequence/VideoSequenceEditors";
 import { consumeVideoToSequenceTransfer } from "../sequence/videoToSequenceTransfer";
@@ -37,6 +38,7 @@ export function VideoToSequenceWorkspace() {
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob<VideoJobResponse>();
   const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("video-to-sequence");
   const {
     asset: video,
     setAsset: setVideo,
@@ -66,7 +68,7 @@ export function VideoToSequenceWorkspace() {
   }, []);
 
   async function createSequence() {
-    if (!video) {
+    if (!video || !canWrite) {
       return;
     }
     if (!(await ensureModelReady("birefnet"))) {
@@ -108,6 +110,7 @@ export function VideoToSequenceWorkspace() {
       <VideoUploadStrip
         title={video ? "已导入视频" : "导入视频"}
         description="支持 MP4 / WebM / MOV，本地抽帧并转成透明序列帧"
+        disabled={!canWrite}
         onFile={upload}
       />
       <ToolWorkspaceLayout activeToolId="video-to-sequence">
@@ -117,6 +120,7 @@ export function VideoToSequenceWorkspace() {
           currentTask={job}
           params={params}
           device={device}
+          canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}
           onCreateSequence={createSequence}

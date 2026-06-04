@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FailureDialogState, ManualEditSource } from "../../types/manualEdit";
 import { FailureDialog } from "../../components/FailureDialog";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { ManualEditPage } from "./ManualEditPage";
 import { loadManualEditTransfer } from "./transfer";
 
@@ -11,6 +12,7 @@ export function ManualEditWorkspace() {
   const [source, setSource] = useState<ManualEditSource | null>(null);
   const [gridVisible, setGridVisible] = useState(true);
   const [failureDialog, setFailureDialog] = useState<FailureDialogState | null>(null);
+  const canWrite = useWorkflowWritePermission("manual-edit");
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -47,6 +49,9 @@ export function ManualEditWorkspace() {
   }, [source]);
 
   function upload(file: File) {
+    if (!canWrite) {
+      return;
+    }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
     }
@@ -61,7 +66,15 @@ export function ManualEditWorkspace() {
 
   return (
     <>
-      <ManualEditPage source={source} gridVisible={gridVisible} fileInput={fileInput} onGridVisibleChange={setGridVisible} onUpload={upload} onFailure={setFailureDialog} />
+      <ManualEditPage
+        source={source}
+        gridVisible={gridVisible}
+        canWrite={canWrite}
+        fileInput={fileInput}
+        onGridVisibleChange={setGridVisible}
+        onUpload={upload}
+        onFailure={setFailureDialog}
+      />
       {failureDialog ? <FailureDialog dialog={failureDialog} onClose={() => setFailureDialog(null)} /> : null}
     </>
   );

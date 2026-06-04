@@ -29,6 +29,7 @@ const MANUAL_EDIT_BACKGROUND_PRESETS = ["#ffffff", "#f5f7fb", "#d7ecff", "#ff3b3
 export function ManualEditPage({
   source,
   gridVisible,
+  canWrite,
   fileInput,
   onGridVisibleChange,
   onUpload,
@@ -36,6 +37,7 @@ export function ManualEditPage({
 }: {
   source: ManualEditSource | null;
   gridVisible: boolean;
+  canWrite: boolean;
   fileInput: React.RefObject<HTMLInputElement | null>;
   onGridVisibleChange: React.Dispatch<React.SetStateAction<boolean>>;
   onUpload: (file: File) => void;
@@ -116,6 +118,9 @@ export function ManualEditPage({
   }, [status.layers]);
 
   function importImage() {
+    if (!canWrite) {
+      return;
+    }
     fileInput.current?.click();
   }
 
@@ -141,7 +146,7 @@ export function ManualEditPage({
   }
 
   async function saveEditedImage() {
-    if (!source || !editorRef.current || saving) return;
+    if (!source || !editorRef.current || saving || !canWrite) return;
     setSaving(true);
     setSaveMessage("");
     try {
@@ -218,6 +223,7 @@ export function ManualEditPage({
         type="file"
         accept="image/jpeg,image/png,image/webp"
         hidden
+        disabled={!canWrite}
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) onUpload(file);
@@ -265,10 +271,10 @@ export function ManualEditPage({
               </span>
             </div>
             <div className="manual-editor-export-actions">
-              <button className="ghost compact" type="button" onClick={importImage}>
+              <button className="ghost compact" type="button" disabled={!canWrite} onClick={importImage}>
                 导入
               </button>
-              <button className="ghost compact" type="button" disabled={!source} onClick={() => void saveEditedImage()}>
+              <button className="ghost compact" type="button" disabled={!source || !canWrite} onClick={() => void saveEditedImage()}>
                 保存
               </button>
               <button className="primary compact" type="button" disabled={!source} onClick={() => void downloadEditedImage()}>
@@ -299,7 +305,7 @@ export function ManualEditPage({
             ) : (
               <div className="manual-editor-empty">
                 <strong>导入一张图片</strong>
-                <button className="primary" type="button" onClick={importImage}>
+                <button className="primary" type="button" disabled={!canWrite} onClick={importImage}>
                   选择图片
                 </button>
               </div>
@@ -605,13 +611,13 @@ export function ManualEditPage({
             </div>
           </div>
 
-          <button className="ghost install-button" type="button" onClick={importImage}>
+          <button className="ghost install-button" type="button" disabled={!canWrite} onClick={importImage}>
             导入图片
           </button>
           <button className="ghost install-button" type="button" disabled={!source} onClick={() => void downloadEditedImage()}>
             下载
           </button>
-          <button className="primary install-button" type="button" disabled={!source || saving} onClick={() => void saveEditedImage()}>
+          <button className="primary install-button" type="button" disabled={!source || saving || !canWrite} onClick={() => void saveEditedImage()}>
             {saving ? "保存中" : "保存到资源库"}
           </button>
           {saveMessage ? <p className="helper-text">{saveMessage}</p> : null}

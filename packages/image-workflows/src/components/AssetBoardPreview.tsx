@@ -20,6 +20,7 @@ export function AssetBoardPreview({
   alphaDefringe,
   alphaThreshold,
   selectedComponents,
+  canWrite = true,
   onCompare,
   onToggle,
   onChangeComponentBbox,
@@ -36,6 +37,7 @@ export function AssetBoardPreview({
   alphaDefringe: number;
   alphaThreshold: number;
   selectedComponents: Set<number>;
+  canWrite?: boolean;
   onCompare: (value: number) => void;
   onToggle: (id: number) => void;
   onChangeComponentBbox: (id: number, bbox: [number, number, number, number]) => void;
@@ -99,7 +101,7 @@ export function AssetBoardPreview({
 
   const startEdit = (event: React.PointerEvent, component: ComponentCandidate, mode: ComponentEditMode) => {
     const frame = frameRef.current;
-    if (!frame || !imageSize) return;
+    if (!frame || !imageSize || !canWrite) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -143,9 +145,10 @@ export function AssetBoardPreview({
                   onDoubleClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (previewResultUrl) setPreviewComponent(component);
+                    if (previewResultUrl && canWrite) setPreviewComponent(component);
                   }}
                   onKeyDown={(event) => {
+                    if (!canWrite) return;
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       onToggle(component.id);
@@ -177,6 +180,7 @@ export function AssetBoardPreview({
           imageUrl={previewResultUrl}
           component={previewComponent}
           exportPadding={exportPadding}
+          manualEditDisabled={!canWrite}
           onManualEdit={onManualEdit}
           onClose={() => setPreviewComponent(null)}
         />
@@ -189,12 +193,14 @@ function ComponentPreviewModal({
   imageUrl,
   component,
   exportPadding,
+  manualEditDisabled,
   onManualEdit,
   onClose,
 }: {
   imageUrl: string;
   component: ComponentCandidate;
   exportPadding: number;
+  manualEditDisabled: boolean;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -215,7 +221,7 @@ function ComponentPreviewModal({
             <button
               className="primary compact"
               type="button"
-              disabled={!previewUrl}
+              disabled={!previewUrl || manualEditDisabled}
               onClick={() => previewUrl && void onManualEdit({ name: `组件-${component.id}.png`, url: previewUrl, sourceContext: "asset_component" })}
             >
               手动编辑

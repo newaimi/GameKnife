@@ -7,6 +7,7 @@ import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageSequenceUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
@@ -31,6 +32,7 @@ export function SequenceWorkspace() {
   const [params, setParams] = useState<SequenceCleanParameters>(DEFAULT_SEQUENCE_PARAMS);
   const [operationBusy, setOperationBusy] = useState(false);
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
+  const canWrite = useWorkflowWritePermission("sequence");
   const busy = operationBusy || jobBusy;
   const outputAsset = readFirstJobOutputAsset(job);
   const requestedSequenceId = searchParams.get("sequence") ?? "";
@@ -51,6 +53,9 @@ export function SequenceWorkspace() {
   }
 
   async function importFrames(files: File[]) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -75,6 +80,9 @@ export function SequenceWorkspace() {
   }
 
   async function saveSettings(nextSequence: SequenceResponse, nextParams = params) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -99,7 +107,7 @@ export function SequenceWorkspace() {
   }
 
   async function saveFrames(frames: SequenceFrameResponse[]) {
-    if (!sequence) {
+    if (!sequence || !canWrite) {
       return;
     }
     setOperationBusy(true);
@@ -126,6 +134,9 @@ export function SequenceWorkspace() {
   }
 
   async function runSequenceJob(createJob: () => Promise<JobResponse>, refreshAfter = true) {
+    if (!canWrite) {
+      return;
+    }
     const finished = await runJob({
       createJob,
       failureTitle: "任务创建失败",
@@ -161,6 +172,9 @@ export function SequenceWorkspace() {
   }
 
   async function deleteSequence(sequenceId: string) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -178,6 +192,7 @@ export function SequenceWorkspace() {
       <ImageSequenceUploadStrip
         title={sequence ? "已导入序列帧" : "导入序列帧"}
         description="支持多选或文件夹选择后的 PNG / JPG / WebP 序列帧"
+        disabled={!canWrite}
         onFiles={importFrames}
       />
 
@@ -187,6 +202,7 @@ export function SequenceWorkspace() {
           sequences={sequences}
           params={params}
           currentTask={job}
+          canWrite={canWrite}
           onSelect={selectSequence}
           onSaveSettings={saveSettings}
           onSaveFrames={saveFrames}

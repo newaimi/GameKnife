@@ -12,6 +12,7 @@ export function SequenceEditor({
   sequences,
   params,
   currentTask,
+  canWrite,
   onSelect,
   onSaveSettings,
   onSaveFrames,
@@ -26,6 +27,7 @@ export function SequenceEditor({
   sequences: SequenceResponse[];
   params: SequenceCleanParameters;
   currentTask: JobResponse | null;
+  canWrite: boolean;
   onSelect: (sequenceId: string) => void | Promise<void>;
   onSaveSettings: (sequence: SequenceResponse, params?: SequenceCleanParameters) => void | Promise<void>;
   onSaveFrames: (frames: SequenceFrameResponse[]) => void | Promise<void>;
@@ -180,7 +182,7 @@ export function SequenceEditor({
             <button
               className="ghost compact sequence-clean-button"
               type="button"
-              disabled={!activeFrame || !activeUrl}
+              disabled={!activeFrame || !activeUrl || !canWrite}
               onClick={() =>
                 activeFrame && activeUrl
                   ? void onManualEdit({
@@ -194,7 +196,7 @@ export function SequenceEditor({
             >
               编辑帧
             </button>
-            <button className="primary compact sequence-clean-button" type="button" disabled={sequenceTaskRunning} onClick={() => void onClean()}>
+            <button className="primary compact sequence-clean-button" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onClean()}>
               {sequenceTaskRunning ? "处理中" : "清洗"}
             </button>
           </div>
@@ -293,17 +295,17 @@ export function SequenceEditor({
           onChange={(value) => onParamsChange((current) => ({ ...current, stabilize_strength: value }))}
         />
         <p className="helper-text">参考帧：{referenceFrame ? `${referenceFrame.frame_index + 1} · ${referenceFrame.original_name}` : "未锁定"}</p>
-        <button className="primary install-button" type="button" onClick={() => void onSaveSettings(draftSequence, params)}>
+        <button className="primary install-button" type="button" disabled={!canWrite} onClick={() => void onSaveSettings(draftSequence, params)}>
           保存设置
         </button>
         <div className="export-stack">
-          <button className="ghost" type="button" disabled={sequenceTaskRunning} onClick={() => void onExportFrames()}>
+          <button className="ghost" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onExportFrames()}>
             导出 PNG 序列
           </button>
-          <button className="ghost" type="button" disabled={sequenceTaskRunning} onClick={() => void onExportSpine()}>
+          <button className="ghost" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onExportSpine()}>
             导出 Spine
           </button>
-          <button className="ghost danger-text" type="button" onClick={() => void onDelete(sequence.id)}>
+          <button className="ghost danger-text" type="button" disabled={!canWrite} onClick={() => void onDelete(sequence.id)}>
             删除序列
           </button>
         </div>
@@ -346,7 +348,7 @@ export function SequenceEditor({
               Y 偏移
               <input type="number" value={activeFrame.offset_y} onChange={(event) => updateFrame(activeFrame.id, { offset_y: Number(event.target.value) })} />
             </label>
-            <button className="primary compact" type="button" onClick={() => void onSaveFrames(draftFrames)}>
+            <button className="primary compact" type="button" disabled={!canWrite} onClick={() => void onSaveFrames(draftFrames)}>
               保存帧调整
             </button>
           </div>

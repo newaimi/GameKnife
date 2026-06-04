@@ -131,6 +131,12 @@
   border-color: var(--blue);
 }
 
+.upload-strip.disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
 .upload-strip input[type="file"] {
   display: none;
 }

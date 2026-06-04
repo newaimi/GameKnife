@@ -18,6 +18,7 @@ export function ComparePreview({
   previewDescription = "双击打开的处理后图片。",
   manualEditName = "去背景结果.png",
   manualEditContext = "background_remove",
+  manualEditDisabled = false,
   onCompare,
   onManualEdit,
 }: {
@@ -28,6 +29,7 @@ export function ComparePreview({
   previewDescription?: string;
   manualEditName?: string;
   manualEditContext?: string;
+  manualEditDisabled?: boolean;
   onCompare: (value: number) => void;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
 }) {
@@ -75,6 +77,7 @@ export function ComparePreview({
           title={previewTitle}
           imageUrl={resultUrl}
           description={previewDescription}
+          manualEditDisabled={manualEditDisabled}
           onManualEdit={() => onManualEdit({ name: manualEditName, url: resultUrl, sourceContext: manualEditContext })}
           onClose={() => setPreviewOpen(false)}
         />
@@ -232,12 +235,14 @@ function ImagePreviewModal({
   title,
   imageUrl,
   description,
+  manualEditDisabled,
   onManualEdit,
   onClose,
 }: {
   title: string;
   imageUrl: string;
   description: string;
+  manualEditDisabled: boolean;
   onManualEdit: () => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -250,7 +255,7 @@ function ImagePreviewModal({
             <span>{description}</span>
           </div>
           <div className="component-preview-actions">
-            <button className="primary compact" type="button" onClick={() => void onManualEdit()}>
+            <button className="primary compact" type="button" disabled={manualEditDisabled} onClick={() => void onManualEdit()}>
               手动编辑
             </button>
             <button className="ghost compact" type="button" onClick={onClose}>

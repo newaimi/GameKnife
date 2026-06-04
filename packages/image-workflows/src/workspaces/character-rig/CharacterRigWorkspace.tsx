@@ -8,6 +8,7 @@ import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
@@ -32,6 +33,7 @@ export function CharacterRigWorkspace() {
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
   const device = useWorkflowDevice("character-rig");
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("character-rig");
   const busy = operationBusy || jobBusy;
   const outputAsset = readFirstJobOutputAsset(job);
 
@@ -49,6 +51,9 @@ export function CharacterRigWorkspace() {
   }
 
   async function importRig(file: File) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -69,6 +74,9 @@ export function CharacterRigWorkspace() {
   }
 
   async function saveSettings(nextRig: CharacterRigResponse) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -86,7 +94,7 @@ export function CharacterRigWorkspace() {
   }
 
   async function saveParts(parts: CharacterPartResponse[]) {
-    if (!rig) {
+    if (!rig || !canWrite) {
       return;
     }
     setOperationBusy(true);
@@ -117,7 +125,7 @@ export function CharacterRigWorkspace() {
   }
 
   async function runRigJob(createJob: () => Promise<JobResponse>, refresh = true) {
-    if (!rig) {
+    if (!rig || !canWrite) {
       return;
     }
     const finished = await runJob({
@@ -169,6 +177,9 @@ export function CharacterRigWorkspace() {
   }
 
   async function deleteRig(rigId: string) {
+    if (!canWrite) {
+      return;
+    }
     setOperationBusy(true);
     setError("");
     try {
@@ -188,6 +199,7 @@ export function CharacterRigWorkspace() {
       <ImageUploadStrip
         title={rig ? "已导入角色图" : "导入完整角色图"}
         description="支持完整类人角色设计图，PNG / JPG / WebP"
+        disabled={!canWrite}
         onFile={importRig}
       />
 
@@ -197,6 +209,7 @@ export function CharacterRigWorkspace() {
           rigs={rigs}
           params={params}
           currentTask={job}
+          canWrite={canWrite}
           device={device}
           onSelect={selectRig}
           onSaveSettings={saveSettings}

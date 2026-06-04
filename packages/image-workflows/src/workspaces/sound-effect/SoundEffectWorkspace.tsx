@@ -9,6 +9,7 @@ import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
 
@@ -24,6 +25,7 @@ export function SoundEffectWorkspace() {
   const [params, setParams] = useState<SoundEffectParameters>(DEFAULT_SOUND_EFFECT_PARAMS);
   const { job, busy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("sound-effect");
   const outputAsset = job?.type === "sound_effect_generate" ? readFirstJobOutputAsset(job) : undefined;
   const audioUrl = useObjectUrl(outputAsset?.url ?? "");
   const title = job?.type === "sound_effect_generate" && job.status === "success" ? "声效已生成" : "文字生成声效";
@@ -33,6 +35,9 @@ export function SoundEffectWorkspace() {
       : "输入游戏声效提示词后生成 WAV 文件。";
 
   async function run() {
+    if (!canWrite) {
+      return;
+    }
     const prompt = params.prompt.trim();
     if (!prompt) {
       setError("请输入声效提示词。");
@@ -64,7 +69,7 @@ export function SoundEffectWorkspace() {
                   下载
                 </button>
               ) : null}
-              <button className="primary" type="button" disabled={!params.prompt.trim() || busy} onClick={() => void run()}>
+              <button className="primary" type="button" disabled={!params.prompt.trim() || busy || !canWrite} onClick={() => void run()}>
                 <Wand2 size={17} strokeWidth={2.4} />
                 {busy ? "生成中" : "生成声效"}
               </button>

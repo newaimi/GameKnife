@@ -9,6 +9,7 @@ import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { downloadOutputAsset } from "../../utils/assets";
@@ -21,6 +22,7 @@ export function BackgroundRemoveWorkspace() {
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
   const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("background-remove");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
     onBeforeUpload: () => {
       resetJob();
@@ -32,7 +34,7 @@ export function BackgroundRemoveWorkspace() {
   const outputAsset = job?.type === "background_remove" ? readFirstJobOutputAsset(job) : undefined;
 
   async function run() {
-    if (!asset) {
+    if (!asset || !canWrite) {
       return;
     }
     if (!(await ensureModelReady("birefnet"))) {
@@ -52,6 +54,7 @@ export function BackgroundRemoveWorkspace() {
       <ImageUploadStrip
         title={asset ? "已上传图片" : "上传图片"}
         description="支持 JPG / PNG / WebP，最大 50MB"
+        disabled={!canWrite}
         onFile={upload}
       />
 
@@ -69,7 +72,7 @@ export function BackgroundRemoveWorkspace() {
                   下载
                 </button>
               ) : null}
-              <button className="primary" type="button" disabled={!asset || busy} onClick={() => void run()}>
+              <button className="primary" type="button" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
                 {busy ? "处理中" : "开始处理"}
               </button>
             </div>
@@ -84,6 +87,7 @@ export function BackgroundRemoveWorkspace() {
                 result={outputAsset?.url ?? ""}
                 compare={compare}
                 onCompare={setCompare}
+                manualEditDisabled={!canWrite}
                 onManualEdit={openManualEdit}
               />
             )}

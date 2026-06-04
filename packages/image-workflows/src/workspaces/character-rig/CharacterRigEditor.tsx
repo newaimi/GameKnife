@@ -11,6 +11,7 @@ export function CharacterRigEditor({
   rigs,
   params,
   currentTask,
+  canWrite,
   device,
   onSelect,
   onSaveSettings,
@@ -27,6 +28,7 @@ export function CharacterRigEditor({
   rigs: CharacterRigResponse[];
   params: CharacterRigAnalyzeParameters;
   currentTask: JobResponse | null;
+  canWrite: boolean;
   device: string;
   onSelect: (rigId: string) => void | Promise<void>;
   onSaveSettings: (rig: CharacterRigResponse) => void | Promise<void>;
@@ -102,7 +104,7 @@ export function CharacterRigEditor({
 
   const startPartEdit = (event: React.PointerEvent, part: CharacterPartResponse, mode: ComponentEditMode) => {
     const frame = rigCanvasRef.current;
-    if (!frame) return;
+    if (!frame || !canWrite) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -153,7 +155,7 @@ export function CharacterRigEditor({
           </div>
         <div className="toolbar-actions">
           <span className="device-pill">{device}</span>
-          <button className="primary" type="button" disabled={rigTaskRunning} onClick={() => void onAnalyze()}>
+          <button className="primary" type="button" disabled={rigTaskRunning || !canWrite} onClick={() => void onAnalyze()}>
               {rigTaskRunning ? "处理中..." : "智能候选拆分"}
             </button>
           </div>
@@ -252,17 +254,17 @@ export function CharacterRigEditor({
           </>
         ) : null}
 
-        <button className="primary install-button" type="button" onClick={() => void onSaveSettings(draftRig)}>
+        <button className="primary install-button" type="button" disabled={!canWrite} onClick={() => void onSaveSettings(draftRig)}>
           保存项目
         </button>
         <div className="export-stack">
-          <button className="ghost" type="button" disabled={rigTaskRunning || !parts.length} onClick={() => void onExportSpine()}>
+          <button className="ghost" type="button" disabled={rigTaskRunning || !parts.length || !canWrite} onClick={() => void onExportSpine()}>
             导出 Spine
           </button>
-          <button className="ghost" type="button" disabled={rigTaskRunning || !parts.length} onClick={() => void onExportDragonBones()}>
+          <button className="ghost" type="button" disabled={rigTaskRunning || !parts.length || !canWrite} onClick={() => void onExportDragonBones()}>
             导出 DragonBones
           </button>
-          <button className="ghost danger-text" type="button" onClick={() => void onDelete(rig.id)}>
+          <button className="ghost danger-text" type="button" disabled={!canWrite} onClick={() => void onDelete(rig.id)}>
             删除项目
           </button>
         </div>
@@ -274,19 +276,19 @@ export function CharacterRigEditor({
             <div className="frame-editor rig-editor">
               <strong>{activePart.name}</strong>
               {activePartUrl ? <img className="rig-part-preview" src={activePartUrl} alt={activePart.name} /> : null}
-              <button className="ghost compact" type="button" onClick={() => updatePart(activePart.id, { enabled: !activePart.enabled })}>
+              <button className="ghost compact" type="button" disabled={!canWrite} onClick={() => updatePart(activePart.id, { enabled: !activePart.enabled })}>
                 {activePart.enabled ? "停用部件" : "启用部件"}
               </button>
-              <button className="ghost compact" type="button" onClick={() => updatePart(activePart.id, { needs_completion: !activePart.needs_completion })}>
+              <button className="ghost compact" type="button" disabled={!canWrite} onClick={() => updatePart(activePart.id, { needs_completion: !activePart.needs_completion })}>
                 {activePart.needs_completion ? "取消补全标记" : "标记需补全"}
               </button>
-              <button className="ghost compact" type="button" onClick={() => void onRefinePart(activePart.id, activePart.bbox)}>
+              <button className="ghost compact" type="button" disabled={!canWrite} onClick={() => void onRefinePart(activePart.id, activePart.bbox)}>
                 精修部件
               </button>
               <button
                 className="ghost compact"
                 type="button"
-                disabled={!activePartUrl}
+                disabled={!activePartUrl || !canWrite}
                 onClick={() =>
                   activePartUrl
                     ? void onManualEdit({
@@ -300,7 +302,7 @@ export function CharacterRigEditor({
               >
                 编辑部件
               </button>
-              <button className="primary compact" type="button" onClick={() => void onSaveParts(draftParts)}>
+              <button className="primary compact" type="button" disabled={!canWrite} onClick={() => void onSaveParts(draftParts)}>
                 保存部件
               </button>
             </div>

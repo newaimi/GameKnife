@@ -11,6 +11,7 @@ import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { formatImageSize } from "../../utils/formatters";
 import { readFirstJobOutputAsset, readTupleNumber } from "../../utils/jobs";
@@ -36,6 +37,7 @@ export function UpscaleWorkspace() {
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
   const device = useWorkflowDevice("upscale");
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("upscale");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
     onBeforeUpload: () => {
       resetJob();
@@ -50,7 +52,7 @@ export function UpscaleWorkspace() {
   const warnings = Array.isArray(job?.result.warnings) ? job.result.warnings.map(String) : [];
 
   async function run() {
-    if (!asset) {
+    if (!asset || !canWrite) {
       return;
     }
     if (params.style !== "pixel" && !(await ensureModelReady("upscale"))) {
@@ -68,6 +70,7 @@ export function UpscaleWorkspace() {
       <ImageUploadStrip
         title={asset ? "已导入待放大图片" : "导入待放大图片"}
         description="支持 PNG / JPG / WebP，输出默认保留透明通道"
+        disabled={!canWrite}
         onFile={upload}
       />
 
@@ -89,6 +92,7 @@ export function UpscaleWorkspace() {
                 <button
                   className="ghost"
                   type="button"
+                  disabled={!canWrite}
                   onClick={() =>
                     void openManualEdit({
                       name: `${asset?.filename ?? "upscale"}_upscale.png`,
@@ -101,7 +105,7 @@ export function UpscaleWorkspace() {
                   手动编辑
                 </button>
               ) : null}
-              <button className="primary" type="button" disabled={!asset || busy} onClick={() => void run()}>
+              <button className="primary" type="button" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
                 {busy ? "处理中" : "开始放大"}
               </button>
             </div>
@@ -120,6 +124,7 @@ export function UpscaleWorkspace() {
                 manualEditName={`${asset.filename.replace(/\.[^.]+$/, "")}_upscale.png`}
                 manualEditContext="image_upscale"
                 onCompare={setCompare}
+                manualEditDisabled={!canWrite}
                 onManualEdit={openManualEdit}
               />
             )}

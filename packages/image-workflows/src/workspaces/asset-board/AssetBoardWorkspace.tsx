@@ -13,6 +13,7 @@ import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { formatImageSize } from "../../utils/formatters";
 import { readFirstJobOutputAsset, readString, readTupleNumber } from "../../utils/jobs";
@@ -45,6 +46,7 @@ export function AssetBoardWorkspace() {
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob: runWorkflowJob, resetJob } = useWorkflowJob();
   const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
+  const canWrite = useWorkflowWritePermission("asset-board");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
     onBeforeUpload: () => {
       resetJob();
@@ -90,7 +92,7 @@ export function AssetBoardWorkspace() {
   }, [asset, automaticAction, components.length, imageSize, job, selectedCount]);
 
   useEffect(() => {
-    if (!asset || busy) {
+    if (!asset || busy || !canWrite) {
       return;
     }
 
@@ -109,10 +111,10 @@ export function AssetBoardWorkspace() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [asset, busy, cutoutAssetId, params.alpha_threshold, params.min_component_area]);
+  }, [asset, busy, canWrite, cutoutAssetId, params.alpha_threshold, params.min_component_area]);
 
   async function detectRegions(options: AssetBoardRunOptions = {}) {
-    if (!asset) {
+    if (!asset || !canWrite) {
       return;
     }
     setAutomaticAction(options.automatic ? "detect" : "");
@@ -128,7 +130,7 @@ export function AssetBoardWorkspace() {
   }
 
   async function cutout() {
-    if (!asset) {
+    if (!asset || !canWrite) {
       return;
     }
     if (!(await ensureModelReady("birefnet"))) {
@@ -141,6 +143,9 @@ export function AssetBoardWorkspace() {
   }
 
   async function refine(options: AssetBoardRunOptions = {}) {
+    if (!canWrite) {
+      return;
+    }
     if (!cutoutAssetId) {
       setError("请先完成素材板抠图。");
       return;
@@ -156,6 +161,9 @@ export function AssetBoardWorkspace() {
   }
 
   async function exportSelected() {
+    if (!canWrite) {
+      return;
+    }
     if (!cutoutAssetId) {
       setError("请先完成素材板抠图。");
       return;
@@ -239,6 +247,7 @@ export function AssetBoardWorkspace() {
       <ImageUploadStrip
         title={asset ? "已上传图片" : "上传图片"}
         description="支持 JPG / PNG / WebP，最大 50MB"
+        disabled={!canWrite}
         onFile={upload}
       />
 
@@ -256,11 +265,11 @@ export function AssetBoardWorkspace() {
                   下载 ZIP
                 </button>
               ) : null}
-              <button className="primary" disabled={!asset || busy} onClick={() => void detectRegions()} type="button">
+              <button className="primary" disabled={!asset || busy || !canWrite} onClick={() => void detectRegions()} type="button">
                 <RefreshCw size={17} strokeWidth={2.4} />
                 识别区域
               </button>
-              <button className="ghost" disabled={!asset || busy} onClick={() => void cutout()} type="button">
+              <button className="ghost" disabled={!asset || busy || !canWrite} onClick={() => void cutout()} type="button">
                 <Play size={17} strokeWidth={2.4} />
                 抠图
               </button>
@@ -283,6 +292,7 @@ export function AssetBoardWorkspace() {
                 alphaDefringe={params.alpha_defringe}
                 alphaThreshold={params.alpha_threshold}
                 selectedComponents={selectedComponents}
+                canWrite={canWrite}
                 onCompare={setCompare}
                 onToggle={toggleComponent}
                 onChangeComponentBbox={changeComponentBbox}
@@ -302,10 +312,10 @@ export function AssetBoardWorkspace() {
           <NumberField label="去边色" value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
           <NumberField label="导出留边" value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
           <div className="toolbar-actions stacked">
-            <button className="ghost" disabled={!cutoutAssetId || busy} onClick={() => void refine()} type="button">
+            <button className="ghost" disabled={!cutoutAssetId || busy || !canWrite} onClick={() => void refine()} type="button">
               刷新框
             </button>
-            <button className="primary" disabled={!cutoutAssetId || busy || selectedCount === 0} onClick={() => void exportSelected()} type="button">
+            <button className="primary" disabled={!cutoutAssetId || busy || selectedCount === 0 || !canWrite} onClick={() => void exportSelected()} type="button">
               导出选中 {selectedCount}
             </button>
           </div>

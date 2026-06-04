@@ -31,6 +31,7 @@ export function VideoGenerateEditor({
   videoTask,
   params,
   device,
+  canWrite,
   isTaskProcessing,
   onParamsChange,
   onStartProcess,
@@ -42,6 +43,7 @@ export function VideoGenerateEditor({
   videoTask: VideoJobResponse | null;
   params: VideoSequenceGenerateParameters;
   device: string;
+  canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
   onStartProcess: () => void | Promise<void>;
@@ -55,6 +57,9 @@ export function VideoGenerateEditor({
   const videoReady = Boolean(videoUrl && videoTask?.status === "success");
 
   function confirmApiCall() {
+    if (!canWrite) {
+      return;
+    }
     setConfirmOpen(false);
     void onStartProcess();
   }
@@ -70,7 +75,7 @@ export function VideoGenerateEditor({
           <div className="toolbar-actions sequence-toolbar-actions">
             <span className="device-pill">API</span>
             <span className="device-pill">{device}</span>
-            <button className="primary compact sequence-clean-button" type="button" disabled={!upload || isTaskProcessing} onClick={() => setConfirmOpen(true)}>
+            <button className="primary compact sequence-clean-button" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
               {videoTaskRunning ? "生成中" : "调用 API 生成视频"}
             </button>
           </div>
@@ -103,7 +108,7 @@ export function VideoGenerateEditor({
       <aside className="settings-panel sequence-settings">
         <VideoGenerationPanel params={params} onParamsChange={onParamsChange} />
         <div className="export-stack">
-          <button className="ghost" type="button" disabled={!sourceUrl || !upload} onClick={() => upload && sourceUrl ? void onManualEdit({ name: upload.filename, url: sourceUrl, sourceFileId: upload.id, sourceContext: "upload" }) : undefined}>
+          <button className="ghost" type="button" disabled={!sourceUrl || !upload || !canWrite} onClick={() => upload && sourceUrl ? void onManualEdit({ name: upload.filename, url: sourceUrl, sourceFileId: upload.id, sourceContext: "upload" }) : undefined}>
             编辑原图
           </button>
         </div>
@@ -120,7 +125,7 @@ export function VideoGenerateEditor({
               <a className="ghost compact" href={videoUrl} download={videoTask?.result.video_filename || "generated-video.mp4"}>
                 下载视频
               </a>
-              <button className="primary compact" type="button" onClick={onUseGeneratedVideo}>
+              <button className="primary compact" type="button" disabled={!canWrite} onClick={onUseGeneratedVideo}>
                 发送到视频转帧
               </button>
             </div>
@@ -140,6 +145,7 @@ export function VideoToSequenceEditor({
   currentTask,
   params,
   device,
+  canWrite,
   isTaskProcessing,
   onParamsChange,
   onCreateSequence,
@@ -150,6 +156,7 @@ export function VideoToSequenceEditor({
   currentTask: VideoJobResponse | null;
   params: VideoToSequenceParameters;
   device: string;
+  canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoToSequenceParameters>>;
   onCreateSequence: () => void | Promise<void>;
@@ -205,7 +212,7 @@ export function VideoToSequenceEditor({
           <div className="toolbar-actions sequence-toolbar-actions">
             <span className="device-pill">Local</span>
             <span className="device-pill">{device}</span>
-            <button className="primary compact sequence-clean-button" type="button" disabled={!canCreateSequence} onClick={() => void onCreateSequence()}>
+            <button className="primary compact sequence-clean-button" type="button" disabled={!canCreateSequence || !canWrite} onClick={() => void onCreateSequence()}>
               {frameTaskRunning ? "处理中" : "转成序列帧"}
             </button>
           </div>
