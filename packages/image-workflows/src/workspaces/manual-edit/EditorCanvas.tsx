@@ -148,6 +148,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     renderFrameRef.current = null;
     const redrawBitmap = renderNeedsBitmapRef.current;
     renderNeedsBitmapRef.current = false;
+    renderCurrentCanvas(redrawBitmap);
+  }
+
+  function renderCurrentCanvas(redrawBitmap: boolean) {
     renderEditorCanvas(
       canvasRef.current,
       overlayRef.current,
@@ -175,6 +179,18 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       setLayoutRevision((current) => current + 1);
     }
   }
+
+  useEffect(() => {
+    const doc = documentRef.current;
+    const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!doc || !canvas || !overlay) return;
+    if (canvas.width === doc.width && canvas.height === doc.height && overlay.width === doc.width && overlay.height === doc.height) return;
+
+    // 正常路径会在图片加载完成时立即渲染首帧。
+    // 这里处理热更新、外层工作台延迟挂载等异常时序，避免状态栏已有图片尺寸但真实 canvas 仍是默认 300×150。
+    renderCurrentCanvas(true);
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -205,6 +221,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
         redoRef.current = [];
         snapshotsRef.current = [];
         layerOpacityDraftRef.current = null;
+        // 首次导入图片后必须马上把 ImageData 写进真实 canvas。
+        // 包化后的工作台外层会同时处理缩放和居中，如果首帧只等待 rAF，
+        // 页面可能先拿到文档尺寸但 canvas 仍停在浏览器默认 300×150，用户看到的就是空棋盘。
+        renderCurrentCanvas(true);
         sync({ redrawBitmap: true, status: "immediate", layout: true });
       } catch (error) {
         if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
