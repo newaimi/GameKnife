@@ -155,7 +155,7 @@ def settings(
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
     return SettingsResponse(
-        edition="community",
+        edition=context.capabilities.edition,
         workspace_id=context.workspace.id,
         storage="local_file_storage",
         models={

@@ -40,6 +40,9 @@ def create_job(
     input_asset_id: str,
     parameters: dict[str, Any],
 ) -> JobRecord:
+    # job 创建是所有耗时处理链的统一入口，在这里校验权限可以让 Community 和 Commercial 共享同一条边界。
+    # Community 注入放行实现，Commercial 注入 RBAC 实现，公共工作流无需读取真实用户角色。
+    context.permissions.require("jobs.create", {"job_type": job_type, "input_asset_id": input_asset_id})
     now = _now()
     job = JobRecord(
         id=uuid4().hex,
