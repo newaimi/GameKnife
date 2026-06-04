@@ -7,3 +7,11 @@ class WorkflowInputNotFoundError(ValueError):
 
 class WorkflowModelNotInstalledError(ValueError):
     pass
+
+
+class WorkflowServiceUnavailableError(ValueError):
+    pass
+
+
+class WorkflowValidationError(ValueError):
+    pass

@@ -36,6 +36,12 @@ class PermissionChecker(Protocol):
 class StorageProvider(Protocol):
     root: Path
 
+    def write_asset(self, asset_id: str, original_name: str, content: bytes) -> str:
+        ...
+
+    def remove_asset_file(self, relative_path: str) -> None:
+        ...
+
     def resolve_asset_path(self, relative_path: str) -> Path:
         ...
 

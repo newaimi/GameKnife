@@ -35,7 +35,6 @@ from gameknife_api.job_service import (
     run_sequence_export_spine_job,
     run_sequence_generate_video_job,
     run_sequence_from_video_job,
-    run_sound_effect_job,
 )
 from gameknife_api.schemas import (
     AssetBoardExportRequest,
@@ -72,7 +71,10 @@ from gameknife_api.video_generation import VideoGenerationClient
 from gameknife_workflows import (
     WorkflowInputNotFoundError,
     WorkflowModelNotInstalledError,
+    WorkflowServiceUnavailableError,
+    WorkflowValidationError,
     create_background_remove_workflow,
+    create_sound_effect_workflow,
     create_upscale_workflow,
 )
 
@@ -317,25 +319,21 @@ def create_sound_effect_job(
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> JobResponse:
-    prompt = payload.prompt.strip()
-    if not prompt:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入声效提示词。")
+    try:
+        job, runner = create_sound_effect_workflow(
+            repository,
+            context,
+            stable_audio,
+            parameters=payload.model_dump(),
+        )
+    except WorkflowValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except WorkflowServiceUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except WorkflowModelNotInstalledError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-    install_status = stable_audio.install_status()
-    if install_status.get("status") in {"unconfigured", "unavailable"}:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(install_status.get("message") or "Stable Audio 声效服务不可用。"))
-    if not install_status.get("installed"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
-
-    prompt_asset = _create_prompt_asset(repository, context, prompt)
-    job = create_job(
-        repository,
-        context,
-        job_type="sound_effect_generate",
-        input_asset_id=prompt_asset.id,
-        parameters=payload.model_dump(),
-    )
-    background_tasks.add_task(run_sound_effect_job, repository, context, stable_audio, job.id)
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
@@ -1219,33 +1217,6 @@ def test_video_generation_settings(
         return VideoGenerationClient(repository).test_config(payload.model_dump())
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-
-def _create_prompt_asset(repository: SQLiteGameKnifeRepository, context: RequestContext, prompt: str) -> AssetRecord:
-    # 声效任务也走统一的 input_asset_id，是为了让任务历史、删除清理和商用 repository 注入保持同一套形态。
-    # 提示词保存为文本 asset 后，后续审计和失败重试都能从资产链路找到原始输入。
-    asset_id = uuid4().hex
-    content = prompt.encode("utf-8")
-    now = _now()
-    relative_path = context.storage.write_asset(asset_id, "sound_prompt.txt", content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="sound_prompt",
-        original_name="sound_prompt.txt",
-        path=relative_path,
-        mime_type="text/plain",
-        size_bytes=len(content),
-        created_at=now,
-        updated_at=now,
-    )
-    try:
-        repository.create_asset(asset)
-    except Exception:
-        context.storage.remove_asset_file(relative_path)
-        raise
-    return asset
 
 
 async def _save_sequence_upload(
