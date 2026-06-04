@@ -19,6 +19,7 @@ import {
   addImageDataPadding,
   appendLassoPoint,
   applyAlphaThreshold,
+  blobToImageData,
   buildLassoSelectionMask,
   buildMagicWandSelection,
   buildRectSelectionMask,
@@ -177,52 +178,54 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
 
   useEffect(() => {
     let cancelled = false;
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      if (cancelled) return;
-      const width = image.naturalWidth;
-      const height = image.naturalHeight;
-      const scratch = document.createElement("canvas");
-      scratch.width = width;
-      scratch.height = height;
-      const context = scratch.getContext("2d", { willReadFrequently: true });
-      if (!context) return;
-      context.clearRect(0, 0, width, height);
-      context.drawImage(image, 0, 0);
-      const imageData = context.getImageData(0, 0, width, height);
-      const originalImageData = cloneImageData(imageData);
-      const layerId = createEditorId("layer");
-      documentRef.current = {
-        name: source.name,
-        width,
-        height,
-        layers: [{ id: layerId, name: "原图", visible: true, opacity: 100, imageData }],
-        activeLayerId: layerId,
-        originalImageData,
-        selection: null,
-        floatingSelection: null,
-        dirty: false,
-      };
-      historyRef.current = [];
-      redoRef.current = [];
-      snapshotsRef.current = [];
-      layerOpacityDraftRef.current = null;
-      sync({ redrawBitmap: true, status: "immediate", layout: true });
-    };
-    image.onerror = () => {
-      if (cancelled) return;
-      onFailure({
-        title: "图片加载失败",
-        message: "手动编辑器无法读取当前图片。",
-        detail: "浏览器没有成功解码图片，请重新导入。",
-      });
-    };
-    image.src = source.url;
+    const abortController = new AbortController();
+
+    async function openSourceImage() {
+      try {
+        // 手动编辑入口同时支持本地上传、任务结果预览和跨标签页临时传递。
+        // 这些入口最终都能读取成 Blob，统一交给 editor-core 解码可以避免这里单独设置
+        // crossOrigin 后让部分浏览器按 CORS 图片处理 blob: 临时地址。
+        const response = await fetch(source.url, { signal: abortController.signal });
+        if (!response.ok) {
+          throw new Error("图片读取失败。");
+        }
+        const imageData = await blobToImageData(await response.blob());
+        if (cancelled) return;
+
+        const originalImageData = cloneImageData(imageData);
+        const layerId = createEditorId("layer");
+        documentRef.current = {
+          name: source.name,
+          width: imageData.width,
+          height: imageData.height,
+          layers: [{ id: layerId, name: "原图", visible: true, opacity: 100, imageData }],
+          activeLayerId: layerId,
+          originalImageData,
+          selection: null,
+          floatingSelection: null,
+          dirty: false,
+        };
+        historyRef.current = [];
+        redoRef.current = [];
+        snapshotsRef.current = [];
+        layerOpacityDraftRef.current = null;
+        sync({ redrawBitmap: true, status: "immediate", layout: true });
+      } catch (error) {
+        if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
+        onFailure({
+          title: "图片加载失败",
+          message: "手动编辑器无法读取当前图片。",
+          detail: error instanceof Error ? error.message : "浏览器没有成功解码图片，请重新导入。",
+        });
+      }
+    }
+
+    void openSourceImage();
     return () => {
       cancelled = true;
+      abortController.abort();
     };
-  }, [source.url]);
+  }, [source.name, source.url]);
 
   useEffect(() => {
     gridVisibleRef.current = gridVisible;
