@@ -79,6 +79,55 @@ export function UpscaleWorkspace() {
   );
 }
 
+export function BackgroundRemoveWorkspace() {
+  const [asset, setAsset] = useState<AssetResponse | null>(null);
+  const [smoothing, setSmoothing] = useState(0);
+  const [job, setJob] = useState<JobResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function upload(file: File) {
+    setError("");
+    setAsset(await gameKnifeApiClient.uploadImage(file));
+    setJob(null);
+  }
+
+  async function run() {
+    if (!asset) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await gameKnifeApiClient.createBackgroundRemoveJob(asset.id, { alpha_smoothing: smoothing });
+      setJob(await waitForJob(created.id, 30, 1000));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolLayout
+      title="去背景"
+      left={<ImageUploadBox onFile={upload} />}
+      center={<AssetPreview asset={asset} />}
+      right={
+        <div className="tool-panel">
+          <NumberField label="平滑" value={smoothing} min={0} max={8} step={1} onChange={setSmoothing} />
+          <button className="primary-button" disabled={!asset || busy} onClick={run} type="button">
+            <Play size={18} />
+            去背景
+          </button>
+          <StatusLine error={error} job={job} />
+        </div>
+      }
+      results={<JobResult job={job} />}
+    />
+  );
+}
+
 export function AssetBoardWorkspace() {
   const [asset, setAsset] = useState<AssetResponse | null>(null);
   const [job, setJob] = useState<JobResponse | null>(null);
@@ -107,6 +156,22 @@ export function AssetBoardWorkspace() {
     }
   }
 
+  async function cutout() {
+    if (!asset) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await gameKnifeApiClient.createAssetBoardCutoutJob(asset.id, { alpha_smoothing: 0 });
+      setJob(await waitForJob(created.id, 30, 1000));
+    } catch (exc) {
+      setError(readMessage(exc));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const components = Array.isArray(job?.result.components) ? (job.result.components as Array<Record<string, unknown>>) : [];
 
   return (
@@ -119,6 +184,10 @@ export function AssetBoardWorkspace() {
           <button className="primary-button" disabled={!asset || busy} onClick={detectRegions} type="button">
             <RefreshCw size={18} />
             识别区域
+          </button>
+          <button className="secondary-button" disabled={!asset || busy} onClick={cutout} type="button">
+            <Play size={18} />
+            抠图
           </button>
           <StatusLine error={error} job={job} />
           <div className="mini-list">
@@ -863,6 +932,7 @@ export function CommunitySettingsPage() {
   const [videoBaseUrl, setVideoBaseUrl] = useState("");
   const [videoApiKey, setVideoApiKey] = useState("");
   const [videoMessage, setVideoMessage] = useState("");
+  const [birefnetStatus, setBirefnetStatus] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -872,9 +942,14 @@ export function CommunitySettingsPage() {
   async function refreshSettings() {
     try {
       setError("");
-      const [nextSettings, nextVideoConfig] = await Promise.all([gameKnifeApiClient.getSettings(), gameKnifeApiClient.getVideoGenerationSettings()]);
+      const [nextSettings, nextVideoConfig, nextBiRefNetStatus] = await Promise.all([
+        gameKnifeApiClient.getSettings(),
+        gameKnifeApiClient.getVideoGenerationSettings(),
+        gameKnifeApiClient.getBiRefNetInstallStatus(),
+      ]);
       setSettings(nextSettings);
       setVideoConfig(nextVideoConfig);
+      setBirefnetStatus(nextBiRefNetStatus);
       setVideoProvider(nextVideoConfig.provider);
       setVideoBaseUrl(nextVideoConfig.base_url);
       setVideoApiKey("");
@@ -912,6 +987,15 @@ export function CommunitySettingsPage() {
     }
   }
 
+  async function startBiRefNetInstall() {
+    try {
+      setError("");
+      setBirefnetStatus(await gameKnifeApiClient.startBiRefNetInstall());
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
   return (
     <section className="page-panel">
       <h1>设置</h1>
@@ -923,6 +1007,19 @@ export function CommunitySettingsPage() {
         <strong>{String(settings?.workspace_id ?? "")}</strong>
         <span>存储</span>
         <strong>{String(settings?.storage ?? "")}</strong>
+      </div>
+      <div className="settings-form">
+        <h2>BiRefNet</h2>
+        <div className="settings-grid">
+          <span>状态</span>
+          <strong>{String(birefnetStatus?.status ?? "")}</strong>
+          <span>进度</span>
+          <strong>{String(birefnetStatus?.progress ?? 0)}%</strong>
+        </div>
+        <button className="secondary-button" disabled={birefnetStatus?.status === "running"} onClick={startBiRefNetInstall} type="button">
+          <Download size={18} />
+          下载安装模型文件
+        </button>
       </div>
       <div className="settings-form">
         <h2>视频生成 API</h2>
@@ -969,26 +1066,6 @@ export function CommunityHelpPage() {
         ))}
       </div>
     </section>
-  );
-}
-
-export function ModelRequiredWorkspace({ title }: { title: string }) {
-  const [error, setError] = useState("");
-  return (
-    <ToolLayout
-      title={title}
-      left={<div className="tool-panel" />}
-      center={<WorkbenchPreview />}
-      right={
-        <div className="tool-panel">
-          <button className="primary-button" onClick={() => setError("当前不可用。")} type="button">
-            <Play size={18} />
-            启动
-          </button>
-          {error ? <p className="error-text">{error}</p> : null}
-        </div>
-      }
-    />
   );
 }
 

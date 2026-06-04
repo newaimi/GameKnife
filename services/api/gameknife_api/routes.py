@@ -11,11 +11,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
-from gameknife_api.deps import get_repository, get_request_context, get_stable_audio_service
+from gameknife_api.deps import get_birefnet_service, get_repository, get_request_context, get_stable_audio_service
 from gameknife_api.job_service import (
     create_job,
     delete_job,
+    run_background_remove_job,
     run_asset_board_export_job,
+    run_asset_board_cutout_job,
     run_asset_board_refine_job,
     run_asset_board_region_job,
     run_character_part_refine_job,
@@ -57,6 +59,7 @@ from gameknife_api.schemas import (
 )
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.video_generation import VideoGenerationClient
 
@@ -137,13 +140,24 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 def settings(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
     return SettingsResponse(
         edition="community",
         workspace_id=context.workspace.id,
         storage="local_file_storage",
-        models={"stable_audio": stable_audio.install_status()},
+        models={
+            "birefnet": {
+                "model_id": BIREFNET_MODEL_ID,
+                "device": birefnet.device_label,
+                "model_input_size": birefnet.model_input_size,
+                "gpu_concurrency": 1,
+                "lazy_load": True,
+                "install_status": birefnet.install_status(),
+            },
+            "stable_audio": stable_audio.install_status(),
+        },
         video_generation=VideoGenerationClient(repository).read_config(),
     )
 
@@ -219,8 +233,18 @@ def remove_job(
 
 
 @router.post("/jobs/background-remove", response_model=JobResponse)
-def create_background_remove_job() -> JobResponse:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+def create_background_remove_job(
+    payload: AssetJobRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
+) -> JobResponse:
+    _ensure_birefnet_installed(birefnet)
+    _ensure_asset_exists(repository, context, payload.input_asset_id)
+    job = create_job(repository, context, job_type="background_remove", input_asset_id=payload.input_asset_id, parameters=payload.parameters)
+    background_tasks.add_task(run_background_remove_job, repository, context, birefnet, job.id)
+    return _job_response(job, context, repository)
 
 
 @router.post("/jobs/upscale", response_model=JobResponse)
@@ -290,8 +314,24 @@ def create_asset_board_region_job(
 
 
 @router.post("/jobs/asset-board/cutout", response_model=JobResponse)
-def create_asset_board_cutout_job() -> JobResponse:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+def create_asset_board_cutout_job(
+    payload: AssetJobRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
+) -> JobResponse:
+    _ensure_birefnet_installed(birefnet)
+    _ensure_asset_exists(repository, context, payload.input_asset_id)
+    job = create_job(
+        repository,
+        context,
+        job_type="asset_board_cutout",
+        input_asset_id=payload.input_asset_id,
+        parameters=payload.parameters,
+    )
+    background_tasks.add_task(run_asset_board_cutout_job, repository, context, birefnet, job.id)
+    return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/refine", response_model=JobResponse)
@@ -1049,6 +1089,27 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
     )
 
 
+@router.get("/settings/models/install-status")
+def read_model_install_status(
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
+    stable_audio: StableAudioService = Depends(get_stable_audio_service),
+) -> dict[str, object]:
+    return {
+        "birefnet": birefnet.install_status(),
+        "stable_audio": stable_audio.install_status(),
+    }
+
+
+@router.get("/settings/birefnet/install")
+def read_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
+    return birefnet.install_status()
+
+
+@router.post("/settings/birefnet/install")
+def start_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
+    return birefnet.start_install()
+
+
 @router.get("/settings/stable-audio/install")
 def read_stable_audio_install(stable_audio: StableAudioService = Depends(get_stable_audio_service)) -> dict[str, object]:
     return stable_audio.install_status()
@@ -1289,6 +1350,12 @@ def _ensure_asset_exists(repository: SQLiteGameKnifeRepository, context: Request
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="输入素材不存在。")
     return asset
+
+
+def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
+    if birefnet.is_installed():
+        return
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
 
 
 def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:

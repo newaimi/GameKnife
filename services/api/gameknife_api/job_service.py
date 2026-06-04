@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
-from gameknife_processors import AssetBoardSplitProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
+from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
+from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.video_generation import VideoGenerationClient
 
@@ -16,6 +17,7 @@ upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
 sequence_processor = SequenceFrameProcessor()
 character_rig_processor = CharacterRigProcessor()
+background_processor = BackgroundRemoveProcessor()
 DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "alpha_threshold": 24,
     "alpha_smoothing": 0,
@@ -71,6 +73,18 @@ def run_upscale_job(repository: SQLiteGameKnifeRepository, context: RequestConte
     )
 
 
+def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
+    _run_image_output_job(
+        repository,
+        context,
+        job_id,
+        output_kind="background_remove",
+        output_mime_type="image/png",
+        output_suffix="_cutout.png",
+        processor=lambda input_path, output_path, parameters: background_processor.process(input_path, output_path, parameters, service),
+    )
+
+
 def run_asset_board_region_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
@@ -93,6 +107,18 @@ def run_asset_board_region_job(repository: SQLiteGameKnifeRepository, context: R
         _mark_success(repository, context, job_id, result, final_result)
     except Exception as exc:  # noqa: BLE001
         _mark_failed(repository, context, job_id, str(exc))
+
+
+def run_asset_board_cutout_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
+    _run_image_output_job(
+        repository,
+        context,
+        job_id,
+        output_kind="asset_cutout",
+        output_mime_type="image/png",
+        output_suffix="_cutout.png",
+        processor=lambda input_path, output_path, parameters: asset_board_processor.cutout(input_path, output_path, parameters, service),
+    )
 
 
 def run_asset_board_refine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
@@ -612,6 +638,9 @@ def _run_image_output_job(
             "input_asset_url": f"/api/assets/{input_asset.id}",
             "output_assets": output_assets,
         }
+        if output_kind == "asset_cutout" and output_assets:
+            final_result["cutout_asset_id"] = output_assets[0]["id"]
+            final_result["cutout_url"] = output_assets[0]["url"]
         _mark_success(repository, context, job_id, result, final_result)
     except Exception as exc:  # noqa: BLE001
         _mark_failed(repository, context, job_id, str(exc))

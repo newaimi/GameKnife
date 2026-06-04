@@ -9,6 +9,7 @@ from fastapi import Request
 from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_storage import LocalStorageProvider
+from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
 
 COMMUNITY_FEATURES = frozenset(
@@ -37,6 +38,7 @@ class CommunitySettings:
     stable_audio_base_url: str = ""
     stable_audio_token: str = ""
     stable_audio_timeout_seconds: int = 900
+    model_input_size: int = 1024
 
     @classmethod
     def from_env(cls) -> "CommunitySettings":
@@ -45,6 +47,7 @@ class CommunitySettings:
         database_path = Path(os.getenv("GAMEKNIFE_DB_PATH", storage_root / "gameknife.sqlite3")).resolve()
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
         stable_audio_timeout_seconds = int(os.getenv("GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS", "900"))
+        model_input_size = int(os.getenv("GAMEKNIFE_MODEL_INPUT_SIZE", "1024"))
         return cls(
             storage_root=storage_root,
             database_path=database_path,
@@ -52,6 +55,7 @@ class CommunitySettings:
             stable_audio_base_url=os.getenv("GAMEKNIFE_STABLE_AUDIO_BASE_URL", "").strip(),
             stable_audio_token=os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "").strip(),
             stable_audio_timeout_seconds=stable_audio_timeout_seconds,
+            model_input_size=model_input_size,
         )
 
 
@@ -64,6 +68,7 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
         settings.stable_audio_token,
         settings.stable_audio_timeout_seconds,
     )
+    app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size)
 
 
 def get_repository(request: Request) -> SQLiteGameKnifeRepository:
@@ -72,6 +77,10 @@ def get_repository(request: Request) -> SQLiteGameKnifeRepository:
 
 def get_stable_audio_service(request: Request) -> StableAudioService:
     return request.app.state.stable_audio
+
+
+def get_birefnet_service(request: Request) -> BiRefNetService:
+    return request.app.state.birefnet
 
 
 def get_request_context(request: Request) -> RequestContext:

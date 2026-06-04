@@ -15,6 +15,7 @@ dependencies = [
   "pydantic",
   "numpy",
   "opencv-python-headless",
+  "huggingface-hub",
 ]
 
 [project.optional-dependencies]

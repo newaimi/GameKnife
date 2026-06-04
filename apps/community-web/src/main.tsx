@@ -6,13 +6,13 @@ import { GameKnifeAppContext, communityContext } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import {
   AssetBoardWorkspace,
+  BackgroundRemoveWorkspace,
   CharacterRigWorkspace,
   CommunityHelpPage,
   CommunityJobsPage,
   CommunitySettingsPage,
   CommunityToolHome,
   ManualEditWorkspace,
-  ModelRequiredWorkspace,
   SequenceWorkspace,
   SoundEffectWorkspace,
   UpscaleWorkspace,
@@ -78,7 +78,7 @@ function App() {
               <Route path="/jobs" element={<CommunityJobsPage />} />
               <Route path="/settings" element={<CommunitySettingsPage />} />
               <Route path="/help" element={<CommunityHelpPage />} />
-              <Route path="/tools/background-remove" element={<ModelRequiredWorkspace title="去背景" />} />
+              <Route path="/tools/background-remove" element={<BackgroundRemoveWorkspace />} />
               <Route path="/tools/upscale" element={<UpscaleWorkspace />} />
               <Route path="/tools/asset-board" element={<AssetBoardWorkspace />} />
               <Route path="/tools/sequence" element={<SequenceWorkspace />} />

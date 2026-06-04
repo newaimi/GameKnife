@@ -82,6 +82,10 @@ export class GameKnifeApiClient {
     return this.createAssetJob("/api/jobs/upscale", inputAssetId, parameters);
   }
 
+  async createBackgroundRemoveJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/background-remove", inputAssetId, parameters);
+  }
+
   async createSoundEffectJob(payload: {
     prompt: string;
     duration_seconds: number;
@@ -98,6 +102,10 @@ export class GameKnifeApiClient {
 
   async createAssetBoardRegionJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/asset-board/regions", inputAssetId, parameters);
+  }
+
+  async createAssetBoardCutoutJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/asset-board/cutout", inputAssetId, parameters);
   }
 
   async createAssetBoardRefineJob(cutoutAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
@@ -291,6 +299,16 @@ export class GameKnifeApiClient {
 
   async getVideoGenerationSettings(): Promise<VideoGenerationConfig> {
     return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation");
+  }
+
+  async getBiRefNetInstallStatus(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/birefnet/install");
+  }
+
+  async startBiRefNetInstall(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/birefnet/install", {
+      method: "POST",
+    });
   }
 
   async updateVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<VideoGenerationConfig> {

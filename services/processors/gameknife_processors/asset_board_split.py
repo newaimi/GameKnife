@@ -4,7 +4,7 @@ import io
 import time
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import cv2
 import numpy as np
@@ -12,6 +12,13 @@ from PIL import Image
 
 from gameknife_core import ComponentCandidate, ProcessResult
 from gameknife_processors.image_utils import apply_alpha, connected_components, contract_alpha, decontaminate_edge_colors, smooth_alpha
+
+
+class AlphaPredictor(Protocol):
+    @property
+    def device_label(self) -> str: ...
+
+    def predict_alpha(self, image: Image.Image): ...
 
 
 class AssetBoardSplitProcessor:
@@ -34,6 +41,25 @@ class AssetBoardSplitProcessor:
             },
             duration_ms=int((time.perf_counter() - started) * 1000),
             device="CPU",
+        )
+
+    def cutout(self, input_path: Path, output_path: Path, parameters: dict[str, Any], service: AlphaPredictor) -> ProcessResult:
+        started = time.perf_counter()
+        source = Image.open(input_path).convert("RGBA")
+        source.load()
+        alpha = service.predict_alpha(source)
+        alpha = smooth_alpha(alpha, int(parameters.get("alpha_smoothing", 0)))
+        result = apply_alpha(source, alpha)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result.save(output_path, format="PNG")
+        return ProcessResult(
+            output_paths=[output_path],
+            result={
+                "image_size": list(source.size),
+                "component_revision": int(parameters.get("component_revision", 0) or 0),
+            },
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            device=service.device_label,
         )
 
     def refine_cutout_regions(self, cutout_path: Path, parameters: dict[str, Any]) -> ProcessResult:

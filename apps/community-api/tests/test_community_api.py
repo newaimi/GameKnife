@@ -114,6 +114,28 @@ class FakeStableAudioService:
         }
 
 
+class FakeBiRefNetService:
+    device_label = "CPU"
+
+    def __init__(self) -> None:
+        self.predict_calls = 0
+
+    def install_status(self) -> dict[str, object]:
+        return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
+
+    def is_installed(self) -> bool:
+        return True
+
+    def start_install(self) -> dict[str, object]:
+        return self.install_status()
+
+    def predict_alpha(self, image: Image.Image) -> np.ndarray:
+        self.predict_calls += 1
+        alpha = np.zeros((image.height, image.width), dtype=np.uint8)
+        alpha[1 : image.height - 1, 1 : image.width - 1] = 255
+        return alpha
+
+
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/context")
@@ -228,6 +250,15 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["edition"] == "community"
     assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
+    assert "birefnet" in response.json()["models"]
+
+
+def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/api/settings/birefnet/install")
+
+    assert response.status_code == 200
+    assert "installed" in response.json()
 
 
 def test_sound_effect_unconfigured_returns_chinese_error(tmp_path: Path) -> None:
@@ -314,6 +345,53 @@ def test_non_pixel_upscale_requires_installed_model(tmp_path: Path) -> None:
     assert response.json()["detail"] == "图片放大模型尚未下载安装，请先到设置页下载安装模型文件。"
 
 
+def test_background_remove_requires_installed_birefnet(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        response = client.post(
+            "/api/jobs/background-remove",
+            json={"input_asset_id": upload.json()["id"], "parameters": {}},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_background_remove_job_creates_png_asset_with_fake_birefnet(tmp_path: Path) -> None:
+    app = create_app(
+        CommunitySettings(
+            storage_root=tmp_path / "storage",
+            database_path=tmp_path / "storage" / "gameknife.sqlite3",
+            cors_origins=["*"],
+        )
+    )
+    fake_birefnet = FakeBiRefNetService()
+    with TestClient(app) as client:
+        app.state.birefnet = fake_birefnet
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/background-remove",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"alpha_smoothing": 0}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        output = client.get(job["result"]["output_assets"][0]["url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "background_remove"
+    assert output.status_code == 200
+    with Image.open(BytesIO(output.content)) as image:
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0
+    assert fake_birefnet.predict_calls == 1
+
+
 def test_asset_board_region_job_does_not_create_output_assets(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(
@@ -331,6 +409,62 @@ def test_asset_board_region_job_does_not_create_output_assets(tmp_path: Path) ->
     assert job["type"] == "asset_board_region_detect"
     assert job["result"]["component_count"] == 2
     assert "output_assets" not in job["result"]
+
+
+def test_asset_board_region_does_not_call_birefnet(tmp_path: Path) -> None:
+    app = create_app(
+        CommunitySettings(
+            storage_root=tmp_path / "storage",
+            database_path=tmp_path / "storage" / "gameknife.sqlite3",
+            cors_origins=["*"],
+        )
+    )
+    fake_birefnet = FakeBiRefNetService()
+    with TestClient(app) as client:
+        app.state.birefnet = fake_birefnet
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/regions",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"min_component_area": 4, "alpha_threshold": 16}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+
+    assert job["status"] == "success"
+    assert fake_birefnet.predict_calls == 0
+
+
+def test_asset_board_cutout_job_creates_cutout_asset_with_fake_birefnet(tmp_path: Path) -> None:
+    app = create_app(
+        CommunitySettings(
+            storage_root=tmp_path / "storage",
+            database_path=tmp_path / "storage" / "gameknife.sqlite3",
+            cors_origins=["*"],
+        )
+    )
+    fake_birefnet = FakeBiRefNetService()
+    with TestClient(app) as client:
+        app.state.birefnet = fake_birefnet
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/cutout",
+            json={"input_asset_id": upload.json()["id"], "parameters": {}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        output = client.get(job["result"]["cutout_url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "asset_board_cutout"
+    assert job["result"]["cutout_asset_id"] == job["result"]["output_assets"][0]["id"]
+    assert output.status_code == 200
+    assert output.content.startswith(b"\x89PNG")
+    assert fake_birefnet.predict_calls == 1
 
 
 def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
