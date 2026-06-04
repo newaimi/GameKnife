@@ -75,18 +75,6 @@ def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: Re
     )
 
 
-def run_asset_board_cutout_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
-    _run_image_output_job(
-        repository,
-        context,
-        job_id,
-        output_kind="asset_cutout",
-        output_mime_type="image/png",
-        output_suffix="_cutout.png",
-        processor=lambda input_path, output_path, parameters: asset_board_processor.cutout(input_path, output_path, parameters, service),
-    )
-
-
 def run_asset_board_refine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:

@@ -104,6 +104,11 @@ def run_image_output_job(
             "input_asset_url": f"/api/assets/{input_asset.id}",
             "output_assets": output_assets,
         }
+        if output_kind == "asset_cutout" and output_assets:
+            # 素材板后续刷新框和导出依赖 cutout_asset_id 直连抠图结果。
+            # 通用 output_assets 保留下载列表，专用字段保留工作台链路的稳定输入。
+            final_result["cutout_asset_id"] = output_assets[0]["id"]
+            final_result["cutout_url"] = output_assets[0]["url"]
         mark_success(repository, context, job_id, result, final_result)
     except Exception as exc:  # noqa: BLE001
         mark_failed(repository, context, job_id, str(exc))

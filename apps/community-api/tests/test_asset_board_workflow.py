@@ -4,12 +4,35 @@ import json
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from gameknife_core import AllowAllPermissionChecker, AssetRecord, CapabilitySet, Principal, RequestContext, Workspace
 from gameknife_jobs import SQLiteGameKnifeRepository, init_sqlite_schema
 from gameknife_storage import LocalStorageProvider
-from gameknife_workflows import WorkflowInputNotFoundError, create_asset_board_region_workflow
+from gameknife_workflows import (
+    WorkflowInputNotFoundError,
+    WorkflowModelNotInstalledError,
+    create_asset_board_cutout_workflow,
+    create_asset_board_region_workflow,
+)
+
+
+class FakeAssetBoardCutoutModel:
+    device_label = "CPU"
+
+    def __init__(self, *, installed: bool = True) -> None:
+        self.installed = installed
+        self.predict_calls = 0
+
+    def is_installed(self) -> bool:
+        return self.installed
+
+    def predict_alpha(self, image: Image.Image) -> np.ndarray:
+        self.predict_calls += 1
+        alpha = np.zeros((image.height, image.width), dtype=np.uint8)
+        alpha[1 : image.height - 1, 1 : image.width - 1] = 255
+        return alpha
 
 
 def test_asset_board_region_workflow_rejects_missing_input_asset(tmp_path: Path) -> None:
@@ -47,6 +70,66 @@ def test_asset_board_region_workflow_detects_components_without_output_assets(tm
     assert result["component_count"] == 2
     assert result["input_asset_url"] == f"/api/assets/{asset.id}"
     assert "output_assets" not in result
+
+
+def test_asset_board_cutout_workflow_rejects_missing_model(tmp_path: Path) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+
+    try:
+        create_asset_board_cutout_workflow(
+            repository,
+            context,
+            FakeAssetBoardCutoutModel(installed=False),
+            input_asset_id=asset.id,
+            parameters={},
+        )
+    except WorkflowModelNotInstalledError as exc:
+        assert str(exc) == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+    else:
+        raise AssertionError("素材板抠图缺少模型时必须阻止创建任务。")
+
+
+def test_asset_board_cutout_workflow_rejects_missing_input_asset(tmp_path: Path) -> None:
+    repository, context, _asset = _make_repository_context_and_asset(tmp_path)
+
+    try:
+        create_asset_board_cutout_workflow(
+            repository,
+            context,
+            FakeAssetBoardCutoutModel(),
+            input_asset_id="missing-asset",
+            parameters={},
+        )
+    except WorkflowInputNotFoundError as exc:
+        assert str(exc) == "输入素材不存在。"
+    else:
+        raise AssertionError("输入素材不存在时必须阻止创建素材板抠图任务。")
+
+
+def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+    model = FakeAssetBoardCutoutModel()
+
+    job, runner = create_asset_board_cutout_workflow(
+        repository,
+        context,
+        model,
+        input_asset_id=asset.id,
+        parameters={},
+    )
+    runner()
+
+    stored = repository.get_job_for_workspace(job.id, context.workspace.id)
+    assert stored is not None
+    result = json.loads(stored.result_json)
+    output_asset = repository.get_asset_for_workspace(result["cutout_asset_id"], context.workspace.id)
+    assert stored.status == "success"
+    assert stored.job_type == "asset_board_cutout"
+    assert result["cutout_asset_id"] == result["output_assets"][0]["id"]
+    assert output_asset is not None
+    assert output_asset.kind == "asset_cutout"
+    assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"\x89PNG")
+    assert model.predict_calls == 1
 
 
 def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext, AssetRecord]:
