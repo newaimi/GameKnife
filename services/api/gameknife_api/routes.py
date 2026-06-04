@@ -22,7 +22,6 @@ from gameknife_api.deps import (
 from gameknife_api.job_service import (
     create_job,
     delete_job,
-    run_background_remove_job,
     run_asset_board_export_job,
     run_asset_board_cutout_job,
     run_asset_board_refine_job,
@@ -71,6 +70,11 @@ from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
+from gameknife_workflows import (
+    WorkflowInputNotFoundError,
+    WorkflowModelNotInstalledError,
+    create_background_remove_workflow,
+)
 
 router = APIRouter()
 
@@ -263,10 +267,20 @@ def create_background_remove_job(
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> JobResponse:
-    _ensure_birefnet_installed(birefnet)
-    _ensure_asset_exists(repository, context, payload.input_asset_id)
-    job = create_job(repository, context, job_type="background_remove", input_asset_id=payload.input_asset_id, parameters=payload.parameters)
-    background_tasks.add_task(run_background_remove_job, repository, context, birefnet, job.id)
+    try:
+        job, runner = create_background_remove_workflow(
+            repository,
+            context,
+            birefnet,
+            input_asset_id=payload.input_asset_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowModelNotInstalledError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
