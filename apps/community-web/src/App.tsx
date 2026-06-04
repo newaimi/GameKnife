@@ -6,6 +6,7 @@ import {
   CommunityHelpPage,
   CommunityJobsPage,
   CommunitySettingsPage,
+  ImageAssetSessionProvider,
   communityWorkflowRoutes,
 } from "@gameknife/image-workflows";
 import type { AppContext } from "@gameknife/shared-types";
@@ -74,19 +75,22 @@ export function App() {
           onThemeToggle={toggleTheme}
         >
           <main className="content">
-            <Suspense fallback={<div className="page-panel">加载中</div>}>
-              <Routes>
-                <Route path="/" element={<Navigate to="/tools/background-remove" replace />} />
-                <Route path="/jobs" element={<CommunityJobsPage />} />
-                <Route path="/settings" element={<CommunitySettingsPage />} />
-                <Route path="/help" element={<CommunityHelpPage />} />
-                {communityWorkflowRoutes.map((route) => {
-                  const FeatureComponent = route.component;
-                  return <Route key={route.id} path={route.path} element={<FeatureComponent />} />;
-                })}
-                <Route path="*" element={<Navigate to="/tools/background-remove" replace />} />
-              </Routes>
-            </Suspense>
+            {/* Community Shell 只装配公共能力；图片素材会话放在公共包里，商业版也通过同一入口复用工作台状态。 */}
+            <ImageAssetSessionProvider>
+              <Suspense fallback={<div className="page-panel">加载中</div>}>
+                <Routes>
+                  <Route path="/" element={<Navigate to="/tools/background-remove" replace />} />
+                  <Route path="/jobs" element={<CommunityJobsPage />} />
+                  <Route path="/settings" element={<CommunitySettingsPage />} />
+                  <Route path="/help" element={<CommunityHelpPage />} />
+                  {communityWorkflowRoutes.map((route) => {
+                    const FeatureComponent = route.component;
+                    return <Route key={route.id} path={route.path} element={<FeatureComponent />} />;
+                  })}
+                  <Route path="*" element={<Navigate to="/tools/background-remove" replace />} />
+                </Routes>
+              </Suspense>
+            </ImageAssetSessionProvider>
           </main>
         </CommunityShell>
       </BrowserRouter>

@@ -1,6 +1,7 @@
 export { CommunityJobsPage } from "./pages/jobs/CommunityJobsPage";
 export { CommunityHelpPage } from "./pages/CommunityHelpPage";
 export { CommunitySettingsPage } from "./pages/settings/CommunitySettingsPage";
+export { ImageAssetSessionProvider } from "./context/ImageAssetSession";
 export { BackgroundRemoveWorkspace } from "./workspaces/background/BackgroundRemoveWorkspace";
 export { UpscaleWorkspace } from "./workspaces/upscale/UpscaleWorkspace";
 export { SoundEffectWorkspace } from "./workspaces/sound-effect/SoundEffectWorkspace";
