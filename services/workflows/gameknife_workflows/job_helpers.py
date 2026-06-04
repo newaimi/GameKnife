@@ -156,6 +156,10 @@ def mark_success(
     )
 
 
+def mark_running(repository: WorkflowRepository, context: RequestContext, job_id: str) -> None:
+    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+
+
 def mark_failed(repository: WorkflowRepository, context: RequestContext, job_id: str, error_message: str) -> None:
     repository.update_job(
         job_id,

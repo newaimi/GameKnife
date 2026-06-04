@@ -75,30 +75,6 @@ def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: Re
     )
 
 
-def run_asset_board_region_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    if job is None:
-        return
-    input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if input_asset is None:
-        _mark_failed(repository, context, job_id, "输入素材不存在。")
-        return
-
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    try:
-        result = asset_board_processor.detect_source_regions(
-            context.storage.resolve_asset_path(input_asset.path),
-            json.loads(job.parameters_json),
-        )
-        final_result = {
-            **result.result,
-            "input_asset_url": f"/api/assets/{input_asset.id}",
-        }
-        _mark_success(repository, context, job_id, result, final_result)
-    except Exception as exc:  # noqa: BLE001
-        _mark_failed(repository, context, job_id, str(exc))
-
-
 def run_asset_board_cutout_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
     _run_image_output_job(
         repository,

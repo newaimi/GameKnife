@@ -25,7 +25,6 @@ from gameknife_api.job_service import (
     run_asset_board_export_job,
     run_asset_board_cutout_job,
     run_asset_board_refine_job,
-    run_asset_board_region_job,
     run_character_part_refine_job,
     run_character_rig_analyze_job,
     run_character_rig_export_dragonbones_job,
@@ -73,6 +72,7 @@ from gameknife_workflows import (
     WorkflowModelNotInstalledError,
     WorkflowServiceUnavailableError,
     WorkflowValidationError,
+    create_asset_board_region_workflow,
     create_background_remove_workflow,
     create_sound_effect_workflow,
     create_upscale_workflow,
@@ -344,15 +344,17 @@ def create_asset_board_region_job(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
-    _ensure_asset_exists(repository, context, payload.input_asset_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="asset_board_region_detect",
-        input_asset_id=payload.input_asset_id,
-        parameters=payload.parameters,
-    )
-    background_tasks.add_task(run_asset_board_region_job, repository, context, job.id)
+    try:
+        job, runner = create_asset_board_region_workflow(
+            repository,
+            context,
+            input_asset_id=payload.input_asset_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
