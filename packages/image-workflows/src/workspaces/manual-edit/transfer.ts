@@ -40,6 +40,7 @@ export async function loadManualEditTransfer(id: string): Promise<ManualEditSour
   return {
     name: record.name,
     url: URL.createObjectURL(record.blob),
+    blob: record.blob,
     sourceFileId: record.sourceFileId,
     sourceContext: record.sourceContext,
     revokeObjectUrl: true,

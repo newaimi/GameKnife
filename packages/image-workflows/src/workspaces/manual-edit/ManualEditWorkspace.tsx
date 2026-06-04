@@ -7,7 +7,7 @@ import { loadManualEditTransfer } from "./transfer";
 
 export function ManualEditWorkspace() {
   const fileInput = useRef<HTMLInputElement | null>(null);
-  const objectUrlRef = useRef("");
+  const sourceRef = useRef<ManualEditSource | null>(null);
   const transferLoadedRef = useRef(false);
   const [source, setSource] = useState<ManualEditSource | null>(null);
   const [gridVisible, setGridVisible] = useState(true);
@@ -25,7 +25,7 @@ export function ManualEditWorkspace() {
     loadManualEditTransfer(transferId)
       .then((nextSource) => {
         if (nextSource) {
-          setSource(nextSource);
+          replaceSource(nextSource);
         }
       })
       .catch((error) => {
@@ -39,28 +39,37 @@ export function ManualEditWorkspace() {
 
   useEffect(() => {
     return () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
-      if (source?.revokeObjectUrl) {
-        URL.revokeObjectURL(source.url);
-      }
+      releaseSource(sourceRef.current);
+      sourceRef.current = null;
     };
-  }, [source]);
+  }, []);
+
+  function releaseSource(sourceToRelease: ManualEditSource | null) {
+    if (sourceToRelease?.revokeObjectUrl) {
+      URL.revokeObjectURL(sourceToRelease.url);
+    }
+  }
+
+  function replaceSource(nextSource: ManualEditSource) {
+    // 手动编辑页会在开发模式 StrictMode 下重复执行 effect。
+    // 对象 URL 如果绑在 effect 的 source 清理函数里，会在编辑器读取前被提前释放。
+    // 这里把释放时机收敛到“图片被替换”和“页面卸载”，保证当前图片始终可读。
+    releaseSource(sourceRef.current);
+    sourceRef.current = nextSource;
+    setSource(nextSource);
+  }
 
   function upload(file: File) {
     if (!canWrite) {
       return;
     }
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-    }
     const objectUrl = URL.createObjectURL(file);
-    objectUrlRef.current = objectUrl;
-    setSource({
+    replaceSource({
       name: file.name,
       url: objectUrl,
+      blob: file,
       sourceContext: "manual_upload",
+      revokeObjectUrl: true,
     });
   }
 

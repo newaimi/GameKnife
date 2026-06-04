@@ -1,6 +1,7 @@
 export type ManualEditSource = {
   name: string;
   url: string;
+  blob?: Blob;
   sourceFileId?: string;
   sourceContext?: string;
   revokeObjectUrl?: boolean;

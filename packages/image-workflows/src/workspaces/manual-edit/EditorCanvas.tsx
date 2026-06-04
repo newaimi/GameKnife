@@ -183,13 +183,9 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     async function openSourceImage() {
       try {
         // 手动编辑入口同时支持本地上传、任务结果预览和跨标签页临时传递。
-        // 这些入口最终都能读取成 Blob，统一交给 editor-core 解码可以避免这里单独设置
-        // crossOrigin 后让部分浏览器按 CORS 图片处理 blob: 临时地址。
-        const response = await fetch(source.url, { signal: abortController.signal });
-        if (!response.ok) {
-          throw new Error("图片读取失败。");
-        }
-        const imageData = await blobToImageData(await response.blob());
+        // 已经持有 Blob 时不能再绕回 fetch(blob:url)，否则对象 URL 被释放或浏览器限制读取时会直接失败。
+        // 只有外部调用没有传 Blob 时才按 URL 读取，保持这个编辑器仍然支持普通同源资源地址。
+        const imageData = await blobToImageData(await readSourceBlob(source, abortController.signal));
         if (cancelled) return;
 
         const originalImageData = cloneImageData(imageData);
@@ -859,6 +855,17 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     </div>
   );
 });
+
+async function readSourceBlob(source: ManualEditSource, signal: AbortSignal) {
+  if (source.blob) {
+    return source.blob;
+  }
+  const response = await fetch(source.url, { signal });
+  if (!response.ok) {
+    throw new Error("图片读取失败。");
+  }
+  return response.blob();
+}
 
 function trimEditorHistory(entries: EditorHistoryEntry[]) {
   let next = entries.slice(-EDITOR_HISTORY_LIMIT);
