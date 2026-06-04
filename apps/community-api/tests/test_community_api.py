@@ -136,6 +136,38 @@ class FakeBiRefNetService:
         return alpha
 
 
+class FakeUpscaleModelService:
+    device_label = "CPU"
+
+    def __init__(self) -> None:
+        self.upscale_calls = 0
+
+    def install_status(self) -> dict[str, object]:
+        return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
+
+    def is_installed(self) -> bool:
+        return True
+
+    def start_install(self) -> dict[str, object]:
+        return self.install_status()
+
+    def model_specs(self) -> list[dict[str, str]]:
+        return [{"key": "general", "name": "fake-real-esrgan", "role": "测试", "filename": "fake.pth"}]
+
+    def upscale_image(
+        self,
+        image: Image.Image,
+        *,
+        style: str,
+        target_scale: int,
+        denoise: int,
+        tile_size: int,
+    ) -> tuple[Image.Image, str, str, list[str]]:
+        self.upscale_calls += 1
+        output = image.resize((image.width * target_scale, image.height * target_scale), Image.Resampling.BICUBIC)
+        return output, "fake-real-esrgan", "CPU", []
+
+
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/context")
@@ -251,11 +283,20 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
     assert response.json()["edition"] == "community"
     assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
     assert "birefnet" in response.json()["models"]
+    assert "upscale_models" in response.json()["models"]
 
 
 def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/settings/birefnet/install")
+
+    assert response.status_code == 200
+    assert "installed" in response.json()
+
+
+def test_upscale_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/api/settings/upscale-models/install")
 
     assert response.status_code == 200
     assert "installed" in response.json()
@@ -343,6 +384,53 @@ def test_non_pixel_upscale_requires_installed_model(tmp_path: Path) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "图片放大模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_pixel_upscale_does_not_call_ai_model_service(tmp_path: Path) -> None:
+    fake_upscale = FakeUpscaleModelService()
+    with make_client(tmp_path) as client:
+        client.app.state.upscale_models = fake_upscale
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"style": "pixel", "scale": 2}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["result"]["model"] == "nearest-neighbor"
+    assert fake_upscale.upscale_calls == 0
+
+
+def test_ai_upscale_job_uses_installed_model_service(tmp_path: Path) -> None:
+    fake_upscale = FakeUpscaleModelService()
+    with make_client(tmp_path) as client:
+        client.app.state.upscale_models = fake_upscale
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"style": "general", "scale": 4, "denoise": 1, "tile_size": 128}},
+        )
+        job_id = created.json()["id"]
+        job = client.get(f"/api/jobs/{job_id}").json()
+        output_asset = job["result"]["output_assets"][0]
+        output = client.get(output_asset["url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["result"]["output_size"] == [8, 8]
+    assert job["result"]["model"] == "fake-real-esrgan"
+    assert job["device"] == "CPU"
+    assert fake_upscale.upscale_calls == 1
+    assert output.status_code == 200
+    assert Image.open(BytesIO(output.content)).size == (8, 8)
 
 
 def test_background_remove_requires_installed_birefnet(tmp_path: Path) -> None:

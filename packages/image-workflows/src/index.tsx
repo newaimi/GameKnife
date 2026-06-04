@@ -17,6 +17,8 @@ export const communityToolEntries = [
   { id: "manual-edit", label: "手动编辑", route: "/manual-edit" },
 ];
 
+type UpscaleStyle = "pixel" | "general" | "anime" | "noisy";
+
 export function CommunityToolHome() {
   return (
     <div className="tool-home">
@@ -32,7 +34,10 @@ export function CommunityToolHome() {
 
 export function UpscaleWorkspace() {
   const [asset, setAsset] = useState<AssetResponse | null>(null);
+  const [style, setStyle] = useState<UpscaleStyle>("pixel");
   const [scale, setScale] = useState(2);
+  const [denoise, setDenoise] = useState(0);
+  const [tileSize, setTileSize] = useState(384);
   const [job, setJob] = useState<JobResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -50,7 +55,7 @@ export function UpscaleWorkspace() {
     setBusy(true);
     setError("");
     try {
-      const created = await gameKnifeApiClient.createUpscaleJob(asset.id, { style: "pixel", scale });
+      const created = await gameKnifeApiClient.createUpscaleJob(asset.id, { style, scale, denoise, tile_size: tileSize });
       setJob(await waitForJob(created.id));
     } catch (exc) {
       setError(readMessage(exc));
@@ -66,7 +71,29 @@ export function UpscaleWorkspace() {
       center={<AssetPreview asset={asset} />}
       right={
         <div className="tool-panel">
-          <NumberField label="倍率" value={scale} min={2} max={8} step={2} onChange={setScale} />
+          <label className="field-label">
+            风格
+            <select value={style} onChange={(event) => setStyle(event.target.value as UpscaleStyle)}>
+              <option value="pixel">像素风</option>
+              <option value="general">通用</option>
+              <option value="anime">动漫</option>
+              <option value="noisy">噪点</option>
+            </select>
+          </label>
+          <label className="field-label">
+            倍率
+            <select value={scale} onChange={(event) => setScale(Number(event.target.value))}>
+              <option value={2}>2x</option>
+              <option value={4}>4x</option>
+              <option value={8}>8x</option>
+            </select>
+          </label>
+          {style !== "pixel" ? (
+            <>
+              <NumberField label="降噪" value={denoise} min={0} max={3} step={1} onChange={setDenoise} />
+              <NumberField label="切块" value={tileSize} min={128} max={1024} step={64} onChange={setTileSize} />
+            </>
+          ) : null}
           <button className="primary-button" disabled={!asset || busy} onClick={run} type="button">
             <Play size={18} />
             放大
@@ -933,6 +960,7 @@ export function CommunitySettingsPage() {
   const [videoApiKey, setVideoApiKey] = useState("");
   const [videoMessage, setVideoMessage] = useState("");
   const [birefnetStatus, setBirefnetStatus] = useState<Record<string, unknown> | null>(null);
+  const [upscaleStatus, setUpscaleStatus] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -942,14 +970,16 @@ export function CommunitySettingsPage() {
   async function refreshSettings() {
     try {
       setError("");
-      const [nextSettings, nextVideoConfig, nextBiRefNetStatus] = await Promise.all([
+      const [nextSettings, nextVideoConfig, nextBiRefNetStatus, nextUpscaleStatus] = await Promise.all([
         gameKnifeApiClient.getSettings(),
         gameKnifeApiClient.getVideoGenerationSettings(),
         gameKnifeApiClient.getBiRefNetInstallStatus(),
+        gameKnifeApiClient.getUpscaleModelInstallStatus(),
       ]);
       setSettings(nextSettings);
       setVideoConfig(nextVideoConfig);
       setBirefnetStatus(nextBiRefNetStatus);
+      setUpscaleStatus(nextUpscaleStatus);
       setVideoProvider(nextVideoConfig.provider);
       setVideoBaseUrl(nextVideoConfig.base_url);
       setVideoApiKey("");
@@ -996,6 +1026,15 @@ export function CommunitySettingsPage() {
     }
   }
 
+  async function startUpscaleInstall() {
+    try {
+      setError("");
+      setUpscaleStatus(await gameKnifeApiClient.startUpscaleModelInstall());
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
   return (
     <section className="page-panel">
       <h1>设置</h1>
@@ -1017,6 +1056,19 @@ export function CommunitySettingsPage() {
           <strong>{String(birefnetStatus?.progress ?? 0)}%</strong>
         </div>
         <button className="secondary-button" disabled={birefnetStatus?.status === "running"} onClick={startBiRefNetInstall} type="button">
+          <Download size={18} />
+          下载安装模型文件
+        </button>
+      </div>
+      <div className="settings-form">
+        <h2>图片放大模型</h2>
+        <div className="settings-grid">
+          <span>状态</span>
+          <strong>{String(upscaleStatus?.status ?? "")}</strong>
+          <span>进度</span>
+          <strong>{String(upscaleStatus?.progress ?? 0)}%</strong>
+        </div>
+        <button className="secondary-button" disabled={upscaleStatus?.status === "running"} onClick={startUpscaleInstall} type="button">
           <Download size={18} />
           下载安装模型文件
         </button>

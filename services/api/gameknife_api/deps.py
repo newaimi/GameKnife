@@ -11,6 +11,7 @@ from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_storage import LocalStorageProvider
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
+from gameknife_api.upscale_model import UpscaleModelService
 
 COMMUNITY_FEATURES = frozenset(
     {
@@ -39,6 +40,7 @@ class CommunitySettings:
     stable_audio_token: str = ""
     stable_audio_timeout_seconds: int = 900
     model_input_size: int = 1024
+    upscale_model_root: Path | None = None
 
     @classmethod
     def from_env(cls) -> "CommunitySettings":
@@ -48,6 +50,7 @@ class CommunitySettings:
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
         stable_audio_timeout_seconds = int(os.getenv("GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS", "900"))
         model_input_size = int(os.getenv("GAMEKNIFE_MODEL_INPUT_SIZE", "1024"))
+        upscale_model_root = Path(os.getenv("GAMEKNIFE_UPSCALE_MODEL_ROOT", storage_root / "models" / "upscale")).resolve()
         return cls(
             storage_root=storage_root,
             database_path=database_path,
@@ -56,6 +59,7 @@ class CommunitySettings:
             stable_audio_token=os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "").strip(),
             stable_audio_timeout_seconds=stable_audio_timeout_seconds,
             model_input_size=model_input_size,
+            upscale_model_root=upscale_model_root,
         )
 
 
@@ -69,6 +73,8 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
         settings.stable_audio_timeout_seconds,
     )
     app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size)
+    # 超分模型体积较大，运行时只保存服务句柄；真正加载发生在任务执行时，避免 Community 启动被模型初始化拖慢。
+    app.state.upscale_models = UpscaleModelService(settings.upscale_model_root or settings.storage_root / "models" / "upscale")
 
 
 def get_repository(request: Request) -> SQLiteGameKnifeRepository:
@@ -81,6 +87,10 @@ def get_stable_audio_service(request: Request) -> StableAudioService:
 
 def get_birefnet_service(request: Request) -> BiRefNetService:
     return request.app.state.birefnet
+
+
+def get_upscale_model_service(request: Request) -> UpscaleModelService:
+    return request.app.state.upscale_models
 
 
 def get_request_context(request: Request) -> RequestContext:

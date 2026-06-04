@@ -11,6 +11,7 @@ from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
+from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
 
 upscale_processor = UpscaleProcessor()
@@ -61,7 +62,7 @@ def create_job(
     return stored
 
 
-def run_upscale_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
+def run_upscale_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: UpscaleModelService, job_id: str) -> None:
     _run_image_output_job(
         repository,
         context,
@@ -69,7 +70,7 @@ def run_upscale_job(repository: SQLiteGameKnifeRepository, context: RequestConte
         output_kind="upscale_result",
         output_mime_type="image/png",
         output_suffix="_upscale.png",
-        processor=lambda input_path, output_path, parameters: upscale_processor.process(input_path, output_path, parameters),
+        processor=lambda input_path, output_path, parameters: upscale_processor.process(input_path, output_path, parameters, service),
     )
 
 

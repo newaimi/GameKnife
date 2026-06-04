@@ -311,6 +311,16 @@ export class GameKnifeApiClient {
     });
   }
 
+  async getUpscaleModelInstallStatus(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/upscale-models/install");
+  }
+
+  async startUpscaleModelInstall(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/upscale-models/install", {
+      method: "POST",
+    });
+  }
+
   async updateVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<VideoGenerationConfig> {
     return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation", {
       method: "PATCH",

@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
-from gameknife_api.deps import get_birefnet_service, get_repository, get_request_context, get_stable_audio_service
+from gameknife_api.deps import get_birefnet_service, get_repository, get_request_context, get_stable_audio_service, get_upscale_model_service
 from gameknife_api.job_service import (
     create_job,
     delete_job,
@@ -61,6 +61,7 @@ from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
+from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
 
 router = APIRouter()
@@ -141,6 +142,7 @@ def settings(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
     return SettingsResponse(
@@ -155,6 +157,12 @@ def settings(
                 "gpu_concurrency": 1,
                 "lazy_load": True,
                 "install_status": birefnet.install_status(),
+            },
+            "upscale_models": {
+                "models": upscale_models.model_specs(),
+                "device": upscale_models.device_label,
+                "lazy_load": True,
+                "install_status": upscale_models.install_status(),
             },
             "stable_audio": stable_audio.install_status(),
         },
@@ -253,14 +261,15 @@ def create_upscale_job(
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
 ) -> JobResponse:
     parameters = payload.parameters
     if str(parameters.get("style") or "general") != "pixel":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+        _ensure_upscale_model_installed(upscale_models)
 
     _ensure_asset_exists(repository, context, payload.input_asset_id)
     job = create_job(repository, context, job_type="image_upscale", input_asset_id=payload.input_asset_id, parameters=parameters)
-    background_tasks.add_task(run_upscale_job, repository, context, job.id)
+    background_tasks.add_task(run_upscale_job, repository, context, upscale_models, job.id)
     return _job_response(job, context, repository)
 
 
@@ -1092,10 +1101,12 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
 @router.get("/settings/models/install-status")
 def read_model_install_status(
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> dict[str, object]:
     return {
         "birefnet": birefnet.install_status(),
+        "upscale_models": upscale_models.install_status(),
         "stable_audio": stable_audio.install_status(),
     }
 
@@ -1108,6 +1119,16 @@ def read_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_servi
 @router.post("/settings/birefnet/install")
 def start_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
     return birefnet.start_install()
+
+
+@router.get("/settings/upscale-models/install")
+def read_upscale_model_install(upscale_models: UpscaleModelService = Depends(get_upscale_model_service)) -> dict[str, object]:
+    return upscale_models.install_status()
+
+
+@router.post("/settings/upscale-models/install")
+def start_upscale_model_install(upscale_models: UpscaleModelService = Depends(get_upscale_model_service)) -> dict[str, object]:
+    return upscale_models.start_install()
 
 
 @router.get("/settings/stable-audio/install")
@@ -1356,6 +1377,13 @@ def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
     if birefnet.is_installed():
         return
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+
+def _ensure_upscale_model_installed(upscale_models: UpscaleModelService) -> None:
+    if upscale_models.is_installed():
+        return
+    # 创建任务时先拒绝缺模型的 AI 超分请求，避免后台任务进入运行态后才暴露环境问题。
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
 
 
 def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:
