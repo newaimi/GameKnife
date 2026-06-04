@@ -36,7 +36,6 @@ from gameknife_api.job_service import (
     run_sequence_generate_video_job,
     run_sequence_from_video_job,
     run_sound_effect_job,
-    run_upscale_job,
 )
 from gameknife_api.schemas import (
     AssetBoardExportRequest,
@@ -74,6 +73,7 @@ from gameknife_workflows import (
     WorkflowInputNotFoundError,
     WorkflowModelNotInstalledError,
     create_background_remove_workflow,
+    create_upscale_workflow,
 )
 
 router = APIRouter()
@@ -292,13 +292,20 @@ def create_upscale_job(
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
 ) -> JobResponse:
-    parameters = payload.parameters
-    if str(parameters.get("style") or "general") != "pixel":
-        _ensure_upscale_model_installed(upscale_models)
+    try:
+        job, runner = create_upscale_workflow(
+            repository,
+            context,
+            upscale_models,
+            input_asset_id=payload.input_asset_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowModelNotInstalledError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    _ensure_asset_exists(repository, context, payload.input_asset_id)
-    job = create_job(repository, context, job_type="image_upscale", input_asset_id=payload.input_asset_id, parameters=parameters)
-    background_tasks.add_task(run_upscale_job, repository, context, upscale_models, job.id)
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
@@ -1420,13 +1427,6 @@ def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
     if birefnet.is_installed():
         return
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
-
-
-def _ensure_upscale_model_installed(upscale_models: UpscaleModelService) -> None:
-    if upscale_models.is_installed():
-        return
-    # 创建任务时先拒绝缺模型的 AI 超分请求，避免后台任务进入运行态后才暴露环境问题。
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
 
 
 def _ensure_character_rig_models_installed(character_rig_models: CharacterRigModelService) -> None:

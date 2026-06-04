@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from gameknife_core import JobRecord, RequestContext
 from gameknife_processors import BackgroundRemoveProcessor
 
+from .errors import WorkflowInputNotFoundError, WorkflowModelNotInstalledError
 from .job_helpers import WorkflowRepository, create_job_record, run_image_output_job
 
 
@@ -20,14 +21,6 @@ class BackgroundRemoveModel(Protocol):
 
     def predict_alpha(self, image):
         ...
-
-
-class WorkflowInputNotFoundError(ValueError):
-    pass
-
-
-class WorkflowModelNotInstalledError(ValueError):
-    pass
 
 
 def create_background_remove_workflow(

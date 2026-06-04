@@ -8,14 +8,12 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
-from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
+from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
-from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
 
-upscale_processor = UpscaleProcessor()
 asset_board_processor = AssetBoardSplitProcessor()
 sequence_processor = SequenceFrameProcessor()
 character_rig_processor = CharacterRigProcessor()
@@ -64,18 +62,6 @@ def create_job(
     if stored is None:
         raise RuntimeError("任务创建失败。")
     return stored
-
-
-def run_upscale_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: UpscaleModelService, job_id: str) -> None:
-    _run_image_output_job(
-        repository,
-        context,
-        job_id,
-        output_kind="upscale_result",
-        output_mime_type="image/png",
-        output_suffix="_upscale.png",
-        processor=lambda input_path, output_path, parameters: upscale_processor.process(input_path, output_path, parameters, service),
-    )
 
 
 def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
