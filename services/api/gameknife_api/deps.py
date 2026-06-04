@@ -38,10 +38,18 @@ class CommunitySettings:
     database_path: Path
     cors_origins: list[str]
     web_dist: Path | None = None
+    app_version: str = "dev"
+    build_number: str = "local"
+    git_sha: str = "unknown"
+    build_time: str = "unknown"
+    max_upload_mb: int = 50
     stable_audio_base_url: str = ""
     stable_audio_token: str = ""
     stable_audio_timeout_seconds: int = 900
+    stable_audio_model_id: str = "stabilityai/stable-audio-open-1.0"
     model_input_size: int = 1024
+    birefnet_model_root: Path | None = None
+    character_rig_model_root: Path | None = None
     upscale_model_root: Path | None = None
 
     @classmethod
@@ -51,18 +59,29 @@ class CommunitySettings:
         database_path = Path(os.getenv("GAMEKNIFE_DB_PATH", storage_root / "gameknife.sqlite3")).resolve()
         web_dist = Path(os.getenv("GAMEKNIFE_WEB_DIST", "apps/community-web/dist")).resolve()
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
+        max_upload_mb = int(os.getenv("GAMEKNIFE_MAX_UPLOAD_MB", "50"))
         stable_audio_timeout_seconds = int(os.getenv("GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS", "900"))
         model_input_size = int(os.getenv("GAMEKNIFE_MODEL_INPUT_SIZE", "1024"))
+        birefnet_model_root = Path(os.getenv("GAMEKNIFE_BIREFNET_MODEL_ROOT", storage_root / "models" / "birefnet")).resolve()
+        character_rig_model_root = Path(os.getenv("GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT", storage_root / "models" / "character-rig")).resolve()
         upscale_model_root = Path(os.getenv("GAMEKNIFE_UPSCALE_MODEL_ROOT", storage_root / "models" / "upscale")).resolve()
         return cls(
             storage_root=storage_root,
             database_path=database_path,
             cors_origins=cors_origins or ["*"],
             web_dist=web_dist,
+            app_version=os.getenv("GAMEKNIFE_APP_VERSION", "dev"),
+            build_number=os.getenv("GAMEKNIFE_BUILD_NUMBER", "local"),
+            git_sha=os.getenv("GAMEKNIFE_GIT_SHA", "unknown"),
+            build_time=os.getenv("GAMEKNIFE_BUILD_TIME", "unknown"),
+            max_upload_mb=max_upload_mb,
             stable_audio_base_url=os.getenv("GAMEKNIFE_STABLE_AUDIO_BASE_URL", "").strip(),
             stable_audio_token=os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "").strip(),
             stable_audio_timeout_seconds=stable_audio_timeout_seconds,
+            stable_audio_model_id=os.getenv("GAMEKNIFE_STABLE_AUDIO_MODEL_ID", "stabilityai/stable-audio-open-1.0"),
             model_input_size=model_input_size,
+            birefnet_model_root=birefnet_model_root,
+            character_rig_model_root=character_rig_model_root,
             upscale_model_root=upscale_model_root,
         )
 
@@ -76,10 +95,15 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
         settings.stable_audio_token,
         settings.stable_audio_timeout_seconds,
     )
-    app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size)
-    app.state.character_rig_models = CharacterRigModelService()
+    birefnet_model_root = settings.birefnet_model_root or settings.storage_root / "models" / "birefnet"
+    character_rig_model_root = settings.character_rig_model_root or settings.storage_root / "models" / "character-rig"
+    upscale_model_root = settings.upscale_model_root or settings.storage_root / "models" / "upscale"
+    # Community 的模型安装状态必须跟本地 storage 绑定，不能读取用户机器上的全局 Hugging Face 缓存。
+    # 这样新工作区、测试环境和 Docker 数据卷都能独立判断“是否已在本地安装模型”。
+    app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size, model_cache_dir=birefnet_model_root)
+    app.state.character_rig_models = CharacterRigModelService(model_cache_dir=character_rig_model_root)
     # 超分模型体积较大，运行时只保存服务句柄；真正加载发生在任务执行时，避免 Community 启动被模型初始化拖慢。
-    app.state.upscale_models = UpscaleModelService(settings.upscale_model_root or settings.storage_root / "models" / "upscale")
+    app.state.upscale_models = UpscaleModelService(upscale_model_root)
 
 
 def get_repository(request: Request) -> SQLiteGameKnifeRepository:
@@ -100,6 +124,10 @@ def get_character_rig_model_service(request: Request) -> CharacterRigModelServic
 
 def get_upscale_model_service(request: Request) -> UpscaleModelService:
     return request.app.state.upscale_models
+
+
+def get_community_settings(request: Request) -> CommunitySettings:
+    return request.app.state.settings
 
 
 def get_request_context(request: Request) -> RequestContext:

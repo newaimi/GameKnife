@@ -32,7 +32,7 @@ Community API 不读取 Authorization header、登录 Cookie 或本地 token。
 
 ## 模型安装
 
-依赖模型的功能在创建任务阶段检查安装状态。BiRefNet、骨骼拆分模型和 Real-ESRGAN 通过设置页手动安装，推理阶段只从本地缓存读取模型文件。像素风图片放大不要求模型安装。
+依赖模型的功能在创建任务阶段检查安装状态。BiRefNet、骨骼拆分模型和 Real-ESRGAN 通过设置页手动安装，推理阶段只从本地缓存读取模型文件。默认模型目录分别是 `storage/models/birefnet`、`storage/models/character-rig` 和 `storage/models/upscale`，可通过 `GAMEKNIFE_BIREFNET_MODEL_ROOT`、`GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT`、`GAMEKNIFE_UPSCALE_MODEL_ROOT` 调整。像素风图片放大不要求模型安装。
 
 ## Stable Audio
 

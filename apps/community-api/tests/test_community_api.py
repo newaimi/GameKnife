@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from io import BytesIO
 from pathlib import Path
@@ -13,6 +14,7 @@ from PIL import Image
 from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
 from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
+from gameknife_core import AssetRecord, JobRecord
 from gameknife_processors.character_rig import CharacterRigDetection, CharacterRigHints
 
 
@@ -113,8 +115,15 @@ def make_sequence_frame_bytes(color: tuple[int, int, int, int]) -> bytes:
 
 
 class FakeStableAudioService:
+    def __init__(self) -> None:
+        self.install_calls = 0
+
     def install_status(self) -> dict[str, object]:
         return {"status": "success", "installed": True, "message": "ok", "error": None}
+
+    def start_install(self) -> dict[str, object]:
+        self.install_calls += 1
+        return self.install_status()
 
     def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, object]) -> dict[str, object]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +142,7 @@ class FakeBiRefNetService:
 
     def __init__(self) -> None:
         self.predict_calls = 0
+        self.install_calls = 0
 
     def install_status(self) -> dict[str, object]:
         return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
@@ -141,6 +151,7 @@ class FakeBiRefNetService:
         return True
 
     def start_install(self) -> dict[str, object]:
+        self.install_calls += 1
         return self.install_status()
 
     def predict_alpha(self, image: Image.Image) -> np.ndarray:
@@ -155,6 +166,7 @@ class FakeUpscaleModelService:
 
     def __init__(self) -> None:
         self.upscale_calls = 0
+        self.install_calls = 0
 
     def install_status(self) -> dict[str, object]:
         return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
@@ -163,6 +175,7 @@ class FakeUpscaleModelService:
         return True
 
     def start_install(self) -> dict[str, object]:
+        self.install_calls += 1
         return self.install_status()
 
     def model_specs(self) -> list[dict[str, str]]:
@@ -189,6 +202,7 @@ class FakeCharacterRigModelService:
         self.describe_calls = 0
         self.detect_calls = 0
         self.refine_calls = 0
+        self.install_calls = 0
 
     def install_status(self) -> dict[str, object]:
         return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
@@ -197,6 +211,7 @@ class FakeCharacterRigModelService:
         return True
 
     def start_install(self) -> dict[str, object]:
+        self.install_calls += 1
         return self.install_status()
 
     def model_specs(self) -> list[dict[str, str]]:
@@ -346,10 +361,62 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["edition"] == "community"
+    assert response.json()["runtime"]["python_version"]
+    assert response.json()["birefnet"]["model_id"]
+    assert response.json()["stable_audio"]["base_url_configured"] is False
     assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
     assert "birefnet" in response.json()["models"]
     assert "character_rig_models" in response.json()["models"]
     assert "upscale_models" in response.json()["models"]
+
+
+def test_job_history_filters_by_created_range(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        repository = client.app.state.repository
+        asset_path = tmp_path / "storage" / "outputs" / "finished.png"
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(make_png_bytes())
+        asset = AssetRecord(
+            id="history-asset",
+            workspace_id="local",
+            created_by="anonymous",
+            kind="background_remove",
+            original_name="hero.png",
+            path=str(asset_path),
+            mime_type="image/png",
+            size_bytes=asset_path.stat().st_size,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+        )
+        repository.create_asset(asset)
+        for job_id, created_at in (("old-job", "2026-01-01T00:00:00Z"), ("new-job", "2026-02-01T00:00:00Z")):
+            repository.create_job(
+                JobRecord(
+                    id=job_id,
+                    workspace_id="local",
+                    created_by="anonymous",
+                    job_type="background_remove",
+                    status="success",
+                    input_asset_id=asset.id,
+                    parameters_json="{}",
+                    result_json=json.dumps({"output_assets": [{"id": asset.id, "url": f"/api/assets/{asset.id}"}]}),
+                    device="CPU",
+                    duration_ms=1,
+                    error_message=None,
+                    created_at=created_at,
+                    updated_at=created_at,
+                )
+            )
+
+        response = client.get(
+            "/api/jobs/history",
+            params={"page": 1, "page_size": 12, "category": "background", "created_from": "2026-02-01T00:00:00Z", "downloadable": "true"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert [item["id"] for item in data["items"]] == ["new-job"]
 
 
 def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> None:
@@ -360,6 +427,18 @@ def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> No
     assert "installed" in response.json()
 
 
+def test_birefnet_install_can_start_without_login(tmp_path: Path) -> None:
+    fake_birefnet = FakeBiRefNetService()
+    with make_client(tmp_path) as client:
+        # 模型下载按钮调用 POST，测试里替换成 Fake 服务，避免验收接口时触发真实模型下载。
+        client.app.state.birefnet = fake_birefnet
+        response = client.post("/api/settings/birefnet/install")
+
+    assert response.status_code == 200
+    assert response.json()["installed"] is True
+    assert fake_birefnet.install_calls == 1
+
+
 def test_character_rig_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/settings/character-rig-models/install")
@@ -368,12 +447,54 @@ def test_character_rig_model_install_status_is_readable_without_login(tmp_path: 
     assert "installed" in response.json()
 
 
+def test_character_rig_model_install_can_start_without_login(tmp_path: Path) -> None:
+    fake_models = FakeCharacterRigModelService()
+    with make_client(tmp_path) as client:
+        # Community 本地部署没有账号体系，设置页安装模型必须能直接触发后端本地管理员能力。
+        client.app.state.character_rig_models = fake_models
+        response = client.post("/api/settings/character-rig-models/install")
+
+    assert response.status_code == 200
+    assert response.json()["installed"] is True
+    assert fake_models.install_calls == 1
+
+
 def test_upscale_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/settings/upscale-models/install")
 
     assert response.status_code == 200
     assert "installed" in response.json()
+
+
+def test_upscale_model_install_can_start_without_login(tmp_path: Path) -> None:
+    fake_upscale = FakeUpscaleModelService()
+    with make_client(tmp_path) as client:
+        # AI 超分模型和 BiRefNet 一样由设置页显式安装，任务阶段不能依赖隐式下载兜底。
+        client.app.state.upscale_models = fake_upscale
+        response = client.post("/api/settings/upscale-models/install")
+
+    assert response.status_code == 200
+    assert response.json()["installed"] is True
+    assert fake_upscale.install_calls == 1
+
+
+def test_stable_audio_install_can_start_without_login_when_service_configured(tmp_path: Path) -> None:
+    settings = CommunitySettings(
+        storage_root=tmp_path / "storage",
+        database_path=tmp_path / "storage" / "gameknife.sqlite3",
+        cors_origins=["*"],
+        stable_audio_base_url="http://stable-audio",
+    )
+    app = create_app(settings)
+    fake_stable_audio = FakeStableAudioService()
+    with TestClient(app) as client:
+        app.state.stable_audio = fake_stable_audio
+        response = client.post("/api/settings/stable-audio/install")
+
+    assert response.status_code == 200
+    assert response.json()["installed"] is True
+    assert fake_stable_audio.install_calls == 1
 
 
 def test_sound_effect_unconfigured_returns_chinese_error(tmp_path: Path) -> None:
@@ -749,6 +870,31 @@ def test_sequence_clean_and_export_zip(tmp_path: Path) -> None:
     assert "spritesheet.png" in names
 
 
+def test_sequence_export_spine_zip(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "walk", "fps": "12"},
+            files=[
+                ("files", ("walk_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png")),
+                ("files", ("walk_002.png", make_sequence_frame_bytes((0, 0, 255, 255)), "image/png")),
+            ],
+        ).json()
+        sequence_id = imported["id"]
+        export_created = client.post(f"/api/sequences/{sequence_id}/export/spine", json={"parameters": {}})
+        export_job = client.get(f"/api/jobs/{export_created.json()['id']}").json()
+        archive_response = client.get(export_job["result"]["output_assets"][0]["url"])
+
+    assert export_created.status_code == 200
+    assert export_job["status"] == "success"
+    assert export_job["type"] == "sequence_export_spine"
+    with zipfile.ZipFile(BytesIO(archive_response.content)) as archive:
+        names = set(archive.namelist())
+    assert "walk.png" in names
+    assert "walk.atlas" in names
+    assert "walk.json" in names
+
+
 def test_sequence_delete_removes_source_assets(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         imported = client.post(
@@ -809,6 +955,50 @@ def test_video_to_sequence_background_remove_requires_model_at_creation(tmp_path
 
     assert response.status_code == 409
     assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_video_to_sequence_background_remove_uses_installed_birefnet(tmp_path: Path) -> None:
+    fake_birefnet = FakeBiRefNetService()
+    with make_client(tmp_path) as client:
+        # 视频抽帧是本地能力，remove_background 才需要模型；这里替换为已安装 Fake 服务，验证显式依赖链路可执行。
+        client.app.state.birefnet = fake_birefnet
+        upload = client.post(
+            "/api/assets/videos",
+            files={"file": ("walk.avi", make_video_bytes(tmp_path), "video/avi")},
+        )
+        created = client.post(
+            "/api/sequences/from-video",
+            json={
+                "video_asset_id": upload.json()["id"],
+                "name": "walk-video",
+                "fps": 4,
+                "max_frames": 3,
+                "remove_background": True,
+                "parameters": {"alpha_smoothing": 0, "alpha_threshold": 24, "output_size": 128, "loop": False, "stabilize": True},
+            },
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        sequence = client.get(f"/api/sequences/{job['result']['sequence_id']}").json()
+        frame_asset = client.get(sequence["frames"][0]["source_url"])
+        preview_asset = client.get(sequence["frames"][0]["preview_url"])
+
+    assert upload.status_code == 200
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "sequence_video_to_frames"
+    assert job["result"]["frame_count"] == 3
+    assert job["result"]["consistency_report"]["stabilize"] is True
+    assert sequence["frame_count"] == 3
+    assert sequence["loop"] is False
+    assert sequence["canvas_width"] == 128
+    assert sequence["canvas_height"] == 128
+    assert sequence["frames"][0]["processed_asset_id"]
+    assert fake_birefnet.predict_calls == 3
+    with Image.open(BytesIO(frame_asset.content)) as image:
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0
+    with Image.open(BytesIO(preview_asset.content)) as image:
+        assert image.size == (128, 128)
 
 
 def test_video_generation_settings_save_test_and_mask_secret(tmp_path: Path) -> None:

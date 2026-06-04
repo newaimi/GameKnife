@@ -254,7 +254,14 @@ class ContextResponse(BaseModel):
 class SettingsResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    edition: Literal["community"]
+    edition: Literal["community", "commercial"]
     workspace_id: str
-    storage: Literal["local_file_storage"]
+    storage: Literal["local_file_storage", "enterprise_storage"]
+    system: dict[str, Any]
+    runtime: dict[str, Any]
+    birefnet: dict[str, Any]
+    character_rig_models: dict[str, Any]
+    upscale_models: dict[str, Any]
+    stable_audio: dict[str, Any]
     models: dict[str, Any]
+    video_generation: VideoGenerationConfigResponse

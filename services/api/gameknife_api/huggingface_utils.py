@@ -16,19 +16,20 @@ def model_files_cached(
     weight_files: list[str],
     *,
     revision: str | None = None,
+    cache_dir: Path | None = None,
 ) -> bool:
     # 设置页只检查本地缓存，不加载权重；这样状态刷新不会把模型意外拉进内存。
-    if not all(_cached_file_exists(model_id, filename, revision=revision) for filename in required_files):
+    if not all(_cached_file_exists(model_id, filename, revision=revision, cache_dir=cache_dir) for filename in required_files):
         return False
-    return any(_cached_file_exists(model_id, filename, revision=revision) for filename in weight_files)
+    return any(_cached_file_exists(model_id, filename, revision=revision, cache_dir=cache_dir) for filename in weight_files)
 
 
-def _cached_file_exists(model_id: str, filename: str, *, revision: str | None = None) -> bool:
+def _cached_file_exists(model_id: str, filename: str, *, revision: str | None = None, cache_dir: Path | None = None) -> bool:
     try:
         from huggingface_hub import try_to_load_from_cache
     except Exception:  # noqa: BLE001
         return False
-    cached = try_to_load_from_cache(model_id, filename, revision=revision)
+    cached = try_to_load_from_cache(model_id, filename, revision=revision, cache_dir=cache_dir)
     return isinstance(cached, str) and Path(cached).is_file()
 
 

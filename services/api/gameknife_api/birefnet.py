@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -27,9 +28,16 @@ class BiRefNetService:
         "error": None,
     }
 
-    def __init__(self, *, model_input_size: int = 1024, alpha_provider: AlphaProvider | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        model_input_size: int = 1024,
+        alpha_provider: AlphaProvider | None = None,
+        model_cache_dir: Path | None = None,
+    ) -> None:
         self.model_input_size = model_input_size
         self._alpha_provider = alpha_provider
+        self.model_cache_dir = model_cache_dir
 
     @property
     def device_label(self) -> str:
@@ -74,8 +82,12 @@ class BiRefNetService:
             return False
         required = ["config.json", "birefnet.py", "BiRefNet_config.py"]
         weights = ["model.safetensors", "pytorch_model.bin"]
-        has_required = all(try_to_load_from_cache(BIREFNET_MODEL_ID, filename, revision=BIREFNET_MODEL_REVISION) for filename in required)
-        has_weight = any(try_to_load_from_cache(BIREFNET_MODEL_ID, filename, revision=BIREFNET_MODEL_REVISION) for filename in weights)
+        def cached_file_exists(filename: str) -> bool:
+            cached = try_to_load_from_cache(BIREFNET_MODEL_ID, filename, revision=BIREFNET_MODEL_REVISION, cache_dir=self.model_cache_dir)
+            return isinstance(cached, str) and Path(cached).is_file()
+
+        has_required = all(cached_file_exists(filename) for filename in required)
+        has_weight = any(cached_file_exists(filename) for filename in weights)
         return bool(has_required and has_weight)
 
     def is_loaded(self) -> bool:
@@ -161,6 +173,7 @@ class BiRefNetService:
                 trust_remote_code=True,
                 local_files_only=local_files_only,
                 revision=BIREFNET_MODEL_REVISION,
+                cache_dir=self.model_cache_dir,
             )
             if status_updates:
                 self._set_install_status("running", 85, f"模型文件已就绪，正在迁移到 {device.upper()}。")

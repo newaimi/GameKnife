@@ -323,8 +323,10 @@ class SQLiteGameKnifeRepository:
         offset: int,
         job_types: list[str] | None = None,
         status: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> list[JobRecord]:
-        where, values = _job_page_filter(workspace_id, job_types, status)
+        where, values = _job_page_filter(workspace_id, job_types, status, created_from, created_to)
         values.extend([limit, offset])
         with self._connect() as connection:
             rows = connection.execute(
@@ -347,8 +349,10 @@ class SQLiteGameKnifeRepository:
         *,
         job_types: list[str] | None = None,
         status: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> int:
-        where, values = _job_page_filter(workspace_id, job_types, status)
+        where, values = _job_page_filter(workspace_id, job_types, status, created_from, created_to)
         with self._connect() as connection:
             row = connection.execute(f"SELECT COUNT(*) AS total FROM jobs WHERE {where}", values).fetchone()
         return int(row["total"] if row else 0)
@@ -959,7 +963,13 @@ def _job_from_row(row: sqlite3.Row) -> JobRecord:
     return JobRecord(**data)
 
 
-def _job_page_filter(workspace_id: str, job_types: list[str] | None, status: str | None) -> tuple[str, list[Any]]:
+def _job_page_filter(
+    workspace_id: str,
+    job_types: list[str] | None,
+    status: str | None,
+    created_from: str | None,
+    created_to: str | None,
+) -> tuple[str, list[Any]]:
     where = ["workspace_id = ?"]
     values: list[Any] = [workspace_id]
     if job_types is not None:
@@ -971,4 +981,10 @@ def _job_page_filter(workspace_id: str, job_types: list[str] | None, status: str
     if status is not None:
         where.append("status = ?")
         values.append(status)
+    if created_from:
+        where.append("created_at >= ?")
+        values.append(created_from)
+    if created_to:
+        where.append("created_at <= ?")
+        values.append(created_to)
     return " AND ".join(where), values

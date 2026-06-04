@@ -14,6 +14,7 @@ from .errors import (
     WorkflowValidationError,
 )
 from .sound_effect import create_sound_effect_workflow
+from .sequence import create_sequence_frames_export_workflow, create_sequence_spine_export_workflow
 from .upscale import create_upscale_workflow
 
 __all__ = [
@@ -26,6 +27,8 @@ __all__ = [
     "create_asset_board_refine_workflow",
     "create_asset_board_region_workflow",
     "create_background_remove_workflow",
+    "create_sequence_frames_export_workflow",
+    "create_sequence_spine_export_workflow",
     "create_sound_effect_workflow",
     "create_upscale_workflow",
 ]

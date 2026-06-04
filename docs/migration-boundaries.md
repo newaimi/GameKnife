@@ -10,6 +10,7 @@
 - `packages/editor-core` 承载手动编辑画布、选区、画笔和 PNG 导出。
 - `services/workflows` 承载后端编排，`services/processors` 承载模型和图像处理适配。
 - Community 入口注入匿名主体、本地工作区、SQLite repository 和本地文件存储。
+- Community 模型缓存默认写入本地 `storage/models/*`，模型安装状态按本地工作区隔离，不读取用户机器全局 Hugging Face 缓存。
 - Commercial 入口注入真实用户、项目工作区、RBAC、MySQL repository 和企业存储。
 
 公共包不能通过隐藏参数读取登录态、组织、项目、计费或审计数据。需要商业差异时，只能通过 `RequestContext`、repository 接口或 storage provider 注入。

@@ -124,31 +124,7 @@ def run_sequence_clean_job(repository: SQLiteGameKnifeRepository, context: Reque
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def run_sequence_export_frames_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
-    _run_sequence_export_job(
-        repository,
-        context,
-        job_id,
-        sequence_id,
-        output_suffix="_frames.zip",
-        output_kind="sequence_export",
-        processor=lambda sequence, frames, output_path, parameters: sequence_processor.export_frames_zip(sequence, frames, output_path, parameters),
-    )
-
-
-def run_sequence_export_spine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
-    _run_sequence_export_job(
-        repository,
-        context,
-        job_id,
-        sequence_id,
-        output_suffix="_spine.zip",
-        output_kind="sequence_spine",
-        processor=lambda sequence, frames, output_path, parameters: sequence_processor.export_spine_zip(sequence, frames, output_path, parameters),
-    )
-
-
-def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
+def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
@@ -159,12 +135,14 @@ def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: 
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
     frame_asset_ids: list[str] = []
+    sequence_id: str | None = None
     try:
         parameters = json.loads(job.parameters_json)
-        result, outputs = sequence_processor.extract_video_frames(
+        raw_result, outputs = sequence_processor.extract_video_frames(
             context.storage.resolve_asset_path(video_asset.path),
             context.storage.root / "outputs" / job_id / "video_frames",
             parameters,
+            service,
         )
         frame_payloads: list[dict[str, Any]] = []
         for output in outputs:
@@ -179,27 +157,67 @@ def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: 
                     "bbox": output.bbox,
                     "duration_ms": output.duration_ms,
                     "enabled": True,
-                    "is_generated": False,
+                    "is_generated": True,
                 }
             )
+        clean_parameters = _video_sequence_clean_parameters(parameters)
         sequence = repository.create_sequence_with_frames(
             workspace_id=context.workspace.id,
             created_by=context.principal.id,
-            name=str(parameters.get("name") or Path(video_asset.original_name).stem or "video_sequence"),
-            fps=int(result.result["fps"]),
-            loop=True,
-            clean_parameters=DEFAULT_SEQUENCE_CLEAN_PARAMETERS,
+            name=_video_sequence_name(video_asset.original_name, parameters),
+            fps=int(raw_result.result["fps"]),
+            loop=bool(parameters.get("loop", True)),
+            clean_parameters=clean_parameters,
             frames=frame_payloads,
             created_at=_now(),
         )
+        sequence_id = sequence["id"]
+        frames = repository.list_sequence_frames(sequence_id, context.workspace.id)
+        clean_result, processed_outputs = sequence_processor.clean_frames(
+            _sequence_mapping(sequence),
+            _frame_mappings(context, frames),
+            context.storage.root / "outputs" / job_id / "sequence_frames",
+            clean_parameters,
+        )
+        for output in processed_outputs:
+            output_assets = _register_output_assets(repository, context, [output.output_path], "sequence_frame_processed", "image/png")
+            frame_asset_ids.append(output_assets[0]["id"])
+            repository.update_sequence_frame_processed_asset(output.frame_id, sequence_id, output_assets[0]["id"], updated_at=_now())
+
+        canvas_size = clean_result.result.get("canvas_size", [sequence["canvas_width"], sequence["canvas_height"]])
+        repository.update_sequence(
+            sequence_id,
+            context.workspace.id,
+            canvas_width=int(canvas_size[0]),
+            canvas_height=int(canvas_size[1]),
+            clean_parameters=clean_parameters,
+            status="ready",
+            updated_at=_now(),
+        )
+        combined_result = ProcessResult(
+            output_paths=[],
+            result={
+                **clean_result.result,
+                "source_fps": raw_result.result.get("source_fps"),
+            },
+            duration_ms=raw_result.duration_ms + clean_result.duration_ms,
+            device=raw_result.device,
+        )
         final_result = {
-            **result.result,
-            "sequence_id": sequence["id"],
+            **combined_result.result,
+            "sequence_id": sequence_id,
             "video_asset_id": video_asset.id,
+            "frame_count": len(frame_payloads),
+            "fps": int(raw_result.result["fps"]),
+            "clip_start_seconds": float(parameters.get("start_second") or 0),
+            "duration_seconds": parameters.get("duration_seconds"),
         }
-        _mark_success(repository, context, job_id, result, final_result)
+        _mark_success(repository, context, job_id, combined_result, final_result)
     except Exception as exc:  # noqa: BLE001
-        frame_assets = repository.list_assets_by_ids_for_workspace(frame_asset_ids, context.workspace.id)
+        if sequence_id:
+            frame_asset_ids.extend(repository.collect_sequence_asset_ids(sequence_id, context.workspace.id))
+            repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
+        frame_assets = repository.list_assets_by_ids_for_workspace(list(dict.fromkeys(frame_asset_ids)), context.workspace.id)
         repository.delete_assets_for_workspace([asset.id for asset in frame_assets], context.workspace.id)
         for asset in frame_assets:
             context.storage.remove_asset_file(asset.path)
@@ -436,43 +454,6 @@ def _run_character_rig_export_job(
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def _run_sequence_export_job(
-    repository: SQLiteGameKnifeRepository,
-    context: RequestContext,
-    job_id: str,
-    sequence_id: str,
-    *,
-    output_suffix: str,
-    output_kind: str,
-    processor: Callable[[dict[str, Any], list[dict[str, Any]], Path, dict[str, Any]], ProcessResult],
-) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
-    if job is None:
-        return
-    if sequence is None:
-        _mark_failed(repository, context, job_id, "序列帧不存在。")
-        return
-    frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
-    if not frames:
-        _mark_failed(repository, context, job_id, "序列帧没有可导出的帧。")
-        return
-
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    try:
-        output_path = _output_path(context, job_id, f"{_safe_name(str(sequence['name']))}{output_suffix}")
-        result = processor(
-            _sequence_mapping(sequence),
-            _frame_mappings(context, frames),
-            output_path,
-            json.loads(job.parameters_json),
-        )
-        output_assets = _register_output_assets(repository, context, result.output_paths, output_kind, "application/zip")
-        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
-    except Exception as exc:  # noqa: BLE001
-        _mark_failed(repository, context, job_id, str(exc))
-
-
 def _run_image_output_job(
     repository: SQLiteGameKnifeRepository,
     context: RequestContext,
@@ -574,6 +555,32 @@ def _output_path(context: RequestContext, job_id: str, filename: str) -> Path:
     path = context.storage.root / "outputs" / job_id / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _video_sequence_clean_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    output_size = max(64, int(parameters.get("output_size", 256)))
+    return {
+        **DEFAULT_SEQUENCE_CLEAN_PARAMETERS,
+        "alpha_threshold": int(parameters.get("alpha_threshold", 24)),
+        "alpha_smoothing": int(parameters.get("alpha_smoothing", 0)),
+        "trim_padding": int(parameters.get("trim_padding", 6)),
+        "canvas_padding": int(parameters.get("canvas_padding", 8)),
+        "canvas_width": output_size,
+        "canvas_height": output_size,
+        "denoise": True,
+        "color_match": True,
+        "stabilize": bool(parameters.get("stabilize", True)),
+        "stabilize_strength": int(parameters.get("stabilize_strength", 50)),
+        "fit_canvas_size": True,
+    }
+
+
+def _video_sequence_name(original_name: str, parameters: dict[str, Any]) -> str:
+    configured_name = str(parameters.get("name") or "").strip()
+    if configured_name:
+        return configured_name
+    action = str(parameters.get("action") or "idle").strip() or "idle"
+    return f"{Path(original_name).stem}_{action}".strip("_")
 
 
 def _collect_result_asset_ids(result: dict[str, Any]) -> list[str]:

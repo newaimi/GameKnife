@@ -35,6 +35,15 @@ export interface AssetResponse {
   url: string;
 }
 
+export interface ComponentCandidate {
+  id: number;
+  bbox: [number, number, number, number];
+  area: number;
+  selected: boolean;
+  preview_asset_id?: string | null;
+  preview_url?: string;
+}
+
 export type JobStatus = "pending" | "running" | "success" | "failed";
 
 export interface JobResponse {
@@ -70,7 +79,7 @@ export interface SequenceFrameResponse {
   original_name: string;
   width: number;
   height: number;
-  bbox: number[];
+  bbox: [number, number, number, number];
   offset_x: number;
   offset_y: number;
   duration_ms: number;
@@ -102,11 +111,44 @@ export interface SequenceResponse {
   updated_at: string;
 }
 
+export interface SequenceCleanParameters {
+  alpha_threshold: number;
+  alpha_smoothing: number;
+  trim_padding: number;
+  canvas_padding: number;
+  denoise: boolean;
+  reference_frame_id?: string;
+  color_match: boolean;
+  stabilize: boolean;
+  stabilize_strength: number;
+}
+
 export interface VideoGenerationConfig {
   provider: "aliyun_dashscope" | "seedance";
   base_url: string;
   api_key_configured: boolean;
   masked_api_key?: string | null;
+}
+
+export type VideoSequenceProvider = "aliyun_dashscope" | "seedance";
+
+export interface VideoSequenceGenerateParameters {
+  action: string;
+  prompt: string;
+  negative_prompt: string;
+  duration: number;
+  resolution: string;
+}
+
+export interface VideoToSequenceParameters {
+  action: string;
+  clip_start_seconds: number;
+  clip_end_seconds: number;
+  fps: number;
+  output_size: 128 | 256 | 512 | number;
+  loop: boolean;
+  alpha_smoothing: number;
+  stabilize: boolean;
 }
 
 export interface CharacterPartResponse {
@@ -118,7 +160,7 @@ export interface CharacterPartResponse {
   mask_url?: string | null;
   name: string;
   semantic_type: string;
-  bbox: number[];
+  bbox: [number, number, number, number];
   pivot_x: number;
   pivot_y: number;
   parent_id?: string | null;
@@ -145,7 +187,152 @@ export interface CharacterRigResponse {
   updated_at: string;
 }
 
+export interface CharacterRigAnalyzeParameters {
+  alpha_threshold: number;
+  overlap_padding: number;
+  box_threshold: number;
+  text_threshold: number;
+  max_candidates: number;
+  min_mask_area: number;
+  enabled_part_keys?: string[];
+  extra_prompts: string;
+}
+
 export interface OutputAssetRef {
   id: string;
   url: string;
 }
+
+export type UpscaleStyle = "general" | "anime" | "noisy" | "pixel";
+
+export interface BackgroundRemoveParameters {
+  alpha_smoothing: number;
+}
+
+export interface AssetBoardParameters {
+  alpha_threshold: number;
+  min_component_area: number;
+  alpha_smoothing: number;
+  alpha_contract: number;
+  alpha_feather: number;
+  alpha_defringe: number;
+  export_padding: number;
+}
+
+export interface UpscaleParameters {
+  style: UpscaleStyle;
+  scale: 2 | 4 | 8;
+  denoise: number;
+  tile_size: number;
+}
+
+export interface SoundEffectParameters {
+  prompt: string;
+  duration_seconds: number;
+  seed: number | null;
+  steps: number;
+  cfg_scale: number;
+}
+
+export interface RuntimeSettings {
+  edition: Edition;
+  workspace_id: string;
+  storage: "local_file_storage" | "enterprise_storage";
+  system: {
+    app_version: string;
+    build_number: string;
+    git_sha: string;
+    build_time: string;
+    storage_root: string;
+    database_path: string;
+    max_upload_mb: number;
+    cors_origins: string[];
+  };
+  runtime: {
+    python_version: string;
+    platform: string;
+    pytorch_available: boolean;
+    pytorch_version: string | null;
+    cuda_available: boolean;
+    cuda_version: string | null;
+    cudnn_version: string | null;
+    mps_available: boolean;
+    gpu_count: number;
+    current_gpu_index: number | null;
+    current_gpu_name: string | null;
+    gpus: Array<{
+      index: number;
+      name: string;
+      total_memory_mb: number | null;
+      capability: string | null;
+    }>;
+    error?: string | null;
+  };
+  birefnet: {
+    model_id: string;
+    device: string;
+    model_input_size: number;
+    gpu_concurrency: number;
+    lazy_load: boolean;
+    install_status: BiRefNetInstallStatus;
+  };
+  character_rig_models: {
+    models: Array<{
+      key: "florence" | "grounding_dino" | "sam" | string;
+      name: string;
+      role: string;
+      model_id: string;
+    }>;
+    device: string;
+    lazy_load: boolean;
+    install_status: CharacterRigModelInstallStatus;
+  };
+  upscale_models: {
+    models: Array<{
+      key: "general" | "anime" | "noisy" | string;
+      name: string;
+      role: string;
+      filename: string;
+    }>;
+    device: string;
+    lazy_load: boolean;
+    install_status: UpscaleModelInstallStatus;
+  };
+  stable_audio: {
+    model_id: string;
+    device: string;
+    base_url_configured: boolean;
+    lazy_load: boolean;
+    install_status: StableAudioInstallStatus;
+  };
+  video_generation: VideoGenerationConfig;
+  models?: Record<string, unknown>;
+}
+
+export interface ModelInstallStatus {
+  status: "idle" | "running" | "success" | "failed" | "unconfigured" | "unavailable";
+  progress?: number;
+  message: string;
+  installed?: boolean;
+  loaded?: boolean;
+  error?: string | null;
+}
+
+export type BiRefNetInstallStatus = ModelInstallStatus;
+
+export type CharacterRigModelInstallStatus = ModelInstallStatus;
+
+export type UpscaleModelInstallStatus = ModelInstallStatus;
+
+export type StableAudioInstallStatus = ModelInstallStatus & {
+  model_id?: string;
+  queue_size?: number;
+  queued?: number;
+  workers?: Array<{
+    device: string;
+    runtime_device?: string;
+    loaded?: boolean;
+    busy?: boolean;
+    last_error?: string | null;
+  }>;
+};

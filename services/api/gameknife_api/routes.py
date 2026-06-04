@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import platform
 import re
+import sys
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -12,6 +14,8 @@ from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
 from gameknife_api.deps import (
+    CommunitySettings,
+    get_community_settings,
     get_birefnet_service,
     get_character_rig_model_service,
     get_repository,
@@ -27,8 +31,6 @@ from gameknife_api.job_service import (
     run_character_rig_export_dragonbones_job,
     run_character_rig_export_spine_job,
     run_sequence_clean_job,
-    run_sequence_export_frames_job,
-    run_sequence_export_spine_job,
     run_sequence_generate_video_job,
     run_sequence_from_video_job,
 )
@@ -74,6 +76,8 @@ from gameknife_workflows import (
     create_asset_board_refine_workflow,
     create_asset_board_region_workflow,
     create_background_remove_workflow,
+    create_sequence_frames_export_workflow,
+    create_sequence_spine_export_workflow,
     create_sound_effect_workflow,
     create_upscale_workflow,
 )
@@ -99,6 +103,8 @@ JOB_CATEGORY_TYPES = {
     "sequence": ["sequence_clean", "sequence_generate_video", "sequence_video_to_frames", "sequence_export_frames", "sequence_export_spine"],
     "character_rig": ["character_rig_analyze", "character_rig_refine_part", "character_rig_export_spine", "character_rig_export_dragonbones"],
 }
+PROJECT_WORKFLOW_PERMISSION = "jobs.create"
+SETTINGS_MANAGE_PERMISSION = "settings.manage"
 ALLOWED_SEQUENCE_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -153,6 +159,7 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 
 @router.get("/settings", response_model=SettingsResponse)
 def settings(
+    settings: CommunitySettings = Depends(get_community_settings),
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
@@ -160,33 +167,60 @@ def settings(
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
+    birefnet_settings = {
+        "model_id": BIREFNET_MODEL_ID,
+        "device": birefnet.device_label,
+        "model_input_size": birefnet.model_input_size,
+        "gpu_concurrency": 1,
+        "lazy_load": True,
+        "install_status": birefnet.install_status(),
+    }
+    character_rig_settings = {
+        "models": character_rig_models.model_specs(),
+        "device": character_rig_models.device_label,
+        "lazy_load": True,
+        "install_status": character_rig_models.install_status(),
+    }
+    upscale_settings = {
+        "models": upscale_models.model_specs(),
+        "device": upscale_models.device_label,
+        "lazy_load": True,
+        "install_status": upscale_models.install_status(),
+    }
+    stable_audio_settings = {
+        "model_id": settings.stable_audio_model_id,
+        "device": "独立声效服务",
+        "base_url_configured": stable_audio.is_configured,
+        "lazy_load": True,
+        "install_status": stable_audio.install_status(),
+    }
+    # settings/models 是旧的聚合字段；直接字段用于还原原工程设置页，保留聚合字段可以兼容已有调用。
+    model_settings = {
+        "birefnet": birefnet_settings,
+        "character_rig_models": character_rig_settings,
+        "upscale_models": upscale_settings,
+        "stable_audio": stable_audio_settings["install_status"],
+    }
     return SettingsResponse(
         edition=context.capabilities.edition,
         workspace_id=context.workspace.id,
         storage="enterprise_storage" if context.capabilities.edition == "commercial" else "local_file_storage",
-        models={
-            "birefnet": {
-                "model_id": BIREFNET_MODEL_ID,
-                "device": birefnet.device_label,
-                "model_input_size": birefnet.model_input_size,
-                "gpu_concurrency": 1,
-                "lazy_load": True,
-                "install_status": birefnet.install_status(),
-            },
-            "character_rig_models": {
-                "models": character_rig_models.model_specs(),
-                "device": character_rig_models.device_label,
-                "lazy_load": True,
-                "install_status": character_rig_models.install_status(),
-            },
-            "upscale_models": {
-                "models": upscale_models.model_specs(),
-                "device": upscale_models.device_label,
-                "lazy_load": True,
-                "install_status": upscale_models.install_status(),
-            },
-            "stable_audio": stable_audio.install_status(),
+        system={
+            "app_version": settings.app_version,
+            "build_number": settings.build_number,
+            "git_sha": settings.git_sha,
+            "build_time": settings.build_time,
+            "storage_root": str(settings.storage_root),
+            "database_path": str(settings.database_path),
+            "max_upload_mb": settings.max_upload_mb,
+            "cors_origins": settings.cors_origins,
         },
+        runtime=_read_runtime_info(),
+        birefnet=birefnet_settings,
+        character_rig_models=character_rig_settings,
+        upscale_models=upscale_settings,
+        stable_audio=stable_audio_settings,
+        models=model_settings,
         video_generation=VideoGenerationClient(repository).read_config(),
     )
 
@@ -204,6 +238,8 @@ def list_job_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     category: str = Query("all"),
+    created_from: str | None = Query(None),
+    created_to: str | None = Query(None),
     downloadable: bool = Query(False),
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
@@ -213,13 +249,21 @@ def list_job_history(
         return JobPageResponse(items=[], total=0, page=page, page_size=page_size)
 
     status_filter = "success" if downloadable else None
-    total = repository.count_job_page_for_workspace(context.workspace.id, job_types=job_types, status=status_filter)
+    total = repository.count_job_page_for_workspace(
+        context.workspace.id,
+        job_types=job_types,
+        status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
+    )
     jobs = repository.list_job_page_for_workspace(
         context.workspace.id,
         limit=page_size,
         offset=(page - 1) * page_size,
         job_types=job_types,
         status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
     )
     return JobPageResponse(
         items=[_job_response(job, context, repository) for job in jobs],
@@ -252,6 +296,7 @@ def remove_job(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> Response:
+    _require_project_workflow_write(context, "delete_job", {"job_id": job_id})
     try:
         deleted = delete_job(repository, context, job_id)
     except ValueError as exc:
@@ -435,6 +480,7 @@ async def import_sequence_frames(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
+    _require_project_workflow_write(context, "import_sequence_frames")
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一张序列帧。")
     if fps < 1 or fps > 60:
@@ -474,6 +520,7 @@ async def import_sequence_video(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
+    _require_project_workflow_write(context, "import_sequence_video")
     return await upload_video_asset(file, context, repository)
 
 
@@ -504,6 +551,7 @@ def update_sequence(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
+    _require_project_workflow_write(context, "update_sequence", {"sequence_id": sequence_id})
     sequence = repository.update_sequence(
         sequence_id,
         context.workspace.id,
@@ -530,6 +578,7 @@ def update_sequence_frames(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
+    _require_project_workflow_write(context, "update_sequence_frames", {"sequence_id": sequence_id})
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
@@ -546,6 +595,7 @@ def delete_sequence(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> Response:
+    _require_project_workflow_write(context, "delete_sequence", {"sequence_id": sequence_id})
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
@@ -616,12 +666,15 @@ def create_sequence_from_video_task(
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> JobResponse:
     video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
     if not video_asset.mime_type.startswith("video/"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是视频。")
     if payload.remove_background:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+        # 视频抽帧可以单独在本地完成，去背景是显式的模型依赖。
+        # 创建阶段先拦截未安装状态，任务阶段只使用已注入的本地模型服务。
+        _ensure_birefnet_installed(birefnet)
 
     parameters = {
         **payload.parameters,
@@ -639,7 +692,7 @@ def create_sequence_from_video_task(
         input_asset_id=video_asset.id,
         parameters=parameters,
     )
-    background_tasks.add_task(run_sequence_from_video_job, repository, context, job.id)
+    background_tasks.add_task(run_sequence_from_video_job, repository, context, birefnet, job.id)
     return _job_response(job, context, repository)
 
 
@@ -651,15 +704,19 @@ def create_sequence_frames_export_task(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
-    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="sequence_export_frames",
-        input_asset_id=input_asset_id,
-        parameters={"sequence_id": sequence_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_sequence_export_frames_job, repository, context, job.id, sequence_id)
+    try:
+        job, runner = create_sequence_frames_export_workflow(
+            repository,
+            context,
+            sequence_id=sequence_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkflowValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
@@ -671,15 +728,19 @@ def create_sequence_spine_export_task(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
-    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="sequence_export_spine",
-        input_asset_id=input_asset_id,
-        parameters={"sequence_id": sequence_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_sequence_export_spine_job, repository, context, job.id, sequence_id)
+    try:
+        job, runner = create_sequence_spine_export_workflow(
+            repository,
+            context,
+            sequence_id=sequence_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkflowValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
@@ -690,6 +751,7 @@ async def import_character_rig(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
+    _require_project_workflow_write(context, "import_character_rig")
     if file.content_type not in ALLOWED_CHARACTER_RIG_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 角色图。")
 
@@ -766,6 +828,7 @@ def update_character_rig(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
+    _require_project_workflow_write(context, "update_character_rig", {"rig_id": rig_id})
     rig = repository.update_character_rig(
         rig_id,
         context.workspace.id,
@@ -785,6 +848,7 @@ def update_character_parts(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
+    _require_project_workflow_write(context, "update_character_parts", {"rig_id": rig_id})
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
     if rig is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
@@ -801,6 +865,7 @@ def delete_character_rig(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> Response:
+    _require_project_workflow_write(context, "delete_character_rig", {"rig_id": rig_id})
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
     if rig is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
@@ -912,6 +977,7 @@ async def upload_image_asset(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
+    _require_project_workflow_write(context, "upload_image")
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传文件必须是图片。")
 
@@ -952,6 +1018,7 @@ async def upload_video_asset(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
+    _require_project_workflow_write(context, "upload_video")
     if not file.content_type or not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="上传文件必须是视频。")
 
@@ -1013,6 +1080,7 @@ async def save_manual_edit_asset(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
+    _require_project_workflow_write(context, "save_manual_edit", {"source_asset_id": source_asset_id})
     if source_asset_id:
         _ensure_asset_exists(repository, context, source_asset_id)
     if file.content_type not in ALLOWED_MANUAL_EDIT_TYPES:
@@ -1141,6 +1209,19 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
     )
 
 
+def _require_project_workflow_write(context: RequestContext, operation: str, resource: dict[str, object] | None = None) -> None:
+    # v1 把项目内公共工具写操作统一归到 jobs.create。
+    # 原因是上传、导入、手动编辑保存和任务创建共同组成一次工具使用流程，
+    # 如果只拦任务创建，商用普通用户仍可能绕过前端向项目写入孤立资产。
+    context.permissions.require(PROJECT_WORKFLOW_PERMISSION, {"operation": operation, **(resource or {})})
+
+
+def _require_settings_manage(context: RequestContext, operation: str) -> None:
+    # 模型安装和视频 API 配置会改变整个服务的运行环境。
+    # Community 本地管理员默认放行，Commercial 只能由 RBAC 授权用户执行。
+    context.permissions.require(SETTINGS_MANAGE_PERMISSION, {"operation": operation})
+
+
 @router.get("/settings/models/install-status")
 def read_model_install_status(
     birefnet: BiRefNetService = Depends(get_birefnet_service),
@@ -1162,7 +1243,11 @@ def read_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_servi
 
 
 @router.post("/settings/birefnet/install")
-def start_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
+def start_birefnet_install(
+    context: RequestContext = Depends(get_request_context),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "install_birefnet")
     return birefnet.start_install()
 
 
@@ -1172,7 +1257,11 @@ def read_character_rig_model_install(character_rig_models: CharacterRigModelServ
 
 
 @router.post("/settings/character-rig-models/install")
-def start_character_rig_model_install(character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service)) -> dict[str, object]:
+def start_character_rig_model_install(
+    context: RequestContext = Depends(get_request_context),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "install_character_rig_models")
     return character_rig_models.start_install()
 
 
@@ -1182,7 +1271,11 @@ def read_upscale_model_install(upscale_models: UpscaleModelService = Depends(get
 
 
 @router.post("/settings/upscale-models/install")
-def start_upscale_model_install(upscale_models: UpscaleModelService = Depends(get_upscale_model_service)) -> dict[str, object]:
+def start_upscale_model_install(
+    context: RequestContext = Depends(get_request_context),
+    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "install_upscale_models")
     return upscale_models.start_install()
 
 
@@ -1192,7 +1285,11 @@ def read_stable_audio_install(stable_audio: StableAudioService = Depends(get_sta
 
 
 @router.post("/settings/stable-audio/install")
-def start_stable_audio_install(stable_audio: StableAudioService = Depends(get_stable_audio_service)) -> dict[str, object]:
+def start_stable_audio_install(
+    context: RequestContext = Depends(get_request_context),
+    stable_audio: StableAudioService = Depends(get_stable_audio_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "install_stable_audio")
     try:
         return stable_audio.start_install()
     except RuntimeError as exc:
@@ -1209,8 +1306,10 @@ def read_video_generation_settings(
 @router.patch("/settings/video-generation", response_model=VideoGenerationConfigResponse)
 def update_video_generation_settings(
     payload: VideoGenerationConfigRequest,
+    context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> VideoGenerationConfigResponse:
+    _require_settings_manage(context, "update_video_generation")
     data = payload.model_dump()
     return VideoGenerationConfigResponse(**VideoGenerationClient(repository).save_config(data, updated_at=_now()))
 
@@ -1218,8 +1317,10 @@ def update_video_generation_settings(
 @router.post("/settings/video-generation/test")
 def test_video_generation_settings(
     payload: VideoGenerationConfigRequest,
+    context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> dict[str, object]:
+    _require_settings_manage(context, "test_video_generation")
     try:
         return VideoGenerationClient(repository).test_config(payload.model_dump())
     except RuntimeError as exc:
@@ -1412,6 +1513,71 @@ def _ensure_character_rig_models_installed(character_rig_models: CharacterRigMod
         return
     # 不透明角色图只有真实模型才能生成可信的候选框和 mask，创建阶段先阻止缺模型任务。
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+
+def _read_runtime_info() -> dict[str, object]:
+    # 设置页读取的是当前 Web 进程真实运行环境，不能让前端根据设备标签推断。
+    # 同一份 Community 包会部署到 CPU、CUDA 或 macOS MPS 机器上，真实 PyTorch 后端才决定可用推理能力。
+    info: dict[str, object] = {
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+        "pytorch_available": False,
+        "pytorch_version": None,
+        "cuda_available": False,
+        "cuda_version": None,
+        "cudnn_version": None,
+        "mps_available": False,
+        "gpu_count": 0,
+        "current_gpu_index": None,
+        "current_gpu_name": None,
+        "gpus": [],
+        "error": None,
+    }
+
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - 只有部署环境缺 PyTorch 时才会触发
+        info["error"] = str(exc)
+        return info
+
+    info["pytorch_available"] = True
+    info["pytorch_version"] = torch.__version__
+    info["cuda_available"] = bool(torch.cuda.is_available())
+    info["cuda_version"] = getattr(torch.version, "cuda", None)
+
+    try:
+        cudnn_version = torch.backends.cudnn.version()
+    except Exception:
+        cudnn_version = None
+    info["cudnn_version"] = str(cudnn_version) if cudnn_version else None
+
+    mps_backend = getattr(torch.backends, "mps", None)
+    info["mps_available"] = bool(mps_backend and mps_backend.is_available())
+
+    if not info["cuda_available"]:
+        return info
+
+    gpu_count = torch.cuda.device_count()
+    current_gpu_index = torch.cuda.current_device() if gpu_count else None
+    info["gpu_count"] = gpu_count
+    info["current_gpu_index"] = current_gpu_index
+
+    gpus: list[dict[str, object]] = []
+    for index in range(gpu_count):
+        props = torch.cuda.get_device_properties(index)
+        gpu = {
+            "index": index,
+            "name": torch.cuda.get_device_name(index),
+            "total_memory_mb": int(props.total_memory / 1024 / 1024),
+            "capability": f"{props.major}.{props.minor}",
+        }
+        gpus.append(gpu)
+
+        if index == current_gpu_index:
+            info["current_gpu_name"] = gpu["name"]
+
+    info["gpus"] = gpus
+    return info
 
 
 def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:

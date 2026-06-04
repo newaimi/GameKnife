@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 import cv2
@@ -107,6 +108,9 @@ class CharacterRigModelService:
         "error": None,
     }
 
+    def __init__(self, *, model_cache_dir: Path | None = None) -> None:
+        self.model_cache_dir = model_cache_dir
+
     @property
     def device_label(self) -> str:
         if self.__class__._device:
@@ -158,17 +162,29 @@ class CharacterRigModelService:
     def florence_installed(self) -> bool:
         if self.florence_ready():
             return True
-        return model_files_cached(FLORENCE_MODEL_ID, FLORENCE_MODEL_FILES, WEIGHT_FILES, revision=FLORENCE_MODEL_REVISION)
+        return model_files_cached(
+            FLORENCE_MODEL_ID,
+            FLORENCE_MODEL_FILES,
+            WEIGHT_FILES,
+            revision=FLORENCE_MODEL_REVISION,
+            cache_dir=self.model_cache_dir,
+        )
 
     def grounding_dino_installed(self) -> bool:
         if self.grounding_dino_ready():
             return True
-        return model_files_cached(GROUNDING_DINO_MODEL_ID, GROUNDING_DINO_MODEL_FILES, WEIGHT_FILES, revision=GROUNDING_DINO_MODEL_REVISION)
+        return model_files_cached(
+            GROUNDING_DINO_MODEL_ID,
+            GROUNDING_DINO_MODEL_FILES,
+            WEIGHT_FILES,
+            revision=GROUNDING_DINO_MODEL_REVISION,
+            cache_dir=self.model_cache_dir,
+        )
 
     def sam_installed(self) -> bool:
         if self.sam_ready():
             return True
-        return model_files_cached(SAM_MODEL_ID, SAM_MODEL_FILES, WEIGHT_FILES, revision=SAM_MODEL_REVISION)
+        return model_files_cached(SAM_MODEL_ID, SAM_MODEL_FILES, WEIGHT_FILES, revision=SAM_MODEL_REVISION, cache_dir=self.model_cache_dir)
 
     def florence_ready(self) -> bool:
         return self.__class__._florence_processor is not None and self.__class__._florence_model is not None
@@ -370,12 +386,13 @@ class CharacterRigModelService:
             if status_updates:
                 self._set_install_status("running", 12, f"开始下载并加载 {FLORENCE_MODEL_ID}。")
             with huggingface_model_io(local_files_only):
-                _refresh_florence_remote_code_cache(local_files_only)
+                _refresh_florence_remote_code_cache(local_files_only, self.model_cache_dir)
                 processor = AutoProcessor.from_pretrained(
                     FLORENCE_MODEL_ID,
                     trust_remote_code=True,
                     local_files_only=local_files_only,
                     revision=FLORENCE_MODEL_REVISION,
+                    cache_dir=self.model_cache_dir,
                 )
                 model = AutoModelForCausalLM.from_pretrained(
                     FLORENCE_MODEL_ID,
@@ -383,6 +400,7 @@ class CharacterRigModelService:
                     local_files_only=local_files_only,
                     revision=FLORENCE_MODEL_REVISION,
                     attn_implementation=FLORENCE_ATTN_IMPLEMENTATION,
+                    cache_dir=self.model_cache_dir,
                 )
             self.__class__._florence_processor = processor
             self.__class__._florence_model = model.eval().float().to(device)
@@ -411,11 +429,13 @@ class CharacterRigModelService:
                     GROUNDING_DINO_MODEL_ID,
                     local_files_only=local_files_only,
                     revision=GROUNDING_DINO_MODEL_REVISION,
+                    cache_dir=self.model_cache_dir,
                 )
                 model = GroundingDinoForObjectDetection.from_pretrained(
                     GROUNDING_DINO_MODEL_ID,
                     local_files_only=local_files_only,
                     revision=GROUNDING_DINO_MODEL_REVISION,
+                    cache_dir=self.model_cache_dir,
                 )
             self.__class__._grounding_processor = processor
             self.__class__._grounding_model = model.eval().float().to(device)
@@ -444,11 +464,13 @@ class CharacterRigModelService:
                     SAM_MODEL_ID,
                     local_files_only=local_files_only,
                     revision=SAM_MODEL_REVISION,
+                    cache_dir=self.model_cache_dir,
                 )
                 model = Sam2Model.from_pretrained(
                     SAM_MODEL_ID,
                     local_files_only=local_files_only,
                     revision=SAM_MODEL_REVISION,
+                    cache_dir=self.model_cache_dir,
                 )
             self.__class__._sam_processor = processor
             self.__class__._sam_model = model.eval().float().to(device)
@@ -510,7 +532,7 @@ def _post_process_sam_masks(processor: Any, masks: Any, inputs: Any) -> list[Any
     return processor.post_process_masks(mask_tensor, original_sizes)
 
 
-def _refresh_florence_remote_code_cache(local_files_only: bool) -> None:
+def _refresh_florence_remote_code_cache(local_files_only: bool, cache_dir: Path | None) -> None:
     if local_files_only:
         return
     try:
@@ -523,6 +545,7 @@ def _refresh_florence_remote_code_cache(local_files_only: bool) -> None:
         revision=FLORENCE_MODEL_REVISION,
         allow_patterns=FLORENCE_REMOTE_CODE_FILES,
         force_download=True,
+        cache_dir=cache_dir,
     )
 
 

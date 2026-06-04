@@ -1,10 +1,12 @@
-import type { ComponentType } from "react";
+import type { ComponentType, LazyExoticComponent } from "react";
+
+export type FeatureComponent = ComponentType | LazyExoticComponent<ComponentType>;
 
 export interface FeatureRoute {
   id: string;
   path: string;
   label: string;
-  component: ComponentType;
+  component: FeatureComponent;
 }
 
 export interface FeatureEntry {

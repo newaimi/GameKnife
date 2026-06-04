@@ -1,8 +1,27 @@
-import type { AppContext, AssetResponse, CharacterRigResponse, JobPageResponse, JobResponse, SequenceResponse, VideoGenerationConfig } from "@gameknife/shared-types";
+import type {
+  AppContext,
+  AssetResponse,
+  BiRefNetInstallStatus,
+  CharacterRigModelInstallStatus,
+  CharacterRigResponse,
+  JobPageResponse,
+  JobResponse,
+  RuntimeSettings,
+  SequenceResponse,
+  StableAudioInstallStatus,
+  UpscaleModelInstallStatus,
+  VideoGenerationConfig,
+} from "@gameknife/shared-types";
 
 export interface GameKnifeApiClientOptions {
   baseUrl?: string;
 }
+
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_API_BASE_URL?: string;
+  };
+};
 
 export class GameKnifeApiClient {
   private readonly baseUrl: string;
@@ -15,8 +34,8 @@ export class GameKnifeApiClient {
     return this.requestJson<AppContext>("/api/context");
   }
 
-  async getSettings(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings");
+  async getSettings(): Promise<RuntimeSettings> {
+    return this.requestJson<RuntimeSettings>("/api/settings");
   }
 
   async uploadImage(file: File): Promise<AssetResponse> {
@@ -63,11 +82,19 @@ export class GameKnifeApiClient {
     return this.requestJson<JobResponse>(`/api/jobs/${jobId}`);
   }
 
-  async listJobHistory(params: { page?: number; pageSize?: number; category?: string; downloadable?: boolean } = {}): Promise<JobPageResponse> {
+  async listJobHistory(
+    params: { page?: number; pageSize?: number; category?: string; createdFrom?: string; createdTo?: string; downloadable?: boolean } = {},
+  ): Promise<JobPageResponse> {
     const search = new URLSearchParams();
     search.set("page", String(params.page ?? 1));
     search.set("page_size", String(params.pageSize ?? 20));
     search.set("category", params.category ?? "all");
+    if (params.createdFrom) {
+      search.set("created_from", params.createdFrom);
+    }
+    if (params.createdTo) {
+      search.set("created_to", params.createdTo);
+    }
     if (params.downloadable) {
       search.set("downloadable", "true");
     }
@@ -78,11 +105,11 @@ export class GameKnifeApiClient {
     await this.requestVoid(`/api/jobs/${jobId}`, { method: "DELETE" });
   }
 
-  async createUpscaleJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createUpscaleJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/upscale", inputAssetId, parameters);
   }
 
-  async createBackgroundRemoveJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createBackgroundRemoveJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/background-remove", inputAssetId, parameters);
   }
 
@@ -100,15 +127,15 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createAssetBoardRegionJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createAssetBoardRegionJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/asset-board/regions", inputAssetId, parameters);
   }
 
-  async createAssetBoardCutoutJob(inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createAssetBoardCutoutJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
     return this.createAssetJob("/api/jobs/asset-board/cutout", inputAssetId, parameters);
   }
 
-  async createAssetBoardRefineJob(cutoutAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createAssetBoardRefineJob(cutoutAssetId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/asset-board/refine", {
       method: "POST",
       headers: jsonHeaders(),
@@ -119,8 +146,8 @@ export class GameKnifeApiClient {
   async createAssetBoardExportJob(payload: {
     cutoutAssetId: string;
     selectedComponentIds?: number[];
-    components?: Record<string, unknown>[];
-    parameters?: Record<string, unknown>;
+    components?: object[];
+    parameters?: object;
   }): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/asset-board/export", {
       method: "POST",
@@ -155,7 +182,23 @@ export class GameKnifeApiClient {
     return this.requestJson<SequenceResponse>(`/api/sequences/${sequenceId}`);
   }
 
-  async createSequenceCleanJob(sequenceId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async updateSequence(sequenceId: string, payload: object): Promise<SequenceResponse> {
+    return this.requestJson<SequenceResponse>(`/api/sequences/${sequenceId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateSequenceFrames(sequenceId: string, frames: object[]): Promise<SequenceResponse> {
+    return this.requestJson<SequenceResponse>(`/api/sequences/${sequenceId}/frames`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ frames }),
+    });
+  }
+
+  async createSequenceCleanJob(sequenceId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/clean`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -163,7 +206,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createSequenceFramesExportJob(sequenceId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createSequenceFramesExportJob(sequenceId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/export/frames`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -171,7 +214,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createSequenceSpineExportJob(sequenceId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createSequenceSpineExportJob(sequenceId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/export/spine`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -187,7 +230,7 @@ export class GameKnifeApiClient {
     start_second?: number;
     duration_seconds?: number | null;
     remove_background?: boolean;
-    parameters?: Record<string, unknown>;
+    parameters?: object;
   }): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/sequences/from-video", {
       method: "POST",
@@ -253,7 +296,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async updateCharacterParts(rigId: string, parts: Record<string, unknown>[]): Promise<CharacterRigResponse> {
+  async updateCharacterParts(rigId: string, parts: object[]): Promise<CharacterRigResponse> {
     return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}/parts`, {
       method: "PATCH",
       headers: jsonHeaders(),
@@ -261,7 +304,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createCharacterRigAnalyzeJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createCharacterRigAnalyzeJob(rigId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/analyze`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -269,7 +312,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createCharacterPartRefineJob(rigId: string, partId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createCharacterPartRefineJob(rigId: string, partId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/parts/${partId}/refine`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -277,7 +320,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createCharacterRigSpineExportJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createCharacterRigSpineExportJob(rigId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/spine`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -285,7 +328,7 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createCharacterRigDragonBonesExportJob(rigId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  async createCharacterRigDragonBonesExportJob(rigId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/dragonbones`, {
       method: "POST",
       headers: jsonHeaders(),
@@ -301,32 +344,42 @@ export class GameKnifeApiClient {
     return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation");
   }
 
-  async getBiRefNetInstallStatus(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/birefnet/install");
+  async getBiRefNetInstallStatus(): Promise<BiRefNetInstallStatus> {
+    return this.requestJson<BiRefNetInstallStatus>("/api/settings/birefnet/install");
   }
 
-  async startBiRefNetInstall(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/birefnet/install", {
+  async startBiRefNetInstall(): Promise<BiRefNetInstallStatus> {
+    return this.requestJson<BiRefNetInstallStatus>("/api/settings/birefnet/install", {
       method: "POST",
     });
   }
 
-  async getCharacterRigModelInstallStatus(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/character-rig-models/install");
+  async getCharacterRigModelInstallStatus(): Promise<CharacterRigModelInstallStatus> {
+    return this.requestJson<CharacterRigModelInstallStatus>("/api/settings/character-rig-models/install");
   }
 
-  async startCharacterRigModelInstall(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/character-rig-models/install", {
+  async startCharacterRigModelInstall(): Promise<CharacterRigModelInstallStatus> {
+    return this.requestJson<CharacterRigModelInstallStatus>("/api/settings/character-rig-models/install", {
       method: "POST",
     });
   }
 
-  async getUpscaleModelInstallStatus(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/upscale-models/install");
+  async getUpscaleModelInstallStatus(): Promise<UpscaleModelInstallStatus> {
+    return this.requestJson<UpscaleModelInstallStatus>("/api/settings/upscale-models/install");
   }
 
-  async startUpscaleModelInstall(): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/upscale-models/install", {
+  async startUpscaleModelInstall(): Promise<UpscaleModelInstallStatus> {
+    return this.requestJson<UpscaleModelInstallStatus>("/api/settings/upscale-models/install", {
+      method: "POST",
+    });
+  }
+
+  async getStableAudioInstallStatus(): Promise<StableAudioInstallStatus> {
+    return this.requestJson<StableAudioInstallStatus>("/api/settings/stable-audio/install");
+  }
+
+  async startStableAudioInstall(): Promise<StableAudioInstallStatus> {
+    return this.requestJson<StableAudioInstallStatus>("/api/settings/stable-audio/install", {
       method: "POST",
     });
   }
@@ -370,7 +423,7 @@ export class GameKnifeApiClient {
     }
   }
 
-  private async createAssetJob(path: string, inputAssetId: string, parameters: Record<string, unknown>): Promise<JobResponse> {
+  private async createAssetJob(path: string, inputAssetId: string, parameters: object): Promise<JobResponse> {
     return this.requestJson<JobResponse>(path, {
       method: "POST",
       headers: jsonHeaders(),
@@ -384,6 +437,12 @@ export class GameKnifeApiClient {
     }
     return `${this.baseUrl}${path}`;
   }
+}
+
+function readDefaultBaseUrl(): string {
+  // 默认同源访问可以满足 Community 本地部署；读取 Vite 配置是为了保留原工程连接外部后端的开发方式。
+  // 这里只读取公开的 base url，不读取 token，避免把登录态重新带回开源 Community。
+  return ((import.meta as ViteImportMeta).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 }
 
 function jsonHeaders(): HeadersInit {
@@ -400,4 +459,4 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
 }
 
-export const gameKnifeApiClient = new GameKnifeApiClient();
+export const gameKnifeApiClient = new GameKnifeApiClient({ baseUrl: readDefaultBaseUrl() });
