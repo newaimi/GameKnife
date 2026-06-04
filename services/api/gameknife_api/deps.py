@@ -10,6 +10,7 @@ from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, 
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_storage import LocalStorageProvider
 from gameknife_api.birefnet import BiRefNetService
+from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 
@@ -73,6 +74,7 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
         settings.stable_audio_timeout_seconds,
     )
     app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size)
+    app.state.character_rig_models = CharacterRigModelService()
     # 超分模型体积较大，运行时只保存服务句柄；真正加载发生在任务执行时，避免 Community 启动被模型初始化拖慢。
     app.state.upscale_models = UpscaleModelService(settings.upscale_model_root or settings.storage_root / "models" / "upscale")
 
@@ -87,6 +89,10 @@ def get_stable_audio_service(request: Request) -> StableAudioService:
 
 def get_birefnet_service(request: Request) -> BiRefNetService:
     return request.app.state.birefnet
+
+
+def get_character_rig_model_service(request: Request) -> CharacterRigModelService:
+    return request.app.state.character_rig_models
 
 
 def get_upscale_model_service(request: Request) -> UpscaleModelService:

@@ -11,7 +11,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
-from gameknife_api.deps import get_birefnet_service, get_repository, get_request_context, get_stable_audio_service, get_upscale_model_service
+from gameknife_api.deps import (
+    get_birefnet_service,
+    get_character_rig_model_service,
+    get_repository,
+    get_request_context,
+    get_stable_audio_service,
+    get_upscale_model_service,
+)
 from gameknife_api.job_service import (
     create_job,
     delete_job,
@@ -60,6 +67,7 @@ from gameknife_api.schemas import (
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
+from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
@@ -142,6 +150,7 @@ def settings(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
@@ -157,6 +166,12 @@ def settings(
                 "gpu_concurrency": 1,
                 "lazy_load": True,
                 "install_status": birefnet.install_status(),
+            },
+            "character_rig_models": {
+                "models": character_rig_models.model_specs(),
+                "device": character_rig_models.device_label,
+                "lazy_load": True,
+                "install_status": character_rig_models.install_status(),
             },
             "upscale_models": {
                 "models": upscale_models.model_specs(),
@@ -781,11 +796,12 @@ def create_character_rig_analyze_task(
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
     source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
     if not _asset_has_transparency(context, source_asset):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
+        _ensure_character_rig_models_installed(character_rig_models)
     job = create_job(
         repository,
         context,
@@ -793,7 +809,7 @@ def create_character_rig_analyze_task(
         input_asset_id=source_asset.id,
         parameters={"rig_id": rig_id, **payload.parameters},
     )
-    background_tasks.add_task(run_character_rig_analyze_job, repository, context, job.id, rig_id)
+    background_tasks.add_task(run_character_rig_analyze_job, repository, context, character_rig_models, job.id, rig_id)
     return _job_response(job, context, repository)
 
 
@@ -805,13 +821,14 @@ def create_character_part_refine_task(
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
     source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
     if repository.get_character_part_for_workspace(rig_id, part_id, context.workspace.id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼部件不存在。")
     if not _asset_has_transparency(context, source_asset):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
+        _ensure_character_rig_models_installed(character_rig_models)
     job = create_job(
         repository,
         context,
@@ -819,7 +836,7 @@ def create_character_part_refine_task(
         input_asset_id=source_asset.id,
         parameters={"rig_id": rig_id, "part_id": part_id, **payload.parameters},
     )
-    background_tasks.add_task(run_character_part_refine_job, repository, context, job.id, rig_id, part_id)
+    background_tasks.add_task(run_character_part_refine_job, repository, context, character_rig_models, job.id, rig_id, part_id)
     return _job_response(job, context, repository)
 
 
@@ -1101,11 +1118,13 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
 @router.get("/settings/models/install-status")
 def read_model_install_status(
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> dict[str, object]:
     return {
         "birefnet": birefnet.install_status(),
+        "character_rig_models": character_rig_models.install_status(),
         "upscale_models": upscale_models.install_status(),
         "stable_audio": stable_audio.install_status(),
     }
@@ -1119,6 +1138,16 @@ def read_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_servi
 @router.post("/settings/birefnet/install")
 def start_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
     return birefnet.start_install()
+
+
+@router.get("/settings/character-rig-models/install")
+def read_character_rig_model_install(character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service)) -> dict[str, object]:
+    return character_rig_models.install_status()
+
+
+@router.post("/settings/character-rig-models/install")
+def start_character_rig_model_install(character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service)) -> dict[str, object]:
+    return character_rig_models.start_install()
 
 
 @router.get("/settings/upscale-models/install")
@@ -1384,6 +1413,13 @@ def _ensure_upscale_model_installed(upscale_models: UpscaleModelService) -> None
         return
     # 创建任务时先拒绝缺模型的 AI 超分请求，避免后台任务进入运行态后才暴露环境问题。
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+
+
+def _ensure_character_rig_models_installed(character_rig_models: CharacterRigModelService) -> None:
+    if character_rig_models.is_installed():
+        return
+    # 不透明角色图只有真实模型才能生成可信的候选框和 mask，创建阶段先阻止缺模型任务。
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
 
 
 def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:

@@ -960,6 +960,7 @@ export function CommunitySettingsPage() {
   const [videoApiKey, setVideoApiKey] = useState("");
   const [videoMessage, setVideoMessage] = useState("");
   const [birefnetStatus, setBirefnetStatus] = useState<Record<string, unknown> | null>(null);
+  const [characterRigStatus, setCharacterRigStatus] = useState<Record<string, unknown> | null>(null);
   const [upscaleStatus, setUpscaleStatus] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
 
@@ -970,15 +971,17 @@ export function CommunitySettingsPage() {
   async function refreshSettings() {
     try {
       setError("");
-      const [nextSettings, nextVideoConfig, nextBiRefNetStatus, nextUpscaleStatus] = await Promise.all([
+      const [nextSettings, nextVideoConfig, nextBiRefNetStatus, nextCharacterRigStatus, nextUpscaleStatus] = await Promise.all([
         gameKnifeApiClient.getSettings(),
         gameKnifeApiClient.getVideoGenerationSettings(),
         gameKnifeApiClient.getBiRefNetInstallStatus(),
+        gameKnifeApiClient.getCharacterRigModelInstallStatus(),
         gameKnifeApiClient.getUpscaleModelInstallStatus(),
       ]);
       setSettings(nextSettings);
       setVideoConfig(nextVideoConfig);
       setBirefnetStatus(nextBiRefNetStatus);
+      setCharacterRigStatus(nextCharacterRigStatus);
       setUpscaleStatus(nextUpscaleStatus);
       setVideoProvider(nextVideoConfig.provider);
       setVideoBaseUrl(nextVideoConfig.base_url);
@@ -1035,6 +1038,15 @@ export function CommunitySettingsPage() {
     }
   }
 
+  async function startCharacterRigInstall() {
+    try {
+      setError("");
+      setCharacterRigStatus(await gameKnifeApiClient.startCharacterRigModelInstall());
+    } catch (exc) {
+      setError(readMessage(exc));
+    }
+  }
+
   return (
     <section className="page-panel">
       <h1>设置</h1>
@@ -1056,6 +1068,19 @@ export function CommunitySettingsPage() {
           <strong>{String(birefnetStatus?.progress ?? 0)}%</strong>
         </div>
         <button className="secondary-button" disabled={birefnetStatus?.status === "running"} onClick={startBiRefNetInstall} type="button">
+          <Download size={18} />
+          下载安装模型文件
+        </button>
+      </div>
+      <div className="settings-form">
+        <h2>骨骼拆分模型</h2>
+        <div className="settings-grid">
+          <span>状态</span>
+          <strong>{String(characterRigStatus?.status ?? "")}</strong>
+          <span>进度</span>
+          <strong>{String(characterRigStatus?.progress ?? 0)}%</strong>
+        </div>
+        <button className="secondary-button" disabled={characterRigStatus?.status === "running"} onClick={startCharacterRigInstall} type="button">
           <Download size={18} />
           下载安装模型文件
         </button>

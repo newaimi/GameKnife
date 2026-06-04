@@ -13,6 +13,7 @@ from PIL import Image
 from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
 from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
+from gameknife_processors.character_rig import CharacterRigDetection, CharacterRigHints
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -168,6 +169,45 @@ class FakeUpscaleModelService:
         return output, "fake-real-esrgan", "CPU", []
 
 
+class FakeCharacterRigModelService:
+    device_label = "CPU"
+
+    def __init__(self) -> None:
+        self.describe_calls = 0
+        self.detect_calls = 0
+        self.refine_calls = 0
+
+    def install_status(self) -> dict[str, object]:
+        return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
+
+    def is_installed(self) -> bool:
+        return True
+
+    def start_install(self) -> dict[str, object]:
+        return self.install_status()
+
+    def model_specs(self) -> list[dict[str, str]]:
+        return [{"key": "florence", "name": "fake-florence", "role": "测试", "model_id": "fake"}]
+
+    def describe_parts(self, image: Image.Image, parameters: dict[str, object]) -> CharacterRigHints:
+        self.describe_calls += 1
+        return CharacterRigHints(description="head and torso", candidate_keys=[])
+
+    def detect_parts(self, image: Image.Image, candidate_keys: list[str], parameters: dict[str, object]) -> list[CharacterRigDetection]:
+        self.detect_calls += 1
+        return [CharacterRigDetection(key="head", label="head", bbox=[2, 2, 12, 12], score=0.9)]
+
+    def refine_bbox(self, image: Image.Image, bbox: list[int], alpha: np.ndarray, parameters: dict[str, object]) -> np.ndarray:
+        self.refine_calls += 1
+        x, y, width, height = bbox
+        mask = np.zeros((image.height, image.width), dtype=np.uint8)
+        mask[y : y + height, x : x + width] = 255
+        return mask
+
+    def model_report(self) -> dict[str, str]:
+        return {"florence": "fake", "grounding_dino": "fake", "sam": "fake"}
+
+
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/context")
@@ -283,12 +323,21 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
     assert response.json()["edition"] == "community"
     assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
     assert "birefnet" in response.json()["models"]
+    assert "character_rig_models" in response.json()["models"]
     assert "upscale_models" in response.json()["models"]
 
 
 def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.get("/api/settings/birefnet/install")
+
+    assert response.status_code == 200
+    assert "installed" in response.json()
+
+
+def test_character_rig_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/api/settings/character-rig-models/install")
 
     assert response.status_code == 200
     assert "installed" in response.json()
@@ -864,3 +913,33 @@ def test_character_rig_opaque_source_requires_models_at_creation(tmp_path: Path)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。"
+
+
+def test_character_rig_opaque_source_uses_installed_model_service(tmp_path: Path) -> None:
+    fake_models = FakeCharacterRigModelService()
+    with make_client(tmp_path) as client:
+        client.app.state.character_rig_models = fake_models
+        rig = client.post(
+            "/api/character-rigs/import",
+            data={"name": "opaque"},
+            files={"file": ("opaque.png", make_opaque_character_png_bytes(), "image/png")},
+        ).json()
+        created = client.post(
+            f"/api/character-rigs/{rig['id']}/analyze",
+            json={"parameters": {"min_mask_area": 16}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        analyzed = client.get(f"/api/character-rigs/{rig['id']}").json()
+        part = analyzed["parts"][0]
+        part_asset = client.get(part["part_url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["result"]["part_count"] == 1
+    assert job["result"]["models"]["sam"] == "fake"
+    assert analyzed["part_count"] == 1
+    assert part["semantic_type"] == "head"
+    assert part_asset.status_code == 200
+    assert fake_models.describe_calls == 1
+    assert fake_models.detect_calls == 1
+    assert fake_models.refine_calls == 1

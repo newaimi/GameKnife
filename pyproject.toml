@@ -16,6 +16,12 @@ dependencies = [
   "numpy",
   "opencv-python-headless",
   "huggingface-hub",
+  "torch",
+  "torchvision",
+  "transformers==4.57.3",
+  "einops",
+  "kornia",
+  "timm",
   "spandrel",
 ]
 

@@ -311,6 +311,16 @@ export class GameKnifeApiClient {
     });
   }
 
+  async getCharacterRigModelInstallStatus(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/character-rig-models/install");
+  }
+
+  async startCharacterRigModelInstall(): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>("/api/settings/character-rig-models/install", {
+      method: "POST",
+    });
+  }
+
   async getUpscaleModelInstallStatus(): Promise<Record<string, unknown>> {
     return this.requestJson<Record<string, unknown>>("/api/settings/upscale-models/install");
   }

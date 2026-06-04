@@ -10,6 +10,7 @@ from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
 from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor, UpscaleProcessor
 from gameknife_api.birefnet import BiRefNetService
+from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
@@ -391,7 +392,13 @@ def run_sequence_generate_video_job(repository: SQLiteGameKnifeRepository, conte
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def run_character_rig_analyze_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+def run_character_rig_analyze_job(
+    repository: SQLiteGameKnifeRepository,
+    context: RequestContext,
+    service: CharacterRigModelService,
+    job_id: str,
+    rig_id: str,
+) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
     if job is None:
@@ -409,10 +416,11 @@ def run_character_rig_analyze_job(repository: SQLiteGameKnifeRepository, context
     old_asset_ids = repository.collect_character_part_asset_ids(rig_id, context.workspace.id)
     old_assets = repository.list_assets_by_ids_for_workspace(old_asset_ids, context.workspace.id)
     try:
-        result, outputs = character_rig_processor.analyze_transparent_source(
+        result, outputs = character_rig_processor.analyze(
             context.storage.resolve_asset_path(source_asset.path),
             context.storage.root / "outputs" / job_id / "character_rig",
             json.loads(job.parameters_json),
+            service,
         )
         part_payloads: list[dict[str, Any]] = []
         for output in outputs:
@@ -447,6 +455,7 @@ def run_character_rig_analyze_job(repository: SQLiteGameKnifeRepository, context
 def run_character_part_refine_job(
     repository: SQLiteGameKnifeRepository,
     context: RequestContext,
+    service: CharacterRigModelService,
     job_id: str,
     rig_id: str,
     part_id: str,
@@ -476,6 +485,7 @@ def run_character_part_refine_job(
             part,
             context.storage.root / "outputs" / job_id / "character_rig_refine",
             json.loads(job.parameters_json),
+            service,
         )
         part_asset = _register_output_assets(repository, context, [output.part_path], "character_part", "image/png")[0]
         mask_asset = _register_output_assets(repository, context, [output.mask_path], "character_part_mask", "image/png")[0]
