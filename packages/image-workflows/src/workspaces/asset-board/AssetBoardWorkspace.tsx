@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { AssetBoardParameters, ComponentCandidate, JobResponse } from "@gameknife/shared-types";
@@ -28,6 +28,10 @@ const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
   export_padding: 8,
 };
 
+type AssetBoardRunOptions = {
+  automatic?: boolean;
+};
+
 export function AssetBoardWorkspace() {
   const [params, setParams] = useState<AssetBoardParameters>(DEFAULT_ASSET_BOARD_PARAMS);
   const [components, setComponents] = useState<ComponentCandidate[]>([]);
@@ -36,6 +40,8 @@ export function AssetBoardWorkspace() {
   const [cutoutAssetId, setCutoutAssetId] = useState("");
   const [cutoutUrl, setCutoutUrl] = useState("");
   const [compare, setCompare] = useState(50);
+  const [automaticAction, setAutomaticAction] = useState<"detect" | "refine" | "">("");
+  const lastAutomaticRegionSignature = useRef("");
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob: runWorkflowJob, resetJob } = useWorkflowJob();
   const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
@@ -48,6 +54,7 @@ export function AssetBoardWorkspace() {
       setCutoutAssetId("");
       setCutoutUrl("");
       setCompare(50);
+      setAutomaticAction("");
     },
   });
   const busy = uploading || jobBusy;
@@ -55,6 +62,12 @@ export function AssetBoardWorkspace() {
   const selectedCount = selectedComponents.size;
   const exportAsset = job?.type === "asset_board_export" ? readFirstJobOutputAsset(job) : undefined;
   const taskLabel = useMemo(() => {
+    if (automaticAction === "detect") {
+      return "图片已上传，正在自动识别素材。";
+    }
+    if (automaticAction === "refine") {
+      return "区域参数已更新，正在刷新素材框。";
+    }
     if (!job) {
       return asset ? `${asset.filename} · ${formatImageSize(imageSize)}` : "上传素材板后先识别区域。";
     }
@@ -74,13 +87,44 @@ export function AssetBoardWorkspace() {
       return `导出完成，已选择 ${selectedCount} 个组件。`;
     }
     return "等待处理。";
-  }, [asset, components.length, imageSize, job, selectedCount]);
+  }, [asset, automaticAction, components.length, imageSize, job, selectedCount]);
 
-  async function detectRegions() {
+  useEffect(() => {
+    if (!asset || busy) {
+      return;
+    }
+
+    const regionSignature = `${asset.id}:${params.alpha_threshold}:${params.min_component_area}:${cutoutAssetId || "source"}`;
+    if (lastAutomaticRegionSignature.current === regionSignature) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      lastAutomaticRegionSignature.current = regionSignature;
+      if (cutoutAssetId) {
+        void refine({ automatic: true });
+        return;
+      }
+      void detectRegions({ automatic: true });
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [asset, busy, cutoutAssetId, params.alpha_threshold, params.min_component_area]);
+
+  async function detectRegions(options: AssetBoardRunOptions = {}) {
     if (!asset) {
       return;
     }
-    await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, params), applyComponentJobResult);
+    setAutomaticAction(options.automatic ? "detect" : "");
+    try {
+      // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
+      // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
+      await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, readRegionParameters()), applyComponentJobResult);
+    } finally {
+      if (options.automatic) {
+        setAutomaticAction("");
+      }
+    }
   }
 
   async function cutout() {
@@ -96,12 +140,19 @@ export function AssetBoardWorkspace() {
     }, applyCutoutJobResult);
   }
 
-  async function refine() {
+  async function refine(options: AssetBoardRunOptions = {}) {
     if (!cutoutAssetId) {
       setError("请先完成素材板抠图。");
       return;
     }
-    await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, params), applyComponentJobResult);
+    setAutomaticAction(options.automatic ? "refine" : "");
+    try {
+      await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, readRegionParameters()), applyComponentJobResult);
+    } finally {
+      if (options.automatic) {
+        setAutomaticAction("");
+      }
+    }
   }
 
   async function exportSelected() {
@@ -174,6 +225,13 @@ export function AssetBoardWorkspace() {
 
   function changeComponentBbox(id: number, bbox: [number, number, number, number]) {
     setComponents((items) => items.map((item) => (item.id === id ? { ...item, bbox } : item)));
+  }
+
+  function readRegionParameters() {
+    return {
+      alpha_threshold: params.alpha_threshold,
+      min_component_area: params.min_component_area,
+    };
   }
 
   return (
