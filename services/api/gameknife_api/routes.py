@@ -157,7 +157,7 @@ def settings(
     return SettingsResponse(
         edition=context.capabilities.edition,
         workspace_id=context.workspace.id,
-        storage="local_file_storage",
+        storage="enterprise_storage" if context.capabilities.edition == "commercial" else "local_file_storage",
         models={
             "birefnet": {
                 "model_id": BIREFNET_MODEL_ID,
