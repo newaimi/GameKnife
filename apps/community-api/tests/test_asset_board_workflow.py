@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from io import BytesIO
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from gameknife_workflows import (
     WorkflowInputNotFoundError,
     WorkflowModelNotInstalledError,
     create_asset_board_cutout_workflow,
+    create_asset_board_export_workflow,
+    create_asset_board_refine_workflow,
     create_asset_board_region_workflow,
 )
 
@@ -130,6 +133,54 @@ def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> Non
     assert output_asset.kind == "asset_cutout"
     assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"\x89PNG")
     assert model.predict_calls == 1
+
+
+def test_asset_board_refine_workflow_refreshes_components(tmp_path: Path) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+
+    job, runner = create_asset_board_refine_workflow(
+        repository,
+        context,
+        cutout_asset_id=asset.id,
+        parameters={"min_component_area": 4, "alpha_threshold": 16},
+    )
+    runner()
+
+    stored = repository.get_job_for_workspace(job.id, context.workspace.id)
+    assert stored is not None
+    result = json.loads(stored.result_json)
+    assert stored.status == "success"
+    assert stored.job_type == "asset_board_region_refine"
+    assert result["component_count"] == 2
+    assert result["cutout_asset_id"] == asset.id
+    assert result["cutout_url"] == f"/api/assets/{asset.id}"
+
+
+def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+
+    job, runner = create_asset_board_export_workflow(
+        repository,
+        context,
+        cutout_asset_id=asset.id,
+        selected_component_ids=[],
+        components=[],
+        parameters={"min_component_area": 4, "alpha_threshold": 16},
+    )
+    runner()
+
+    stored = repository.get_job_for_workspace(job.id, context.workspace.id)
+    assert stored is not None
+    result = json.loads(stored.result_json)
+    output_asset = repository.get_asset_for_workspace(result["output_assets"][0]["id"], context.workspace.id)
+    assert stored.status == "success"
+    assert stored.job_type == "asset_board_export"
+    assert result["selected_count"] == 2
+    assert output_asset is not None
+    assert output_asset.kind == "asset_component"
+    assert output_asset.mime_type == "application/zip"
+    with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
+        assert len(archive.namelist()) == 2
 
 
 def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext, AssetRecord]:

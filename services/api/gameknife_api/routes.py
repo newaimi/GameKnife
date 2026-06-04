@@ -22,8 +22,6 @@ from gameknife_api.deps import (
 from gameknife_api.job_service import (
     create_job,
     delete_job,
-    run_asset_board_export_job,
-    run_asset_board_refine_job,
     run_character_part_refine_job,
     run_character_rig_analyze_job,
     run_character_rig_export_dragonbones_job,
@@ -72,6 +70,8 @@ from gameknife_workflows import (
     WorkflowServiceUnavailableError,
     WorkflowValidationError,
     create_asset_board_cutout_workflow,
+    create_asset_board_export_workflow,
+    create_asset_board_refine_workflow,
     create_asset_board_region_workflow,
     create_background_remove_workflow,
     create_sound_effect_workflow,
@@ -390,15 +390,17 @@ def create_asset_board_refine_job(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
-    _ensure_asset_exists(repository, context, payload.cutout_asset_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="asset_board_region_refine",
-        input_asset_id=payload.cutout_asset_id,
-        parameters=payload.parameters,
-    )
-    background_tasks.add_task(run_asset_board_refine_job, repository, context, job.id)
+    try:
+        job, runner = create_asset_board_refine_workflow(
+            repository,
+            context,
+            cutout_asset_id=payload.cutout_asset_id,
+            parameters=payload.parameters,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 
@@ -409,20 +411,19 @@ def create_asset_board_export_job(
     context: RequestContext = Depends(get_request_context),
     repository: SQLiteGameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
-    _ensure_asset_exists(repository, context, payload.cutout_asset_id)
-    parameters = {
-        **payload.parameters,
-        "selected_component_ids": payload.selected_component_ids,
-        "components": payload.components,
-    }
-    job = create_job(
-        repository,
-        context,
-        job_type="asset_board_export",
-        input_asset_id=payload.cutout_asset_id,
-        parameters=parameters,
-    )
-    background_tasks.add_task(run_asset_board_export_job, repository, context, job.id)
+    try:
+        job, runner = create_asset_board_export_workflow(
+            repository,
+            context,
+            cutout_asset_id=payload.cutout_asset_id,
+            selected_component_ids=payload.selected_component_ids,
+            components=payload.components,
+            parameters=payload.parameters,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    background_tasks.add_task(runner)
     return _job_response(job, context, repository)
 
 

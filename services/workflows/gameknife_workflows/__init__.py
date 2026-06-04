@@ -1,4 +1,9 @@
-from .asset_board import create_asset_board_cutout_workflow, create_asset_board_region_workflow
+from .asset_board import (
+    create_asset_board_cutout_workflow,
+    create_asset_board_export_workflow,
+    create_asset_board_refine_workflow,
+    create_asset_board_region_workflow,
+)
 from .background_remove import (
     create_background_remove_workflow,
 )
@@ -17,6 +22,8 @@ __all__ = [
     "WorkflowServiceUnavailableError",
     "WorkflowValidationError",
     "create_asset_board_cutout_workflow",
+    "create_asset_board_export_workflow",
+    "create_asset_board_refine_workflow",
     "create_asset_board_region_workflow",
     "create_background_remove_workflow",
     "create_sound_effect_workflow",

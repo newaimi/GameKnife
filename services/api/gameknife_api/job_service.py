@@ -8,12 +8,11 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import SQLiteGameKnifeRepository
-from gameknife_processors import AssetBoardSplitProcessor, BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor
+from gameknife_processors import BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.video_generation import VideoGenerationClient
 
-asset_board_processor = AssetBoardSplitProcessor()
 sequence_processor = SequenceFrameProcessor()
 character_rig_processor = CharacterRigProcessor()
 background_processor = BackgroundRemoveProcessor()
@@ -73,57 +72,6 @@ def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: Re
         output_suffix="_cutout.png",
         processor=lambda input_path, output_path, parameters: background_processor.process(input_path, output_path, parameters, service),
     )
-
-
-def run_asset_board_refine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    if job is None:
-        return
-    cutout_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if cutout_asset is None:
-        _mark_failed(repository, context, job_id, "抠图结果不存在。")
-        return
-
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    try:
-        result = asset_board_processor.refine_cutout_regions(
-            context.storage.resolve_asset_path(cutout_asset.path),
-            json.loads(job.parameters_json),
-        )
-        final_result = {
-            **result.result,
-            "cutout_asset_id": cutout_asset.id,
-            "cutout_url": f"/api/assets/{cutout_asset.id}",
-        }
-        _mark_success(repository, context, job_id, result, final_result)
-    except Exception as exc:  # noqa: BLE001
-        _mark_failed(repository, context, job_id, str(exc))
-
-
-def run_asset_board_export_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    if job is None:
-        return
-    cutout_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if cutout_asset is None:
-        _mark_failed(repository, context, job_id, "抠图结果不存在。")
-        return
-
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    try:
-        parameters = json.loads(job.parameters_json)
-        output_path = _output_path(context, job.id, f"{Path(cutout_asset.original_name).stem}_components.zip")
-        result = asset_board_processor.export_components(
-            context.storage.resolve_asset_path(cutout_asset.path),
-            output_path,
-            [int(item) for item in parameters.get("selected_component_ids", [])],
-            parameters,
-            parameters.get("components") if isinstance(parameters.get("components"), list) else None,
-        )
-        output_assets = _register_output_assets(repository, context, result.output_paths, "asset_component", "application/zip")
-        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
-    except Exception as exc:  # noqa: BLE001
-        _mark_failed(repository, context, job_id, str(exc))
 
 
 def run_sequence_clean_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:

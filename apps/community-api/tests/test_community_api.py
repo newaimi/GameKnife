@@ -629,6 +629,52 @@ def test_asset_board_cutout_job_creates_cutout_asset_with_fake_birefnet(tmp_path
     assert fake_birefnet.predict_calls == 1
 
 
+def test_asset_board_refine_job_refreshes_components(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/refine",
+            json={"cutout_asset_id": upload.json()["id"], "parameters": {"min_component_area": 4, "alpha_threshold": 16}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "asset_board_region_refine"
+    assert job["result"]["component_count"] == 2
+    assert job["result"]["cutout_asset_id"] == upload.json()["id"]
+
+
+def test_asset_board_export_job_creates_zip_asset(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/export",
+            json={
+                "cutout_asset_id": upload.json()["id"],
+                "selected_component_ids": [],
+                "components": [],
+                "parameters": {"min_component_area": 4, "alpha_threshold": 16},
+            },
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        output = client.get(job["result"]["output_assets"][0]["url"])
+
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "asset_board_export"
+    assert job["result"]["selected_count"] == 2
+    assert output.status_code == 200
+    with zipfile.ZipFile(BytesIO(output.content)) as archive:
+        assert len(archive.namelist()) == 2
+
+
 def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(
