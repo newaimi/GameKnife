@@ -1,48 +1,186 @@
-# GameKnife Community
+# GameKnife
 
-GameKnife Community 是无登录的本地游戏素材处理工具箱。当前仓库承载开源核心、Community Web、Community API、公共前端包和公共后端包。
+GameKnife 是面向游戏美术资源处理的本地工具箱。Community 版本采用无登录本地工作区，使用 SQLite、本地文件存储、FastAPI、React、TypeScript 和 Vite 组成完整的开源运行链路。
 
-## 开发命令
+本仓库按前端 workspace 和 Python packages 拆分。Community Web、Community API、公共工具页面、编辑器核心、处理器和工作流都在同一套开源结构内维护，方便开发者按模块阅读、运行和贡献。
+
+## 功能
+
+| 模块 | 能力 |
+| --- | --- |
+| 去背景 | 上传 JPG、PNG、WebP 后生成透明 PNG，依赖 BiRefNet 模型。 |
+| 素材板 | 区域识别、局部抠图、框刷新、素材导出 ZIP。 |
+| 图片放大 | 像素风最近邻放大；AI 超分依赖 Real-ESRGAN 模型。 |
+| 序列帧 | 导入、清洗、差异查看、导出 PNG 包和 Spine 包。 |
+| AI 生成视频 | 独立外部视频 API 工具，调用前需要用户确认。 |
+| 视频转序列帧 | 本地视频抽帧、抠图和序列帧项目生成。 |
+| 骨骼拆分 | Florence、Grounding DINO、SAM 链路生成角色部件和导出包。 |
+| 手动编辑 | Canvas2D 单图层编辑、选区、画笔、橡皮、吸管、恢复、保存和导出。 |
+| 声效生成 | 通过独立 Stable Audio SFX 服务生成 WAV 声效。 |
+| 任务历史 | 查看任务状态、下载结果、删除任务及其输出资产。 |
+| 设置与帮助 | 模型安装状态、系统设置、视频 API 配置和使用帮助。 |
+
+## 仓库结构
+
+```text
+GameKnife/
+├── apps/
+│   ├── community-api/        # Community FastAPI 入口
+│   └── community-web/        # Community React 外壳
+├── packages/
+│   ├── api-client/           # 前端 API 封装
+│   ├── app-context/          # Principal、Workspace、Permission、Capability 上下文
+│   ├── editor-core/          # 手动编辑器核心
+│   ├── feature-registry/     # 工具路由和菜单注册
+│   ├── image-workflows/      # 公共工具页面
+│   ├── shared-types/         # 前端共享类型
+│   └── ui-kit/               # 跨工具 UI 组件
+├── services/
+│   ├── api/                  # FastAPI 路由、请求上下文和响应组装
+│   ├── core/                 # Asset、Job、WorkflowRun 等领域模型
+│   ├── jobs/                 # 本地任务队列和 SQLite 实现
+│   ├── processors/           # 模型和图像处理适配
+│   ├── storage/              # 本地文件存储接口和实现
+│   └── workflows/            # 后端工作流编排
+├── services-extra/
+│   └── stable-audio-sfx/     # 独立声效生成服务
+├── docker/                   # Community 和声效服务镜像
+├── docs/                     # 架构边界和迁移说明
+├── package.json              # npm workspace
+├── pyproject.toml            # Python packages
+└── LICENSE
+```
+
+## 运行要求
+
+- Node.js 20.19 或更高版本。
+- Python 3.11 或更高版本。
+- Windows PowerShell、Linux shell 或 macOS shell 均可运行；下方命令使用 PowerShell 写法。
+- 使用真实模型推理时需要匹配本机 CUDA、PyTorch 和显卡驱动环境。
+- Docker 为可选运行方式。
+
+## 快速开始
+
+在 GameKnife 工程根目录安装前端和 Python 依赖：
 
 ```powershell
 npm install
-npm run build
+python -m pip install -e ".[dev]"
 ```
+
+在 GameKnife 工程根目录启动 Community API：
 
 ```powershell
-conda run -n codex python -m pip install -e ".[dev]"
-conda run -n codex python -m uvicorn community_api.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn community_api.main:app --host 0.0.0.0 --port 8000
 ```
 
-## 测试命令
+在 GameKnife 工程根目录启动 Community Web：
 
 ```powershell
-conda run -n codex python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
-npm run build
+npm run dev:web
 ```
+
+打开：
+
+```text
+http://127.0.0.1:5174
+```
+
+开发环境下 Vite 会把 `/api` 代理到 `http://127.0.0.1:8000`。生产环境构建后，FastAPI 会在同一端口托管前端静态文件和 `/api`。
 
 ## Community 默认上下文
 
-- 主体：`anonymous`
-- 工作区：`local`
-- 数据库：`storage/gameknife.sqlite3`
-- 文件存储：`storage/assets`
+Community 版本没有登录、注册、退出和用户管理入口。后端固定注入本地上下文：
 
-Community API 不读取 Authorization header、登录 Cookie 或本地 token。
+| 字段 | 默认值 |
+| --- | --- |
+| `principal.id` | `anonymous` |
+| `workspace.id` | `local` |
+| `edition` | `community` |
+| 数据库 | `storage/gameknife.sqlite3` |
+| 文件存储根目录 | `storage` |
 
-## 模型安装
+Community API 不要求 Authorization header、登录 Cookie 或 localStorage token。所有资产、任务、序列帧和骨骼拆分项目都写入本地工作区。
 
-依赖模型的功能在创建任务阶段检查安装状态。BiRefNet、骨骼拆分模型和 Real-ESRGAN 通过设置页手动安装，推理阶段只从本地缓存读取模型文件。默认模型目录分别是 `storage/models/birefnet`、`storage/models/character-rig` 和 `storage/models/upscale`，可通过 `GAMEKNIFE_BIREFNET_MODEL_ROOT`、`GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT`、`GAMEKNIFE_UPSCALE_MODEL_ROOT` 调整。像素风图片放大不要求模型安装。
+## 配置
 
-## Stable Audio
+项目使用 `GAMEKNIFE_*` 环境变量。可以从 `.env.example` 复制一份本地配置：
 
-声效生成走独立服务 `services-extra/stable-audio-sfx`。Community API 通过 `GAMEKNIFE_STABLE_AUDIO_BASE_URL` 和 `GAMEKNIFE_STABLE_AUDIO_TOKEN` 调用内部服务。模型通过 `/models/install` 手动安装，生成接口在模型未安装时返回中文错误。
+```powershell
+copy .env.example .env
+```
 
-## 视频 API 配置
+常用配置：
 
-AI 生成视频是独立工具。外部视频 API 的 provider、base_url 和 api_key 在设置页写入 `system_settings`，任务创建前必须确认外部付费调用。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `GAMEKNIFE_STORAGE_ROOT` | `storage` | 本地资产、输出和模型状态根目录。 |
+| `GAMEKNIFE_DB_PATH` | `storage/gameknife.sqlite3` | Community SQLite 数据库路径。 |
+| `GAMEKNIFE_WEB_DIST` | `apps/community-web/dist` | 生产环境前端构建产物目录。 |
+| `GAMEKNIFE_CORS_ORIGINS` | `*` | API 允许的跨域来源。 |
+| `GAMEKNIFE_MAX_UPLOAD_MB` | `50` | 上传文件大小上限。 |
+| `GAMEKNIFE_MODEL_INPUT_SIZE` | `1024` | 模型预处理输入尺寸。 |
+| `GAMEKNIFE_BIREFNET_MODEL_ROOT` | `storage/models/birefnet` | BiRefNet 模型目录。 |
+| `GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT` | `storage/models/character-rig` | 骨骼拆分模型目录。 |
+| `GAMEKNIFE_UPSCALE_MODEL_ROOT` | `storage/models/upscale` | Real-ESRGAN 模型目录。 |
+| `GAMEKNIFE_STABLE_AUDIO_BASE_URL` | `http://127.0.0.1:8090` | 独立声效服务地址。 |
+| `GAMEKNIFE_STABLE_AUDIO_TOKEN` | `change-me` | Community API 调用声效服务的内部 token。 |
+| `GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS` | `900` | Community API 等待声效服务的超时时间。 |
+
+完整变量以 `.env.example` 为准。
+
+## 模型安装策略
+
+依赖模型的任务会在创建阶段检查安装状态，推理阶段只读取本地缓存。这样可以避免用户提交任务后才触发隐式下载，也方便在离线或内网环境里定位缺失模型。
+
+| 功能 | 模型 | 安装入口 |
+| --- | --- | --- |
+| 去背景 | BiRefNet | 设置页或对应模型安装接口。 |
+| AI 图片放大 | Real-ESRGAN | 设置页或对应模型安装接口。 |
+| 骨骼拆分 | Florence、Grounding DINO、SAM | 设置页或对应模型安装接口。 |
+| 声效生成 | Stable Audio Open | 独立声效服务 `/models/install`。 |
+
+像素风图片放大使用最近邻算法，不要求安装 AI 模型。
+
+## 独立声效服务
+
+声效生成由 `services-extra/stable-audio-sfx` 提供独立 FastAPI 服务。Community API 只负责创建任务、调用内部服务和保存输出资产；模型下载、队列、worker、WAV 编码和推理错误都在声效服务内处理。
+
+在 GameKnife 工程根目录启动服务：
+
+```powershell
+cd services-extra\stable-audio-sfx
+python -m pip install -e ".[dev]"
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8090
+```
+
+服务接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/health` | 健康检查。 |
+| `GET` | `/models/status` | 查看 Stable Audio Open 安装状态和 worker 状态，需要 `X-Gameknife-Token`。 |
+| `POST` | `/models/install` | 手动安装 Stable Audio Open 模型，需要 `X-Gameknife-Token`。 |
+| `POST` | `/generate` | 生成 WAV 声效，需要 `X-Gameknife-Token`。 |
+
+声效服务相关环境变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `GAMEKNIFE_STABLE_AUDIO_MODEL_ID` | `stabilityai/stable-audio-open-1.0` | Hugging Face 模型 ID。 |
+| `GAMEKNIFE_STABLE_AUDIO_TOKEN` | 空字符串 | 内部调用 token；设置后请求必须携带 `X-Gameknife-Token`。 |
+| `GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE` | `12` | 队列容量。 |
+| `GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS` | `900` | 单次生成等待上限。 |
+| `GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS` | 空字符串 | 可用 GPU 索引，例如 `0,1`。 |
+| `GAMEKNIFE_STABLE_AUDIO_MODEL_HALF` | `1` | CUDA 环境下使用半精度模型。 |
+
+真实 Stable Audio 推理需要安装 `stable-audio-tools`、`torch`、`einops` 以及匹配本机 CUDA 的依赖。当前服务包只声明 API、队列和测试所需的基础依赖；生产镜像启用真实声效模型时，需要在 `docker/stable-audio-sfx.Dockerfile` 上补充对应推理依赖。
 
 ## Docker
+
+Community Docker 会构建前端，再由 FastAPI 同端口提供页面和 `/api`。声效服务作为独立容器运行。
+
+在 GameKnife 工程根目录运行：
 
 ```powershell
 copy .env.example .env
@@ -50,4 +188,80 @@ docker compose -f docker\compose.community.yml config
 docker compose -f docker\compose.community.yml up --build
 ```
 
-`gameknife-community` 镜像会先构建 Community Web，再由 FastAPI 在同一端口托管前端和 `/api`。`gameknife-stable-audio-sfx` 镜像独立运行声效队列。
+默认访问地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+Compose 中包含两个镜像：
+
+| 服务 | 镜像名 | 端口 | 说明 |
+| --- | --- | --- | --- |
+| `gameknife-community` | `gameknife-community:dev` | `8000` | Community Web 和 Community API。 |
+| `gameknife-stable-audio-sfx` | `gameknife-stable-audio-sfx:dev` | `8090` | 独立声效队列和 Stable Audio 接口。 |
+
+## 测试
+
+后端和声效服务测试：
+
+```powershell
+python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
+```
+
+前端构建：
+
+```powershell
+npm run build
+```
+
+## API 概览
+
+Community API 统一挂载在 `/api` 下，主要入口包括：
+
+```text
+GET    /api/context
+POST   /api/assets/images
+POST   /api/assets/videos
+GET    /api/assets/{asset_id}
+GET    /api/jobs
+GET    /api/jobs/history
+GET    /api/jobs/{job_id}
+DELETE /api/jobs/{job_id}
+POST   /api/jobs/background-remove
+POST   /api/jobs/upscale
+POST   /api/jobs/sound-effect
+POST   /api/jobs/asset-board/regions
+POST   /api/jobs/asset-board/cutout
+POST   /api/jobs/asset-board/refine
+POST   /api/jobs/asset-board/export
+POST   /api/manual-edits/save
+```
+
+序列帧、骨骼拆分、设置和模型安装接口继续由对应模块维护。接口返回中文错误信息，方便本地部署和内网使用场景排查。
+
+## 模块边界
+
+- `GameKnife` 保持 Apache-2.0 开源许可，Community 版本可独立运行。
+- `apps/community-web` 负责 Community 外壳、路由、主题和本地上下文初始化。
+- `packages/image-workflows` 承载工具页面、任务轮询、结果展示和保存流程。
+- `packages/editor-core` 承载手动编辑画布、选区、画笔和 PNG 导出。
+- `services/workflows` 承载后端编排，`services/processors` 承载模型和图像处理适配。
+- `apps/community-api` 注入匿名主体、本地工作区、SQLite repository 和本地文件存储。
+
+## 贡献
+
+提交前请阅读 `CONTRIBUTING.md`。本项目使用 Conventional Commits。
+
+常规提交前至少运行：
+
+```powershell
+python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
+npm run build
+```
+
+新增功能前需要先检查现有 packages 和 services 中是否已有可复用实现。公共包内新增逻辑应保持输入、输出、状态和错误处理清晰，避免把具体页面流程隐藏在顺带参数或调用顺序里。
+
+## 许可证
+
+GameKnife Community 使用 Apache License 2.0。详见 `LICENSE`。
