@@ -364,10 +364,15 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
     assert response.json()["runtime"]["python_version"]
     assert response.json()["birefnet"]["model_id"]
     assert response.json()["stable_audio"]["base_url_configured"] is False
-    assert response.json()["models"]["stable_audio"]["status"] == "unconfigured"
-    assert "birefnet" in response.json()["models"]
-    assert "character_rig_models" in response.json()["models"]
-    assert "upscale_models" in response.json()["models"]
+    assert response.json()["stable_audio"]["install_status"]["status"] == "unconfigured"
+    assert "models" not in response.json()
+
+
+def test_aggregate_model_install_status_endpoint_is_not_exposed(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/api/settings/models/install-status")
+
+    assert response.status_code == 404
 
 
 def test_job_history_filters_by_created_range(tmp_path: Path) -> None:

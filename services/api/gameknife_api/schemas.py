@@ -263,5 +263,4 @@ class SettingsResponse(BaseModel):
     character_rig_models: dict[str, Any]
     upscale_models: dict[str, Any]
     stable_audio: dict[str, Any]
-    models: dict[str, Any]
     video_generation: VideoGenerationConfigResponse

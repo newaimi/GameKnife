@@ -306,7 +306,6 @@ export interface RuntimeSettings {
     install_status: StableAudioInstallStatus;
   };
   video_generation: VideoGenerationConfig;
-  models?: Record<string, unknown>;
 }
 
 export interface ModelInstallStatus {

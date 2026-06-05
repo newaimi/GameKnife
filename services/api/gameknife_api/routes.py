@@ -194,13 +194,6 @@ def settings(
         "lazy_load": True,
         "install_status": stable_audio.install_status(),
     }
-    # settings/models 是旧的聚合字段；直接字段用于还原原工程设置页，保留聚合字段可以兼容已有调用。
-    model_settings = {
-        "birefnet": birefnet_settings,
-        "character_rig_models": character_rig_settings,
-        "upscale_models": upscale_settings,
-        "stable_audio": stable_audio_settings["install_status"],
-    }
     return SettingsResponse(
         edition=context.capabilities.edition,
         workspace_id=context.workspace.id,
@@ -220,7 +213,6 @@ def settings(
         character_rig_models=character_rig_settings,
         upscale_models=upscale_settings,
         stable_audio=stable_audio_settings,
-        models=model_settings,
         video_generation=VideoGenerationClient(repository).read_config(),
     )
 
@@ -1220,21 +1212,6 @@ def _require_settings_manage(context: RequestContext, operation: str) -> None:
     # 模型安装和视频 API 配置会改变整个服务的运行环境。
     # Community 本地管理员默认放行，Commercial 只能由 RBAC 授权用户执行。
     context.permissions.require(SETTINGS_MANAGE_PERMISSION, {"operation": operation})
-
-
-@router.get("/settings/models/install-status")
-def read_model_install_status(
-    birefnet: BiRefNetService = Depends(get_birefnet_service),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
-    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
-    stable_audio: StableAudioService = Depends(get_stable_audio_service),
-) -> dict[str, object]:
-    return {
-        "birefnet": birefnet.install_status(),
-        "character_rig_models": character_rig_models.install_status(),
-        "upscale_models": upscale_models.install_status(),
-        "stable_audio": stable_audio.install_status(),
-    }
 
 
 @router.get("/settings/birefnet/install")
