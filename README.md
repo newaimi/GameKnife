@@ -217,6 +217,17 @@ Docker 运行数据会写入 `docker/gameknife-storage`、`docker/gameknife-hugg
 
 默认 Docker 构建使用 CUDA 版 PyTorch，并通过 Compose 的 `gpus: all` 暴露 NVIDIA 设备。设置页显示 CPU 时，优先检查宿主机 `nvidia-smi`、NVIDIA Container Toolkit、`.env` 里的 `TORCH_INDEX_URL` 和 `GAMEKNIFE_VISIBLE_GPUS`。
 
+`.env` 里的 `HTTP_PROXY`、`HTTPS_PROXY` 只作为镜像构建阶段的代理参数。运行中的容器默认不继承它们，因为容器内的 `127.0.0.1` 指向容器自身，不能代表 Windows 或 WSL 宿主机。模型下载需要显式代理时，使用 `GAMEKNIFE_CONTAINER_HTTP_PROXY` 和 `GAMEKNIFE_CONTAINER_HTTPS_PROXY`。
+
+如果代理运行在 Docker Desktop 可访问的宿主机地址，可以使用：
+
+```env
+GAMEKNIFE_CONTAINER_HTTP_PROXY=http://host.docker.internal:7890
+GAMEKNIFE_CONTAINER_HTTPS_PROXY=http://host.docker.internal:7890
+```
+
+如果代理只在 Windows Clash 中监听本机地址，需要先在 Clash 中允许局域网连接或监听可被 WSL/Docker 访问的地址，再把 `GAMEKNIFE_CONTAINER_*_PROXY` 指向该地址。不要把运行期容器代理设置成 `http://127.0.0.1:7890`。
+
 启动时报 `could not select device driver "" with capabilities: [[gpu]]` 时，说明 Docker daemon 没有可用的 NVIDIA runtime。Ubuntu/WSL 中使用 Docker Engine 时，可以先执行：
 
 ```bash

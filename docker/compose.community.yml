@@ -42,8 +42,16 @@ services:
       TRANSFORMERS_CACHE: /data/huggingface/transformers
       NVIDIA_VISIBLE_DEVICES: ${GAMEKNIFE_VISIBLE_GPUS:-all}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HTTP_PROXY: ${GAMEKNIFE_CONTAINER_HTTP_PROXY:-}
+      HTTPS_PROXY: ${GAMEKNIFE_CONTAINER_HTTPS_PROXY:-}
+      NO_PROXY: ${GAMEKNIFE_CONTAINER_NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+      http_proxy: ${GAMEKNIFE_CONTAINER_HTTP_PROXY:-}
+      https_proxy: ${GAMEKNIFE_CONTAINER_HTTPS_PROXY:-}
+      no_proxy: ${GAMEKNIFE_CONTAINER_NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
     ports:
       - "${GAMEKNIFE_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./gameknife-storage:/data/storage
       - ./gameknife-huggingface:/data/huggingface
@@ -82,8 +90,16 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       NVIDIA_VISIBLE_DEVICES: ${GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS:-all}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HTTP_PROXY: ${GAMEKNIFE_CONTAINER_HTTP_PROXY:-}
+      HTTPS_PROXY: ${GAMEKNIFE_CONTAINER_HTTPS_PROXY:-}
+      NO_PROXY: ${GAMEKNIFE_CONTAINER_NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+      http_proxy: ${GAMEKNIFE_CONTAINER_HTTP_PROXY:-}
+      https_proxy: ${GAMEKNIFE_CONTAINER_HTTPS_PROXY:-}
+      no_proxy: ${GAMEKNIFE_CONTAINER_NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
     ports:
       - "${GAMEKNIFE_STABLE_AUDIO_PORT:-8090}:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./gameknife-stable-audio-cache:/data/huggingface
     # 声效服务有独立 worker 池，GPU 列表通过 GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS 控制。
