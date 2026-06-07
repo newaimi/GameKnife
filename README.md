@@ -180,12 +180,25 @@ python -m uvicorn app.main:app --env-file ..\..\.env --host 0.0.0.0 --port 8090
 
 Community Docker 会构建前端，再由 FastAPI 同端口提供页面和 `/api`。声效服务作为独立容器运行。
 
-在 GameKnife 工程根目录运行：
+在 GameKnife 工程根目录准备配置：
 
 ```powershell
 copy .env.example .env
-docker compose -f docker\compose.community.yml config
-docker compose -f docker\compose.community.yml up --build
+```
+
+Linux、macOS 或 WSL 环境可以使用脚本构建并启动：
+
+```bash
+./scripts/build-images.sh
+./scripts/deploy.sh
+```
+
+不使用脚本时，可以直接运行 Compose：
+
+```powershell
+docker compose --env-file .env -f docker\compose.community.yml config
+docker compose --env-file .env -f docker\compose.community.yml build
+docker compose --env-file .env -f docker\compose.community.yml up -d --no-build
 ```
 
 默认访问地址：
@@ -198,8 +211,8 @@ Compose 中包含两个镜像：
 
 | 服务 | 镜像名 | 端口 | 说明 |
 | --- | --- | --- | --- |
-| `gameknife-community` | `gameknife-community:dev` | `8000` | Community Web 和 Community API。 |
-| `gameknife-stable-audio-sfx` | `gameknife-stable-audio-sfx:dev` | `8090` | 独立声效队列和 Stable Audio 接口。 |
+| `gameknife-community` | `gameknife-community:local` | `8000` | Community Web 和 Community API。 |
+| `gameknife-stable-audio-sfx` | `gameknife-stable-audio-sfx:local` | `8090` | 独立声效队列和 Stable Audio 接口。 |
 
 ## 测试
 

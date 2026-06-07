@@ -1,34 +1,77 @@
 services:
   gameknife-community:
-    image: gameknife-community:dev
+    image: ${GAMEKNIFE_COMMUNITY_IMAGE:-gameknife-community:local}
     build:
       context: ..
       dockerfile: docker/community.Dockerfile
+      args:
+        GAMEKNIFE_APP_VERSION: ${GAMEKNIFE_APP_VERSION:-local}
+        GAMEKNIFE_BUILD_NUMBER: ${GAMEKNIFE_BUILD_NUMBER:-local}
+        GAMEKNIFE_GIT_SHA: ${GAMEKNIFE_GIT_SHA:-unknown}
+        GAMEKNIFE_BUILD_TIME: ${GAMEKNIFE_BUILD_TIME:-unknown}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+        no_proxy: ${NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+    restart: unless-stopped
+    env_file:
+      - ../.env
     environment:
-      GAMEKNIFE_STORAGE_ROOT: /app/storage
-      GAMEKNIFE_DB_PATH: /app/storage/gameknife.sqlite3
+      GAMEKNIFE_STORAGE_ROOT: /data/storage
+      GAMEKNIFE_DB_PATH: /data/storage/gameknife.sqlite3
+      GAMEKNIFE_WEB_DIST: /app/apps/community-web/dist
+      GAMEKNIFE_BIREFNET_MODEL_ROOT: /data/storage/models/birefnet
+      GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT: /data/storage/models/character-rig
+      GAMEKNIFE_UPSCALE_MODEL_ROOT: /data/storage/models/upscale
       GAMEKNIFE_STABLE_AUDIO_BASE_URL: http://gameknife-stable-audio-sfx:8090
       GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}
+      GAMEKNIFE_APP_VERSION: ${GAMEKNIFE_APP_VERSION:-local}
+      GAMEKNIFE_BUILD_NUMBER: ${GAMEKNIFE_BUILD_NUMBER:-local}
+      GAMEKNIFE_GIT_SHA: ${GAMEKNIFE_GIT_SHA:-unknown}
+      GAMEKNIFE_BUILD_TIME: ${GAMEKNIFE_BUILD_TIME:-unknown}
+      HF_HOME: /data/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
+      TRANSFORMERS_CACHE: /data/huggingface/transformers
     ports:
-      - "8000:8000"
+      - "${GAMEKNIFE_PORT:-8000}:8000"
     volumes:
-      - gameknife-storage:/app/storage
+      - gameknife-storage:/data/storage
+      - gameknife-huggingface:/data/huggingface
     depends_on:
       - gameknife-stable-audio-sfx
 
   gameknife-stable-audio-sfx:
-    image: gameknife-stable-audio-sfx:dev
+    image: ${GAMEKNIFE_STABLE_AUDIO_SFX_IMAGE:-gameknife-stable-audio-sfx:local}
     build:
       context: ..
       dockerfile: docker/stable-audio-sfx.Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+        no_proxy: ${NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
+    restart: unless-stopped
+    env_file:
+      - ../.env
     environment:
       GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}
-      GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE: 12
+      GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE: ${GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE:-12}
+      GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS: ${GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS:-900}
+      GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS: ${GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS:-}
+      GAMEKNIFE_STABLE_AUDIO_MODEL_HALF: ${GAMEKNIFE_STABLE_AUDIO_MODEL_HALF:-1}
+      GAMEKNIFE_STABLE_AUDIO_MODEL_ID: ${GAMEKNIFE_STABLE_AUDIO_MODEL_ID:-stabilityai/stable-audio-open-1.0}
+      HF_HOME: /data/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
     ports:
-      - "8090:8090"
+      - "${GAMEKNIFE_STABLE_AUDIO_PORT:-8090}:8090"
     volumes:
-      - gameknife-stable-audio-cache:/root/.cache
+      - gameknife-stable-audio-cache:/data/huggingface
 
 volumes:
   gameknife-storage:
+  gameknife-huggingface:
   gameknife-stable-audio-cache:
