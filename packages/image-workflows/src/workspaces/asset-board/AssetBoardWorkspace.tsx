@@ -16,7 +16,7 @@ import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { formatImageSize } from "../../utils/formatters";
-import { readFirstJobOutputAsset, readString, readTupleNumber } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset, readString, readTupleNumber } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
 const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
@@ -183,8 +183,7 @@ export function AssetBoardWorkspace() {
       createJob,
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建素材板任务，下面是接口返回的错误内容。",
-      maxTries: 30,
-      intervalMs: 1000,
+      polling: JOB_POLLING_PRESETS.standard,
       onSuccess,
     });
   }

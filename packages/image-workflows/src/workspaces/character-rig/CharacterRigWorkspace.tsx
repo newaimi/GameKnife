@@ -11,7 +11,7 @@ import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
-import { readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { CharacterRigEditor } from "./CharacterRigEditor";
 
@@ -132,8 +132,7 @@ export function CharacterRigWorkspace() {
       createJob,
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建骨骼拆分任务，下面是接口返回的错误内容。",
-      maxTries: 120,
-      intervalMs: 1000,
+      polling: JOB_POLLING_PRESETS.long,
     });
     if (finished?.status === "success" && refresh) {
       const updated = await gameKnifeApiClient.getCharacterRig(rig.id);

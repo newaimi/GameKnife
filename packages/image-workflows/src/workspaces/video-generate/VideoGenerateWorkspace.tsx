@@ -8,7 +8,7 @@ import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
-import { readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { VideoGenerateEditor } from "../sequence/VideoSequenceEditors";
 import { saveVideoToSequenceTransfer } from "../sequence/videoToSequenceTransfer";
@@ -55,8 +55,7 @@ export function VideoGenerateWorkspace() {
         }),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建视频生成任务，下面是接口返回的错误内容。",
-      maxTries: 120,
-      intervalMs: 1000,
+      polling: JOB_POLLING_PRESETS.long,
       mapJob: toVideoJob,
     });
   }

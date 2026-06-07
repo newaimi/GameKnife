@@ -14,7 +14,7 @@ import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { formatImageSize } from "../../utils/formatters";
-import { readFirstJobOutputAsset, readTupleNumber } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset, readTupleNumber } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
 const UPSCALE_STYLE_OPTIONS: Array<{ value: UpscaleParameters["style"]; label: string; note: string }> = [
@@ -62,6 +62,7 @@ export function UpscaleWorkspace() {
       createJob: () => gameKnifeApiClient.createUpscaleJob(asset.id, params),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建图片放大任务，下面是接口返回的错误内容。",
+      polling: JOB_POLLING_PRESETS.long,
     });
   }
 

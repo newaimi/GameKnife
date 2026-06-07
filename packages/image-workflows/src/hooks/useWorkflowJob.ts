@@ -3,14 +3,13 @@ import type { JobResponse } from "@gameknife/shared-types";
 import { readJobFailureDialog, readRequestFailureDialog } from "../components/FailureDialog";
 import type { FailureDialogState } from "../types/failure";
 import { readMessage } from "../utils/errors";
-import { waitForJob } from "../utils/jobs";
+import { waitForJob, type JobPollingOptions } from "../utils/jobs";
 
 export interface WorkflowJobRunOptions<TJob extends JobResponse> {
   createJob: () => Promise<JobResponse>;
   failureTitle: string;
   failureMessage: string;
-  maxTries?: number;
-  intervalMs?: number;
+  polling?: JobPollingOptions;
   mapJob?: (job: JobResponse) => TJob;
   onSuccess?: (job: TJob) => void;
   onFinished?: (job: TJob) => void;
@@ -37,7 +36,7 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
       // 任务创建成功后立即写入页面状态，用户可以马上看到队列状态和任务编号。
       // 轮询完成后再覆盖为最终结果，避免长任务期间工作台看起来像没有响应。
       setJob(options.mapJob ? options.mapJob(created) : (created as TJob));
-      const polled = await waitForJob(created.id, options.maxTries, options.intervalMs);
+      const polled = await waitForJob(created.id, options.polling);
       const finished = options.mapJob ? options.mapJob(polled) : (polled as TJob);
       setJob(finished);
       options.onFinished?.(finished);

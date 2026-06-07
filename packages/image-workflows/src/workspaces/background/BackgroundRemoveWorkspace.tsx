@@ -13,7 +13,7 @@ import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermissi
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { downloadOutputAsset } from "../../utils/assets";
-import { readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
 export function BackgroundRemoveWorkspace() {
@@ -44,8 +44,7 @@ export function BackgroundRemoveWorkspace() {
       createJob: () => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, params),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建去背景任务，下面是接口返回的错误内容。",
-      maxTries: 30,
-      intervalMs: 1000,
+      polling: JOB_POLLING_PRESETS.standard,
     });
   }
 

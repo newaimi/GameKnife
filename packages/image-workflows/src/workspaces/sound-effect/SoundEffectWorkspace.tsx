@@ -11,7 +11,7 @@ import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
-import { readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 
 const DEFAULT_SOUND_EFFECT_PARAMS: SoundEffectParameters = {
   prompt: "",
@@ -50,6 +50,7 @@ export function SoundEffectWorkspace() {
       createJob: () => gameKnifeApiClient.createSoundEffectJob({ ...params, prompt }),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建声效生成任务，下面是接口返回的错误内容。",
+      polling: JOB_POLLING_PRESETS.long,
     });
   }
 

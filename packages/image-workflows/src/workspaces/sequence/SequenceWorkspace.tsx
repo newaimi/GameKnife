@@ -10,7 +10,7 @@ import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
-import { readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { SequenceEditor } from "./SequenceEditor";
 
@@ -141,8 +141,7 @@ export function SequenceWorkspace() {
       createJob,
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建序列帧任务，下面是接口返回的错误内容。",
-      maxTries: 60,
-      intervalMs: 1000,
+      polling: JOB_POLLING_PRESETS.standard,
     });
     if (finished?.status === "success" && refreshAfter && sequence) {
       await selectSequence(sequence.id);
