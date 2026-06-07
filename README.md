@@ -57,6 +57,7 @@ GameKnife/
 - Python 3.11 或更高版本。
 - Windows PowerShell、Linux shell 或 macOS shell 均可运行；下方命令使用 PowerShell 写法。
 - 使用真实模型推理时需要匹配本机 CUDA、PyTorch 和显卡驱动环境。
+- Docker GPU 部署需要宿主机已安装 NVIDIA 驱动和 NVIDIA Container Toolkit。
 - Docker 为可选运行方式。
 
 ## 快速开始
@@ -126,6 +127,10 @@ copy .env.example .env
 | `GAMEKNIFE_STABLE_AUDIO_BASE_URL` | `http://127.0.0.1:8090` | 独立声效服务地址。 |
 | `GAMEKNIFE_STABLE_AUDIO_TOKEN` | `change-me` | Community API 调用声效服务的内部 token。 |
 | `GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS` | `900` | Community API 等待声效服务的超时时间。 |
+| `GAMEKNIFE_VISIBLE_GPUS` | `all` | Docker 主服务可见 GPU；由 NVIDIA runtime 读取。 |
+| `TORCH_VERSION` | `2.5.1` | Docker 主服务 PyTorch 版本。 |
+| `TORCHVISION_VERSION` | `0.20.1` | Docker 主服务 torchvision 版本。 |
+| `TORCH_INDEX_URL` | `https://download.pytorch.org/whl/cu124` | Docker 主服务 PyTorch wheel 索引。 |
 
 完整变量以 `.env.example` 为准。
 
@@ -171,10 +176,11 @@ python -m uvicorn app.main:app --env-file ..\..\.env --host 0.0.0.0 --port 8090
 | `GAMEKNIFE_STABLE_AUDIO_TOKEN` | 空字符串 | 内部调用 token；设置后请求必须携带 `X-Gameknife-Token`。 |
 | `GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE` | `12` | 队列容量。 |
 | `GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS` | `900` | 单次生成等待上限。 |
-| `GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS` | 空字符串 | 可用 GPU 索引，例如 `0,1`。 |
+| `GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS` | `all` | Docker 声效服务可见 GPU；也可以写成 `0,1`。 |
 | `GAMEKNIFE_STABLE_AUDIO_MODEL_HALF` | `1` | CUDA 环境下使用半精度模型。 |
+| `STABLE_AUDIO_TORCH_EXTRA_INDEX_URL` | `https://download.pytorch.org/whl/cu126` | Docker 声效服务 PyTorch wheel 附加索引。 |
 
-真实 Stable Audio 推理需要安装 `stable-audio-tools`、`torch`、`einops` 以及匹配本机 CUDA 的依赖。当前服务包只声明 API、队列和测试所需的基础依赖；生产镜像启用真实声效模型时，需要在 `docker/stable-audio-sfx.Dockerfile` 上补充对应推理依赖。
+Docker 声效镜像会安装 `stable-audio-tools`、`pytorch-lightning` 以及 CUDA 版 PyTorch 依赖。本地直接运行声效服务时，需要在当前 Python 环境中安装同等推理依赖。
 
 ## Docker
 
@@ -208,6 +214,8 @@ http://127.0.0.1:8000
 ```
 
 Docker 运行数据会写入 `docker/gameknife-storage`、`docker/gameknife-huggingface` 和 `docker/gameknife-stable-audio-cache`。
+
+默认 Docker 构建使用 CUDA 版 PyTorch，并通过 Compose 的 `gpus: all` 暴露 NVIDIA 设备。设置页显示 CPU 时，优先检查宿主机 `nvidia-smi`、NVIDIA Container Toolkit、`.env` 里的 `TORCH_INDEX_URL` 和 `GAMEKNIFE_VISIBLE_GPUS`。
 
 Compose 中包含两个镜像：
 

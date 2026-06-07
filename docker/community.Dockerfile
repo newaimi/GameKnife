@@ -20,7 +20,7 @@ RUN npm ci --no-audit --no-fund || (cat /root/.npm/_logs/*.log; exit 1)
 COPY apps/community-web ./apps/community-web
 RUN npm --workspace apps/community-web run build
 
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -43,14 +43,14 @@ COPY --from=community-web /app/apps/community-web/dist ./apps/community-web/dist
 
 ARG TORCH_VERSION=2.5.1
 ARG TORCHVISION_VERSION=0.20.1
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
 ARG GAMEKNIFE_APP_VERSION=dev
 ARG GAMEKNIFE_BUILD_NUMBER=local
 ARG GAMEKNIFE_GIT_SHA=unknown
 ARG GAMEKNIFE_BUILD_TIME=unknown
 
-# 先安装 PyTorch，可以固定 Docker 构建时使用的 torch/torchvision 版本。
-# 默认使用 CPU wheel，部署方需要 CUDA wheel 时只要覆盖 TORCH_INDEX_URL。
+# 先安装 CUDA 版 PyTorch，是为了避免后续安装后端依赖时落到 CPU wheel。
+# GPU 是否真正可用仍取决于宿主机驱动和 Compose 里的 NVIDIA runtime 配置。
 RUN python -m pip install --upgrade pip \
     && python -m pip install "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" --index-url "${TORCH_INDEX_URL}" \
     && python -m pip install -e .

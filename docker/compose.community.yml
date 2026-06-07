@@ -8,6 +8,9 @@ services:
       # build 阶段使用 host 网络，apt/npm/pip 才能访问宿主机上的本地代理端口。
       network: host
       args:
+        TORCH_VERSION: ${TORCH_VERSION:-2.5.1}
+        TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.20.1}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
         GAMEKNIFE_APP_VERSION: ${GAMEKNIFE_APP_VERSION:-local}
         GAMEKNIFE_BUILD_NUMBER: ${GAMEKNIFE_BUILD_NUMBER:-local}
         GAMEKNIFE_GIT_SHA: ${GAMEKNIFE_GIT_SHA:-unknown}
@@ -37,11 +40,16 @@ services:
       HF_HOME: /data/huggingface
       HF_TOKEN: ${HF_TOKEN:-}
       TRANSFORMERS_CACHE: /data/huggingface/transformers
+      NVIDIA_VISIBLE_DEVICES: ${GAMEKNIFE_VISIBLE_GPUS:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     ports:
       - "${GAMEKNIFE_PORT:-8000}:8000"
     volumes:
       - ./gameknife-storage:/data/storage
       - ./gameknife-huggingface:/data/huggingface
+    # GPU 能力由宿主机驱动和 NVIDIA Container Toolkit 提供。
+    # 容器只安装 CUDA/PyTorch 运行时，不能替代宿主机驱动。
+    gpus: all
     depends_on:
       - gameknife-stable-audio-sfx
 
@@ -53,6 +61,7 @@ services:
       # 声效服务构建同样需要 pip 访问网络，和主服务保持一致的 build 网络。
       network: host
       args:
+        STABLE_AUDIO_TORCH_EXTRA_INDEX_URL: ${STABLE_AUDIO_TORCH_EXTRA_INDEX_URL:-https://download.pytorch.org/whl/cu126}
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,gameknife-community,gameknife-stable-audio-sfx}
@@ -66,12 +75,16 @@ services:
       GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}
       GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE: ${GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE:-12}
       GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS: ${GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS:-900}
-      GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS: ${GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS:-}
+      GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS: ${GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS:-all}
       GAMEKNIFE_STABLE_AUDIO_MODEL_HALF: ${GAMEKNIFE_STABLE_AUDIO_MODEL_HALF:-1}
       GAMEKNIFE_STABLE_AUDIO_MODEL_ID: ${GAMEKNIFE_STABLE_AUDIO_MODEL_ID:-stabilityai/stable-audio-open-1.0}
       HF_HOME: /data/huggingface
       HF_TOKEN: ${HF_TOKEN:-}
+      NVIDIA_VISIBLE_DEVICES: ${GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     ports:
       - "${GAMEKNIFE_STABLE_AUDIO_PORT:-8090}:8090"
     volumes:
       - ./gameknife-stable-audio-cache:/data/huggingface
+    # 声效服务有独立 worker 池，GPU 列表通过 GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS 控制。
+    gpus: all
