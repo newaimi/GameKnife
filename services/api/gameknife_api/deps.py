@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import Request
 
 from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
-from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_jobs import GameKnifeRepository, SQLiteGameKnifeRepository
 from gameknife_storage import LocalStorageProvider
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.character_rig_models import CharacterRigModelService
@@ -106,7 +106,7 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
     app.state.upscale_models = UpscaleModelService(upscale_model_root)
 
 
-def get_repository(request: Request) -> SQLiteGameKnifeRepository:
+def get_repository(request: Request) -> GameKnifeRepository:
     return request.app.state.repository
 
 

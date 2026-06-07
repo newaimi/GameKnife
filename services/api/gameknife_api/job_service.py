@@ -7,7 +7,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
-from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_jobs import GameKnifeRepository
 from gameknife_processors import BackgroundRemoveProcessor, CharacterRigProcessor, SequenceFrameProcessor
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.character_rig_models import CharacterRigModelService
@@ -29,7 +29,7 @@ DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
 
 
 def create_job(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     *,
     job_type: str,
@@ -62,7 +62,7 @@ def create_job(
     return stored
 
 
-def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
+def run_background_remove_job(repository: GameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
     _run_image_output_job(
         repository,
         context,
@@ -74,7 +74,7 @@ def run_background_remove_job(repository: SQLiteGameKnifeRepository, context: Re
     )
 
 
-def run_sequence_clean_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
+def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if job is None:
@@ -124,7 +124,7 @@ def run_sequence_clean_job(repository: SQLiteGameKnifeRepository, context: Reque
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
+def run_sequence_from_video_job(repository: GameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
@@ -224,7 +224,7 @@ def run_sequence_from_video_job(repository: SQLiteGameKnifeRepository, context: 
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def run_sequence_generate_video_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> None:
+def run_sequence_generate_video_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
@@ -267,7 +267,7 @@ def run_sequence_generate_video_job(repository: SQLiteGameKnifeRepository, conte
 
 
 def run_character_rig_analyze_job(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     service: CharacterRigModelService,
     job_id: str,
@@ -327,7 +327,7 @@ def run_character_rig_analyze_job(
 
 
 def run_character_part_refine_job(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     service: CharacterRigModelService,
     job_id: str,
@@ -381,7 +381,7 @@ def run_character_part_refine_job(
         _mark_failed(repository, context, job_id, str(exc))
 
 
-def run_character_rig_export_spine_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+def run_character_rig_export_spine_job(repository: GameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
     _run_character_rig_export_job(
         repository,
         context,
@@ -393,7 +393,7 @@ def run_character_rig_export_spine_job(repository: SQLiteGameKnifeRepository, co
     )
 
 
-def run_character_rig_export_dragonbones_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
+def run_character_rig_export_dragonbones_job(repository: GameKnifeRepository, context: RequestContext, job_id: str, rig_id: str) -> None:
     _run_character_rig_export_job(
         repository,
         context,
@@ -405,7 +405,7 @@ def run_character_rig_export_dragonbones_job(repository: SQLiteGameKnifeReposito
     )
 
 
-def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str) -> bool:
+def delete_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> bool:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return False
@@ -423,7 +423,7 @@ def delete_job(repository: SQLiteGameKnifeRepository, context: RequestContext, j
 
 
 def _run_character_rig_export_job(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     job_id: str,
     rig_id: str,
@@ -455,7 +455,7 @@ def _run_character_rig_export_job(
 
 
 def _run_image_output_job(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     job_id: str,
     *,
@@ -495,7 +495,7 @@ def _run_image_output_job(
 
 
 def _register_output_assets(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     paths: list[Path],
     kind: str,
@@ -524,7 +524,7 @@ def _register_output_assets(
 
 
 def _mark_success(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     job_id: str,
     result: ProcessResult,
@@ -541,7 +541,7 @@ def _mark_success(
     )
 
 
-def _mark_failed(repository: SQLiteGameKnifeRepository, context: RequestContext, job_id: str, error_message: str) -> None:
+def _mark_failed(repository: GameKnifeRepository, context: RequestContext, job_id: str, error_message: str) -> None:
     repository.update_job(
         job_id,
         context.workspace.id,

@@ -60,7 +60,7 @@ from gameknife_api.schemas import (
     VideoToSequenceRequest,
 )
 from gameknife_core import AssetRecord, JobRecord, RequestContext
-from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_jobs import GameKnifeRepository
 from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
@@ -161,7 +161,7 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 def settings(
     settings: CommunitySettings = Depends(get_community_settings),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
@@ -220,7 +220,7 @@ def settings(
 @router.get("/jobs", response_model=list[JobResponse])
 def list_jobs(
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> list[JobResponse]:
     return [_job_response(job, context, repository) for job in repository.list_jobs_for_workspace(context.workspace.id)]
 
@@ -234,7 +234,7 @@ def list_job_history(
     created_to: str | None = Query(None),
     downloadable: bool = Query(False),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobPageResponse:
     job_types = _resolve_history_job_types(category, downloadable)
     if job_types == []:
@@ -274,7 +274,7 @@ def job_runtime() -> dict[str, str]:
 def get_job(
     job_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
@@ -286,7 +286,7 @@ def get_job(
 def remove_job(
     job_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> Response:
     _require_project_workflow_write(context, "delete_job", {"job_id": job_id})
     try:
@@ -303,7 +303,7 @@ def create_background_remove_job(
     payload: AssetJobRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> JobResponse:
     try:
@@ -328,7 +328,7 @@ def create_upscale_job(
     payload: AssetJobRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
 ) -> JobResponse:
     try:
@@ -353,7 +353,7 @@ def create_sound_effect_job(
     payload: SoundEffectRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> JobResponse:
     try:
@@ -379,7 +379,7 @@ def create_asset_board_region_job(
     payload: AssetJobRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     try:
         job, runner = create_asset_board_region_workflow(
@@ -400,7 +400,7 @@ def create_asset_board_cutout_job(
     payload: AssetJobRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> JobResponse:
     try:
@@ -425,7 +425,7 @@ def create_asset_board_refine_job(
     payload: AssetBoardRefineRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     try:
         job, runner = create_asset_board_refine_workflow(
@@ -446,7 +446,7 @@ def create_asset_board_export_job(
     payload: AssetBoardExportRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     try:
         job, runner = create_asset_board_export_workflow(
@@ -470,7 +470,7 @@ async def import_sequence_frames(
     name: str | None = Form(None),
     fps: int = Form(12),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "import_sequence_frames")
     if not files:
@@ -510,7 +510,7 @@ async def import_sequence_frames(
 async def import_sequence_video(
     file: UploadFile = File(...),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
     _require_project_workflow_write(context, "import_sequence_video")
     return await upload_video_asset(file, context, repository)
@@ -519,7 +519,7 @@ async def import_sequence_video(
 @router.get("/sequences", response_model=list[SequenceResponse])
 def list_sequences(
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> list[SequenceResponse]:
     return [_sequence_response(sequence, context, repository, include_frames=False) for sequence in repository.list_sequences_for_workspace(context.workspace.id)]
 
@@ -528,7 +528,7 @@ def list_sequences(
 def get_sequence(
     sequence_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
@@ -541,7 +541,7 @@ def update_sequence(
     sequence_id: str,
     payload: SequenceUpdateRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "update_sequence", {"sequence_id": sequence_id})
     sequence = repository.update_sequence(
@@ -568,7 +568,7 @@ def update_sequence_frames(
     sequence_id: str,
     payload: SequenceFramesUpdateRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "update_sequence_frames", {"sequence_id": sequence_id})
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
@@ -585,7 +585,7 @@ def update_sequence_frames(
 def delete_sequence(
     sequence_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> Response:
     _require_project_workflow_write(context, "delete_sequence", {"sequence_id": sequence_id})
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
@@ -609,7 +609,7 @@ def create_sequence_clean_task(
     payload: SequenceTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
     job = create_job(
@@ -628,7 +628,7 @@ def create_sequence_generate_video_task(
     payload: VideoSequenceGenerateRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     if not payload.confirmed_external_api:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
@@ -657,7 +657,7 @@ def create_sequence_from_video_task(
     payload: VideoToSequenceRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> JobResponse:
     video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
@@ -694,7 +694,7 @@ def create_sequence_frames_export_task(
     payload: SequenceTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     try:
         job, runner = create_sequence_frames_export_workflow(
@@ -718,7 +718,7 @@ def create_sequence_spine_export_task(
     payload: SequenceTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     try:
         job, runner = create_sequence_spine_export_workflow(
@@ -741,7 +741,7 @@ async def import_character_rig(
     file: UploadFile = File(...),
     name: str | None = Form(None),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
     _require_project_workflow_write(context, "import_character_rig")
     if file.content_type not in ALLOWED_CHARACTER_RIG_TYPES:
@@ -796,7 +796,7 @@ async def import_character_rig(
 @router.get("/character-rigs", response_model=list[CharacterRigResponse])
 def list_character_rigs(
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> list[CharacterRigResponse]:
     return [_character_rig_response(rig, context, repository, include_parts=False) for rig in repository.list_character_rigs_for_workspace(context.workspace.id)]
 
@@ -805,7 +805,7 @@ def list_character_rigs(
 def get_character_rig(
     rig_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
     if rig is None:
@@ -818,7 +818,7 @@ def update_character_rig(
     rig_id: str,
     payload: CharacterRigUpdateRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
     _require_project_workflow_write(context, "update_character_rig", {"rig_id": rig_id})
     rig = repository.update_character_rig(
@@ -838,7 +838,7 @@ def update_character_parts(
     rig_id: str,
     payload: CharacterPartsUpdateRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> CharacterRigResponse:
     _require_project_workflow_write(context, "update_character_parts", {"rig_id": rig_id})
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
@@ -855,7 +855,7 @@ def update_character_parts(
 def delete_character_rig(
     rig_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> Response:
     _require_project_workflow_write(context, "delete_character_rig", {"rig_id": rig_id})
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
@@ -878,7 +878,7 @@ def create_character_rig_analyze_task(
     payload: CharacterRigTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
@@ -903,7 +903,7 @@ def create_character_part_refine_task(
     payload: CharacterRigTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
     character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
@@ -929,7 +929,7 @@ def create_character_rig_spine_export_task(
     payload: CharacterRigTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
     job = create_job(
@@ -949,7 +949,7 @@ def create_character_rig_dragonbones_export_task(
     payload: CharacterRigTaskRequest,
     background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobResponse:
     rig = _ensure_character_rig(repository, context, rig_id)
     job = create_job(
@@ -967,7 +967,7 @@ def create_character_rig_dragonbones_export_task(
 async def upload_image_asset(
     file: UploadFile = File(...),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
     _require_project_workflow_write(context, "upload_image")
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -1008,7 +1008,7 @@ async def upload_image_asset(
 async def upload_video_asset(
     file: UploadFile = File(...),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
     _require_project_workflow_write(context, "upload_video")
     if not file.content_type or not file.content_type.startswith("video/"):
@@ -1046,7 +1046,7 @@ async def upload_video_asset(
 def get_asset(
     asset_id: str,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> FileResponse:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if not asset:
@@ -1070,7 +1070,7 @@ async def save_manual_edit_asset(
     source_asset_id: str | None = Form(None),
     source_context: str | None = Form(None),
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> AssetResponse:
     _require_project_workflow_write(context, "save_manual_edit", {"source_asset_id": source_asset_id})
     if source_asset_id:
@@ -1111,7 +1111,7 @@ async def save_manual_edit_asset(
 def _character_rig_response(
     rig,
     context: RequestContext,
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     *,
     include_parts: bool = True,
     warnings: list[str] | None = None,
@@ -1158,7 +1158,7 @@ def _character_part_response(part) -> CharacterPartResponse:
     )
 
 
-def _ensure_character_rig(repository: SQLiteGameKnifeRepository, context: RequestContext, rig_id: str):
+def _ensure_character_rig(repository: GameKnifeRepository, context: RequestContext, rig_id: str):
     rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
     if rig is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
@@ -1275,7 +1275,7 @@ def start_stable_audio_install(
 
 @router.get("/settings/video-generation", response_model=VideoGenerationConfigResponse)
 def read_video_generation_settings(
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> VideoGenerationConfigResponse:
     return VideoGenerationConfigResponse(**VideoGenerationClient(repository).read_config())
 
@@ -1284,7 +1284,7 @@ def read_video_generation_settings(
 def update_video_generation_settings(
     payload: VideoGenerationConfigRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> VideoGenerationConfigResponse:
     _require_settings_manage(context, "update_video_generation")
     data = payload.model_dump()
@@ -1295,7 +1295,7 @@ def update_video_generation_settings(
 def test_video_generation_settings(
     payload: VideoGenerationConfigRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: SQLiteGameKnifeRepository = Depends(get_repository),
+    repository: GameKnifeRepository = Depends(get_repository),
 ) -> dict[str, object]:
     _require_settings_manage(context, "test_video_generation")
     try:
@@ -1307,7 +1307,7 @@ def test_video_generation_settings(
 async def _save_sequence_upload(
     upload: UploadFile,
     context: RequestContext,
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
 ) -> tuple[AssetRecord, dict[str, object]]:
     if upload.content_type not in ALLOWED_SEQUENCE_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{upload.filename or '文件'} 不是支持的图片格式。")
@@ -1355,7 +1355,7 @@ async def _save_sequence_upload(
 def _sequence_response(
     sequence,
     context: RequestContext,
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     *,
     include_frames: bool = True,
     warnings: list[str] | None = None,
@@ -1408,7 +1408,7 @@ def _sequence_frame_response(frame) -> SequenceFrameResponse:
 
 
 def _ensure_sequence_job_input(
-    repository: SQLiteGameKnifeRepository,
+    repository: GameKnifeRepository,
     context: RequestContext,
     sequence_id: str,
 ):
@@ -1442,13 +1442,13 @@ def _guess_sequence_name(files: list[UploadFile]) -> str:
     return re.sub(r"[_ -]*\d+$", "", first_name).strip(" _-") or first_name
 
 
-def _cleanup_created_assets(repository: SQLiteGameKnifeRepository, context: RequestContext, assets: list[AssetRecord]) -> None:
+def _cleanup_created_assets(repository: GameKnifeRepository, context: RequestContext, assets: list[AssetRecord]) -> None:
     repository.delete_assets_for_workspace([asset.id for asset in assets], context.workspace.id)
     for asset in assets:
         context.storage.remove_asset_file(asset.path)
 
 
-def _job_response(job: JobRecord, context: RequestContext, repository: SQLiteGameKnifeRepository) -> JobResponse:
+def _job_response(job: JobRecord, context: RequestContext, repository: GameKnifeRepository) -> JobResponse:
     result = json.loads(job.result_json)
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is not None:
@@ -1472,7 +1472,7 @@ def _job_response(job: JobRecord, context: RequestContext, repository: SQLiteGam
     )
 
 
-def _ensure_asset_exists(repository: SQLiteGameKnifeRepository, context: RequestContext, asset_id: str) -> AssetRecord:
+def _ensure_asset_exists(repository: GameKnifeRepository, context: RequestContext, asset_id: str) -> AssetRecord:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="输入素材不存在。")

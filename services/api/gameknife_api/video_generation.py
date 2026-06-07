@@ -13,7 +13,7 @@ from typing import Any
 
 from PIL import Image
 
-from gameknife_jobs import SQLiteGameKnifeRepository
+from gameknife_jobs import GameKnifeRepository
 
 VIDEO_GENERATION_SETTING_KEY = "video_generation_config"
 
@@ -74,7 +74,7 @@ class VideoGenerationResult:
 
 
 class VideoGenerationClient:
-    def __init__(self, repository: SQLiteGameKnifeRepository):
+    def __init__(self, repository: GameKnifeRepository):
         self.repository = repository
 
     def read_config(self, *, include_secret: bool = False) -> dict[str, Any]:
