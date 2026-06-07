@@ -167,6 +167,7 @@ def settings(
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
+    _require_settings_manage(context, "read_settings")
     birefnet_settings = {
         "model_id": BIREFNET_MODEL_ID,
         "device": birefnet.device_label,
@@ -1215,7 +1216,11 @@ def _require_settings_manage(context: RequestContext, operation: str) -> None:
 
 
 @router.get("/settings/birefnet/install")
-def read_birefnet_install(birefnet: BiRefNetService = Depends(get_birefnet_service)) -> dict[str, object]:
+def read_birefnet_install(
+    context: RequestContext = Depends(get_request_context),
+    birefnet: BiRefNetService = Depends(get_birefnet_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "read_birefnet_install")
     return birefnet.install_status()
 
 
@@ -1229,7 +1234,11 @@ def start_birefnet_install(
 
 
 @router.get("/settings/character-rig-models/install")
-def read_character_rig_model_install(character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service)) -> dict[str, object]:
+def read_character_rig_model_install(
+    context: RequestContext = Depends(get_request_context),
+    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "read_character_rig_models_install")
     return character_rig_models.install_status()
 
 
@@ -1243,7 +1252,11 @@ def start_character_rig_model_install(
 
 
 @router.get("/settings/upscale-models/install")
-def read_upscale_model_install(upscale_models: UpscaleModelService = Depends(get_upscale_model_service)) -> dict[str, object]:
+def read_upscale_model_install(
+    context: RequestContext = Depends(get_request_context),
+    upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "read_upscale_models_install")
     return upscale_models.install_status()
 
 
@@ -1257,7 +1270,11 @@ def start_upscale_model_install(
 
 
 @router.get("/settings/stable-audio/install")
-def read_stable_audio_install(stable_audio: StableAudioService = Depends(get_stable_audio_service)) -> dict[str, object]:
+def read_stable_audio_install(
+    context: RequestContext = Depends(get_request_context),
+    stable_audio: StableAudioService = Depends(get_stable_audio_service),
+) -> dict[str, object]:
+    _require_settings_manage(context, "read_stable_audio_install")
     return stable_audio.install_status()
 
 
@@ -1275,8 +1292,10 @@ def start_stable_audio_install(
 
 @router.get("/settings/video-generation", response_model=VideoGenerationConfigResponse)
 def read_video_generation_settings(
+    context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> VideoGenerationConfigResponse:
+    _require_settings_manage(context, "read_video_generation")
     return VideoGenerationConfigResponse(**VideoGenerationClient(repository).read_config())
 
 
