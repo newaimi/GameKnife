@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -x /usr/lib/wsl/lib/nvidia-smi ]; then
+  # WSL 会把 Windows 驱动提供的 nvidia-smi 放在这个目录。
+  # 用户直接运行时通常能从 PATH 找到它，但 sudo 的 secure_path 可能会漏掉该目录。
+  export PATH="/usr/lib/wsl/lib:${PATH}"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "未检测到 Docker，请先安装 Docker Engine。"
   exit 1
