@@ -385,9 +385,21 @@
 .ghost {
   height: 46px;
   padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border-radius: 10px;
   font-weight: 900;
   border: 1px solid transparent;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.primary svg,
+.ghost svg {
+  flex: 0 0 auto;
+  display: block;
 }
 
 .primary {
