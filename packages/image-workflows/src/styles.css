@@ -1005,15 +1005,6 @@
   font-weight: 800;
 }
 
-.job-result {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-weight: 900;
-}
-
 .settings-page {
   padding: 52px 0 42px;
 }

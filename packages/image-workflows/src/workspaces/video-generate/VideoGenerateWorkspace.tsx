@@ -102,7 +102,7 @@ export function VideoGenerateWorkspace() {
         />
       </ToolWorkspaceLayout>
       {error ? <p className="error-text">{error}</p> : null}
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

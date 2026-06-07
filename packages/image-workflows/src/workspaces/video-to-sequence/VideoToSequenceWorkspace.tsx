@@ -129,7 +129,7 @@ export function VideoToSequenceWorkspace() {
         />
       </ToolWorkspaceLayout>
       {error ? <p className="error-text">{error}</p> : null}
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? video?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowResultFooter refreshKey={job?.id ?? video?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

@@ -4,7 +4,7 @@ import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { SoundEffectParameters } from "@gameknife/shared-types";
 import { NumberField } from "@gameknife/ui-kit";
 import { useObjectUrl } from "../../utils/objectUrl";
-import { StatusLine } from "../../components/JobResult";
+import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
@@ -147,7 +147,7 @@ export function SoundEffectWorkspace() {
         </aside>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowResultFooter refreshKey={job?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

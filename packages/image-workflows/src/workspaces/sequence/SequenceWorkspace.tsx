@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
-import { StatusLine } from "../../components/JobResult";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageSequenceUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
-import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
-import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { SequenceEditor } from "./SequenceEditor";
 
@@ -34,7 +32,6 @@ export function SequenceWorkspace() {
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
   const canWrite = useWorkflowWritePermission("sequence");
   const busy = operationBusy || jobBusy;
-  const outputAsset = readFirstJobOutputAsset(job);
   const requestedSequenceId = searchParams.get("sequence") ?? "";
 
   useEffect(() => {
@@ -191,7 +188,7 @@ export function SequenceWorkspace() {
       <ImageSequenceUploadStrip
         title={sequence ? "已导入序列帧" : "导入序列帧"}
         description="支持多选或文件夹选择后的 PNG / JPG / WebP 序列帧"
-        disabled={!canWrite}
+        disabled={busy || !canWrite}
         onFiles={importFrames}
       />
 
@@ -214,14 +211,8 @@ export function SequenceWorkspace() {
         />
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)}>
-        {outputAsset ? (
-          <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, `${sequence?.name ?? "sequence"}-export.zip`)}>
-            下载导出包
-          </button>
-        ) : null}
-        <StatusLine error={error || (busy ? "处理中" : "")} job={job} />
-      </WorkflowResultFooter>
+      {error ? <p className="error-text">{error}</p> : null}
+      <WorkflowResultFooter refreshKey={job?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

@@ -3,7 +3,7 @@ import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { BackgroundRemoveParameters } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { ComparePreview, EmptyCanvas } from "../../components/ImageComparePreview";
-import { StatusLine } from "../../components/JobResult";
+import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
@@ -110,7 +110,7 @@ export function BackgroundRemoveWorkspace() {
         </aside>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

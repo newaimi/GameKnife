@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { CharacterPartResponse, CharacterRigAnalyzeParameters, CharacterRigResponse, JobResponse } from "@gameknife/shared-types";
-import { StatusLine } from "../../components/JobResult";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
@@ -9,9 +8,8 @@ import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
-import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
-import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { CharacterRigEditor } from "./CharacterRigEditor";
 
@@ -35,7 +33,6 @@ export function CharacterRigWorkspace() {
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("character-rig");
   const busy = operationBusy || jobBusy;
-  const outputAsset = readFirstJobOutputAsset(job);
 
   useEffect(() => {
     void refreshRigs();
@@ -198,7 +195,7 @@ export function CharacterRigWorkspace() {
       <ImageUploadStrip
         title={rig ? "已导入角色图" : "导入完整角色图"}
         description="支持完整类人角色设计图，PNG / JPG / WebP"
-        disabled={!canWrite}
+        disabled={busy || !canWrite}
         onFile={importRig}
       />
 
@@ -223,14 +220,8 @@ export function CharacterRigWorkspace() {
         />
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter job={job} refreshKey={job?.id ?? rig?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)}>
-        {outputAsset ? (
-          <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, `${rig?.name ?? "character-rig"}-export.zip`)}>
-            下载导出包
-          </button>
-        ) : null}
-        <StatusLine error={error || (busy ? "处理中" : "")} job={job} />
-      </WorkflowResultFooter>
+      {error ? <p className="error-text">{error}</p> : null}
+      <WorkflowResultFooter refreshKey={job?.id ?? rig?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }
