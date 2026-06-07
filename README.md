@@ -207,6 +207,8 @@ docker compose --env-file .env -f docker\compose.community.yml up -d --no-build
 http://127.0.0.1:8000
 ```
 
+Docker 运行数据会写入 `docker/gameknife-storage`、`docker/gameknife-huggingface` 和 `docker/gameknife-stable-audio-cache`。
+
 Compose 中包含两个镜像：
 
 | 服务 | 镜像名 | 端口 | 说明 |

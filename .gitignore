@@ -11,5 +11,8 @@ build/
 *.tsbuildinfo
 .env
 /storage/
+/docker/gameknife-storage/
+/docker/gameknife-huggingface/
+/docker/gameknife-stable-audio-cache/
 *.sqlite3
 *.log

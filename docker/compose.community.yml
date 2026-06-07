@@ -40,8 +40,8 @@ services:
     ports:
       - "${GAMEKNIFE_PORT:-8000}:8000"
     volumes:
-      - gameknife-storage:/data/storage
-      - gameknife-huggingface:/data/huggingface
+      - ./gameknife-storage:/data/storage
+      - ./gameknife-huggingface:/data/huggingface
     depends_on:
       - gameknife-stable-audio-sfx
 
@@ -74,9 +74,4 @@ services:
     ports:
       - "${GAMEKNIFE_STABLE_AUDIO_PORT:-8090}:8090"
     volumes:
-      - gameknife-stable-audio-cache:/data/huggingface
-
-volumes:
-  gameknife-storage:
-  gameknife-huggingface:
-  gameknife-stable-audio-cache:
+      - ./gameknife-stable-audio-cache:/data/huggingface

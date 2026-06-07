@@ -18,6 +18,9 @@ build/
 storage/
 !services/storage/
 !services/storage/**
+docker/gameknife-storage/
+docker/gameknife-huggingface/
+docker/gameknife-stable-audio-cache/
 *.sqlite3
 *.log
 community-web-dev*.log
