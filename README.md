@@ -71,7 +71,7 @@ python -m pip install -e ".[dev]"
 在 GameKnife 工程根目录启动 Community API：
 
 ```powershell
-python -m uvicorn community_api.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn community_api.main:app --env-file .env --host 0.0.0.0 --port 8000
 ```
 
 在 GameKnife 工程根目录启动 Community Web：
@@ -151,7 +151,7 @@ copy .env.example .env
 ```powershell
 cd services-extra\stable-audio-sfx
 python -m pip install -e ".[dev]"
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8090
+python -m uvicorn app.main:app --env-file ..\..\.env --host 0.0.0.0 --port 8090
 ```
 
 服务接口：
