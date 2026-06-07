@@ -28,7 +28,7 @@ export function CommunityShell({
       <header className="top-nav">
         <NavLink className="brand" to="/" onClick={onMobileMenuClose}>
           <img className="brand-mark" src="/gameknife-logo.png" alt="" aria-hidden="true" />
-          <span>游戏刀工坊</span>
+          <span>游刃</span>
         </NavLink>
         <nav aria-label="主菜单">
           <NavButton active={toolActive} to="/" icon={<Home size={17} strokeWidth={2.4} />} label="首页" />
