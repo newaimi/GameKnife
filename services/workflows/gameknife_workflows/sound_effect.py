@@ -39,13 +39,20 @@ def create_sound_effect_workflow(
         raise WorkflowModelNotInstalledError("Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
 
     prompt_asset = _create_prompt_asset(repository, context, prompt)
-    job = create_job_record(
-        repository,
-        context,
-        job_type="sound_effect_generate",
-        input_asset_id=prompt_asset.id,
-        parameters={**parameters, "prompt": prompt},
-    )
+    try:
+        job = create_job_record(
+            repository,
+            context,
+            job_type="sound_effect_generate",
+            input_asset_id=prompt_asset.id,
+            parameters={**parameters, "prompt": prompt},
+        )
+    except Exception:
+        # 提示词先落为 asset 是为了让任务历史有稳定输入；如果后续 job 创建失败，
+        # 必须同步清理文件和记录，避免余额不足或权限拒绝时留下无法触达的临时资产。
+        repository.delete_assets_for_workspace([prompt_asset.id], context.workspace.id)
+        context.storage.remove_asset_file(prompt_asset.path)
+        raise
 
     def run() -> None:
         run_sound_effect_workflow(repository, context, service, job.id)

@@ -14,6 +14,9 @@ class WorkflowRepository(Protocol):
     def create_asset(self, asset: AssetRecord) -> None:
         ...
 
+    def delete_assets_for_workspace(self, asset_ids: list[str], workspace_id: str) -> None:
+        ...
+
     def get_asset_for_workspace(self, asset_id: str, workspace_id: str) -> AssetRecord | None:
         ...
 
