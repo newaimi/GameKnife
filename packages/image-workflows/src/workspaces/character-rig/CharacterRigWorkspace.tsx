@@ -5,7 +5,6 @@ import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { readMessage } from "../../utils/errors";
@@ -29,7 +28,6 @@ export function CharacterRigWorkspace() {
   const [params, setParams] = useState<CharacterRigAnalyzeParameters>(DEFAULT_CHARACTER_RIG_PARAMS);
   const [operationBusy, setOperationBusy] = useState(false);
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
-  const device = useWorkflowDevice("character-rig");
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("character-rig");
   const busy = operationBusy || jobBusy;
@@ -206,7 +204,6 @@ export function CharacterRigWorkspace() {
           params={params}
           currentTask={job}
           canWrite={canWrite}
-          device={device}
           onSelect={selectRig}
           onSaveSettings={saveSettings}
           onSaveParts={saveParts}

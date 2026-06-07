@@ -5,7 +5,6 @@ import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
@@ -32,7 +31,6 @@ type VideoJobResponse = JobResponse & {
 export function VideoGenerateWorkspace() {
   const [params, setParams] = useState<VideoSequenceGenerateParameters>(DEFAULT_VIDEO_PARAMS);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob<VideoJobResponse>();
-  const device = useWorkflowDevice("video-generation");
   const canWrite = useWorkflowWritePermission("video-generate");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({ onBeforeUpload: resetJob });
   const busy = uploading || jobBusy;
@@ -92,7 +90,6 @@ export function VideoGenerateWorkspace() {
           currentTask={job}
           videoTask={job}
           params={params}
-          device={device}
           canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}

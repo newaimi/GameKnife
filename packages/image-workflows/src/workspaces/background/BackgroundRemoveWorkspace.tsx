@@ -10,7 +10,6 @@ import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { downloadOutputAsset } from "../../utils/assets";
 import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
@@ -20,7 +19,6 @@ export function BackgroundRemoveWorkspace() {
   const [params, setParams] = useState<BackgroundRemoveParameters>({ alpha_smoothing: 0 });
   const [compare, setCompare] = useState(50);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
-  const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("background-remove");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
@@ -65,7 +63,6 @@ export function BackgroundRemoveWorkspace() {
               <p>{asset ? `${asset.filename} · ${job?.status === "success" ? "处理完成" : "等待处理"}` : "上传图片后生成透明 PNG。"}</p>
             </div>
             <div className="toolbar-actions">
-              <span className="device-pill">{device}</span>
               {outputAsset ? (
                 <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`)}>
                   下载

@@ -12,7 +12,6 @@ export function CharacterRigEditor({
   params,
   currentTask,
   canWrite,
-  device,
   onSelect,
   onSaveSettings,
   onSaveParts,
@@ -29,7 +28,6 @@ export function CharacterRigEditor({
   params: CharacterRigAnalyzeParameters;
   currentTask: JobResponse | null;
   canWrite: boolean;
-  device: string;
   onSelect: (rigId: string) => void | Promise<void>;
   onSaveSettings: (rig: CharacterRigResponse) => void | Promise<void>;
   onSaveParts: (parts: CharacterPartResponse[]) => void | Promise<void>;
@@ -127,9 +125,6 @@ export function CharacterRigEditor({
             <h2>骨骼拆分</h2>
             <p>从顶部导入完整角色图后，再生成可确认、可修正、可导出的骨骼部件草稿。</p>
           </div>
-          <div className="toolbar-actions">
-            <span className="device-pill">{device}</span>
-          </div>
         </div>
           <WorkbenchPreview key="character-rig-empty">
             <EmptyCanvas />
@@ -154,7 +149,6 @@ export function CharacterRigEditor({
             </p>
           </div>
         <div className="toolbar-actions">
-          <span className="device-pill">{device}</span>
           <button className="primary" type="button" disabled={rigTaskRunning || !canWrite} onClick={() => void onAnalyze()}>
               {rigTaskRunning ? "处理中..." : "智能候选拆分"}
             </button>

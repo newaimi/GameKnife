@@ -7,7 +7,6 @@ import { VideoUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useAssetUpload } from "../../hooks/useAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { JOB_POLLING_PRESETS, readString } from "../../utils/jobs";
@@ -36,7 +35,6 @@ export function VideoToSequenceWorkspace() {
   const [sequence, setSequence] = useState<SequenceResponse | null>(null);
   const [params, setParams] = useState<VideoToSequenceParameters>(DEFAULT_VIDEO_TO_SEQUENCE_PARAMS);
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob<VideoJobResponse>();
-  const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("video-to-sequence");
   const {
@@ -118,7 +116,6 @@ export function VideoToSequenceWorkspace() {
           sequence={sequence}
           currentTask={job}
           params={params}
-          device={device}
           canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}

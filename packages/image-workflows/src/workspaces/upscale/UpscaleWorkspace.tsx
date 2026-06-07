@@ -9,7 +9,6 @@ import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
@@ -35,7 +34,6 @@ export function UpscaleWorkspace() {
   const [params, setParams] = useState<UpscaleParameters>(DEFAULT_UPSCALE_PARAMS);
   const [compare, setCompare] = useState(50);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
-  const device = useWorkflowDevice("upscale");
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("upscale");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
@@ -83,7 +81,6 @@ export function UpscaleWorkspace() {
               <p>{asset ? `${selectedStyle.label} · ${params.scale}x · ${formatImageSize(outputSize)}` : "导入图片后按素材风格选择放大方式。"}</p>
             </div>
             <div className="toolbar-actions">
-              <span className="device-pill">{device}</span>
               {outputAsset ? (
                 <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "upscale"}_upscale.png`)}>
                   下载

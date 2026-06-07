@@ -30,7 +30,6 @@ export function VideoGenerateEditor({
   currentTask,
   videoTask,
   params,
-  device,
   canWrite,
   isTaskProcessing,
   onParamsChange,
@@ -42,7 +41,6 @@ export function VideoGenerateEditor({
   currentTask: VideoJobResponse | null;
   videoTask: VideoJobResponse | null;
   params: VideoSequenceGenerateParameters;
-  device: string;
   canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
@@ -73,8 +71,6 @@ export function VideoGenerateEditor({
             <p>{readVideoGenerateMessage(upload, currentTask, videoReady)}</p>
           </div>
           <div className="toolbar-actions sequence-toolbar-actions">
-            <span className="device-pill">API</span>
-            <span className="device-pill">{device}</span>
             <button className="primary compact sequence-clean-button" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
               {videoTaskRunning ? "生成中" : "调用 API 生成视频"}
             </button>
@@ -144,7 +140,6 @@ export function VideoToSequenceEditor({
   sequence,
   currentTask,
   params,
-  device,
   canWrite,
   isTaskProcessing,
   onParamsChange,
@@ -155,7 +150,6 @@ export function VideoToSequenceEditor({
   sequence: SequenceResponse | null;
   currentTask: VideoJobResponse | null;
   params: VideoToSequenceParameters;
-  device: string;
   canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoToSequenceParameters>>;
@@ -210,8 +204,6 @@ export function VideoToSequenceEditor({
             <p>{readVideoToSequenceMessage(video, currentTask, generatedSequence)}</p>
           </div>
           <div className="toolbar-actions sequence-toolbar-actions">
-            <span className="device-pill">Local</span>
-            <span className="device-pill">{device}</span>
             <button className="primary compact sequence-clean-button" type="button" disabled={!canCreateSequence || !canWrite} onClick={() => void onCreateSequence()}>
               {frameTaskRunning ? "处理中" : "转成序列帧"}
             </button>

@@ -11,7 +11,6 @@ import { ImageUploadStrip } from "../../components/UploadStrip";
 import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
-import { useWorkflowDevice } from "../../hooks/useWorkflowDevice";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
@@ -44,7 +43,6 @@ export function AssetBoardWorkspace() {
   const [automaticAction, setAutomaticAction] = useState<"detect" | "refine" | "">("");
   const lastAutomaticRegionSignature = useRef("");
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob: runWorkflowJob, resetJob } = useWorkflowJob();
-  const device = useWorkflowDevice("birefnet");
   const ensureModelReady = useModelRequirement();
   const canWrite = useWorkflowWritePermission("asset-board");
   const { asset, upload, uploading, uploadError } = useImageAssetUpload({
@@ -258,7 +256,6 @@ export function AssetBoardWorkspace() {
               <p>{taskLabel}</p>
             </div>
             <div className="toolbar-actions">
-              <span className="device-pill">{device}</span>
               {exportAsset ? (
                 <button className="ghost" type="button" onClick={() => void downloadOutputAsset(exportAsset, `${asset?.filename ?? "asset-board"}_components.zip`)}>
                   下载 ZIP

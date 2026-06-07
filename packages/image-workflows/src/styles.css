@@ -372,15 +372,6 @@
   padding: 0 16px;
 }
 
-.device-pill {
-  padding: 10px 14px;
-  border-radius: 999px;
-  color: var(--blue);
-  background: var(--chip);
-  font-size: 13px;
-  font-weight: 900;
-}
-
 .primary,
 .ghost {
   height: 46px;
