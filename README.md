@@ -217,6 +217,18 @@ Docker 运行数据会写入 `docker/gameknife-storage`、`docker/gameknife-hugg
 
 默认 Docker 构建使用 CUDA 版 PyTorch，并通过 Compose 的 `gpus: all` 暴露 NVIDIA 设备。设置页显示 CPU 时，优先检查宿主机 `nvidia-smi`、NVIDIA Container Toolkit、`.env` 里的 `TORCH_INDEX_URL` 和 `GAMEKNIFE_VISIBLE_GPUS`。
 
+启动时报 `could not select device driver "" with capabilities: [[gpu]]` 时，说明 Docker daemon 没有可用的 NVIDIA runtime。Ubuntu/WSL 中使用 Docker Engine 时，可以先执行：
+
+```bash
+./scripts/install-nvidia-container-toolkit-ubuntu.sh
+```
+
+如果当前 CLI 连接的是 Docker Desktop daemon，需要在 Docker Desktop 和 Windows NVIDIA 驱动侧完成 GPU 支持配置，再用下面命令验证：
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
 Compose 中包含两个镜像：
 
 | 服务 | 镜像名 | 端口 | 说明 |

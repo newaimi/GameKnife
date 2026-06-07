@@ -4,3 +4,4 @@
 
 - `build-images.sh`：按 `docker/compose.community.yml` 构建 Community 和独立声效服务镜像。
 - `deploy.sh`：先构建镜像，再使用 `--no-build` 启动容器，避免启动阶段隐式重建。
+- `install-nvidia-container-toolkit-ubuntu.sh`：在 Ubuntu/WSL Docker Engine 中安装并验证 NVIDIA Container Toolkit。它只配置 Docker runtime，显卡驱动仍由宿主机提供。
