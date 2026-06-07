@@ -69,6 +69,19 @@ npm install
 python -m pip install -e ".[dev]"
 ```
 
+主服务本地需要使用 CUDA 推理时，安装项目依赖后再安装与 Docker 主服务一致的 CUDA 版 PyTorch：
+
+```powershell
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.5.1+cu124" "torchvision==0.20.1+cu124"
+```
+
+验证主服务 PyTorch 环境：
+
+```powershell
+python -m pip check
+python -c "import torch, torchvision; print('torch', torch.__version__); print('torchvision', torchvision.__version__); print('cuda', torch.version.cuda); print('available', torch.cuda.is_available()); print('device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO CUDA')"
+```
+
 在 GameKnife 工程根目录启动 Community API：
 
 ```powershell
@@ -128,9 +141,9 @@ copy .env.example .env
 | `GAMEKNIFE_STABLE_AUDIO_TOKEN` | `change-me` | Community API 调用声效服务的内部 token。 |
 | `GAMEKNIFE_STABLE_AUDIO_TIMEOUT_SECONDS` | `900` | Community API 等待声效服务的超时时间。 |
 | `GAMEKNIFE_VISIBLE_GPUS` | `all` | Docker 主服务可见 GPU；由 NVIDIA runtime 读取。 |
-| `TORCH_VERSION` | `2.5.1` | Docker 主服务 PyTorch 版本。 |
-| `TORCHVISION_VERSION` | `0.20.1` | Docker 主服务 torchvision 版本。 |
-| `TORCH_INDEX_URL` | `https://download.pytorch.org/whl/cu124` | Docker 主服务 PyTorch wheel 索引。 |
+| `TORCH_VERSION` | `2.5.1` | 主服务 Docker 构建使用的 PyTorch 版本。 |
+| `TORCHVISION_VERSION` | `0.20.1` | 主服务 Docker 构建使用的 torchvision 版本。 |
+| `TORCH_INDEX_URL` | `https://download.pytorch.org/whl/cu124` | 主服务 Docker 构建使用的 PyTorch CUDA wheel 索引。 |
 
 完整变量以 `.env.example` 为准。
 
@@ -155,8 +168,26 @@ copy .env.example .env
 
 ```powershell
 cd services-extra\stable-audio-sfx
-python -m pip install -e ".[dev]"
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu126 -e ".[dev]"
 python -m uvicorn app.main:app --env-file ..\..\.env --host 0.0.0.0 --port 8090
+```
+
+本地需要使用 CUDA 推理时，先确认当前 Python 环境是 3.10。Stable Audio Open 依赖链会锁定 `stable-audio-tools==0.0.20`，它要求 `torch==2.7.1` 和 `torchaudio==2.7.1`。因此不要使用无版本约束的 `pip install --upgrade torch torchvision torchaudio`，否则 pip 会安装最新版 PyTorch，导致声效服务依赖冲突。
+
+在声效服务目录中安装 CUDA 版 PyTorch：
+
+```powershell
+python -m pip uninstall -y torch torchvision torchaudio torchtext torchdata stable-audio-tools pytorch-lightning
+python -m pip install --upgrade pip
+python -m pip install --index-url https://download.pytorch.org/whl/cu126 "torch==2.7.1+cu126" "torchaudio==2.7.1+cu126" "torchvision==0.22.1+cu126"
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu126 -e ".[dev]"
+```
+
+安装后验证当前环境：
+
+```powershell
+python -m pip check
+python -c "import torch, torchvision, torchaudio, stable_audio_tools; print('torch', torch.__version__); print('torchvision', torchvision.__version__); print('torchaudio', torchaudio.__version__); print('cuda', torch.version.cuda); print('available', torch.cuda.is_available()); print('device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO CUDA')"
 ```
 
 服务接口：
@@ -178,9 +209,9 @@ python -m uvicorn app.main:app --env-file ..\..\.env --host 0.0.0.0 --port 8090
 | `GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS` | `900` | 单次生成等待上限。 |
 | `GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS` | `all` | Docker 声效服务可见 GPU；也可以写成 `0,1`。 |
 | `GAMEKNIFE_STABLE_AUDIO_MODEL_HALF` | `1` | CUDA 环境下使用半精度模型。 |
-| `STABLE_AUDIO_TORCH_EXTRA_INDEX_URL` | `https://download.pytorch.org/whl/cu126` | Docker 声效服务 PyTorch wheel 附加索引。 |
+| `STABLE_AUDIO_TORCH_EXTRA_INDEX_URL` | `https://download.pytorch.org/whl/cu126` | 声效服务 PyTorch CUDA wheel 附加索引。 |
 
-Docker 声效镜像会安装 `stable-audio-tools`、`pytorch-lightning` 以及 CUDA 版 PyTorch 依赖。本地直接运行声效服务时，需要在当前 Python 环境中安装同等推理依赖。
+Docker 声效镜像会安装 `stable-audio-tools`、`pytorch-lightning` 以及 CUDA 版 PyTorch 依赖。本地直接运行声效服务时，当前 Python 环境需要按上面的固定版本安装同等推理依赖。
 
 ## Docker
 
