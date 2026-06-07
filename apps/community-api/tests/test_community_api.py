@@ -31,6 +31,7 @@ def make_client_with_web_dist(tmp_path: Path) -> TestClient:
     web_dist = tmp_path / "web-dist"
     web_dist.mkdir(parents=True)
     (web_dist / "index.html").write_text("<!doctype html><title>GameKnife</title>", encoding="utf-8")
+    (web_dist / "gameknife-logo.png").write_bytes(make_png_bytes())
     settings = CommunitySettings(
         storage_root=tmp_path / "storage",
         database_path=tmp_path / "storage" / "gameknife.sqlite3",
@@ -252,11 +253,14 @@ def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
 def test_community_serves_web_dist_on_same_port(tmp_path: Path) -> None:
     with make_client_with_web_dist(tmp_path) as client:
         root_response = client.get("/")
+        logo_response = client.get("/gameknife-logo.png")
         spa_response = client.get("/tools/background-remove")
         api_response = client.get("/api/health")
 
     assert root_response.status_code == 200
     assert "GameKnife" in root_response.text
+    assert logo_response.status_code == 200
+    assert logo_response.headers["content-type"] == "image/png"
     assert spa_response.status_code == 200
     assert api_response.status_code == 200
 

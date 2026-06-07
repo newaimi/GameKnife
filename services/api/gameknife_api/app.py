@@ -33,13 +33,14 @@ def create_community_app(settings: CommunitySettings | None = None) -> FastAPI:
     )
     app.include_router(router, prefix="/api")
     if resolved_settings.web_dist and (resolved_settings.web_dist / "index.html").is_file():
-        assets_dir = resolved_settings.web_dist / "assets"
+        web_dist_root = resolved_settings.web_dist.resolve()
+        assets_dir = web_dist_root / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="community-assets")
 
         @app.get("/")
         def community_index() -> FileResponse:
-            return FileResponse(resolved_settings.web_dist / "index.html")
+            return FileResponse(web_dist_root / "index.html")
 
         @app.get("/{path:path}", include_in_schema=False)
         def community_spa(path: str) -> FileResponse:
@@ -47,5 +48,12 @@ def create_community_app(settings: CommunitySettings | None = None) -> FastAPI:
             # API 路由已经挂在 /api 前缀下，静态回落不会接管后端接口。
             if path.startswith("api/"):
                 raise HTTPException(status_code=404, detail="接口不存在。")
-            return FileResponse(resolved_settings.web_dist / "index.html")
+            requested_file = (web_dist_root / path).resolve()
+            # Vite 会把 public 目录里的 logo 等文件放到 dist 根部。
+            # 先返回真实静态文件，才能让 Docker 同端口部署和开发构建产物保持一致。
+            if requested_file.is_file() and requested_file.is_relative_to(web_dist_root):
+                if requested_file.name == "index.html":
+                    return FileResponse(requested_file, headers={"Cache-Control": "no-store"})
+                return FileResponse(requested_file)
+            return FileResponse(web_dist_root / "index.html", headers={"Cache-Control": "no-store"})
     return app
