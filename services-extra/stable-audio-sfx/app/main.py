@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import importlib.util
 import os
 import queue
 import threading
@@ -18,6 +19,12 @@ MODEL_ID = os.getenv("GAMEKNIFE_STABLE_AUDIO_MODEL_ID", "stabilityai/stable-audi
 SERVICE_TOKEN = os.getenv("GAMEKNIFE_STABLE_AUDIO_TOKEN", "")
 QUEUE_SIZE = max(1, int(os.getenv("GAMEKNIFE_STABLE_AUDIO_QUEUE_SIZE", "12")))
 GENERATION_TIMEOUT_SECONDS = max(60, int(os.getenv("GAMEKNIFE_STABLE_AUDIO_GENERATION_TIMEOUT_SECONDS", "900")))
+REQUIRED_RUNTIME_MODULES = {
+    "huggingface_hub": "huggingface-hub",
+    "torch": "torch",
+    "einops": "einops",
+    "stable_audio_tools": "stable-audio-tools",
+}
 
 
 class GenerateRequest(BaseModel):
@@ -83,10 +90,18 @@ class StableAudioWorkerPool:
             thread.start()
 
     def status(self) -> dict[str, Any]:
+        missing_dependencies = missing_runtime_dependencies()
         installed = model_files_cached()
         loaded = any(state.loaded for state in self.states)
         status_data = install_state.read()
-        if installed and status_data["status"] in {"idle", "running", "failed"}:
+        if missing_dependencies:
+            status_data = {
+                "status": "unavailable",
+                "progress": 0,
+                "message": "Stable Audio 声效服务缺少运行依赖。",
+                "error": format_missing_runtime_dependencies(missing_dependencies),
+            }
+        elif installed and status_data["status"] in {"idle", "running", "failed"}:
             status_data = {
                 "status": "success",
                 "progress": 100,
@@ -95,7 +110,12 @@ class StableAudioWorkerPool:
             }
         return {
             **status_data,
-            "installed": installed,
+            "installed": installed and not missing_dependencies,
+            "model_files_cached": installed,
+            "runtime_dependencies": {
+                "available": not missing_dependencies,
+                "missing": missing_dependencies,
+            },
             "loaded": loaded,
             "model_id": MODEL_ID,
             "queue_size": QUEUE_SIZE,
@@ -228,6 +248,19 @@ def model_files_cached() -> bool:
         return False
 
 
+def missing_runtime_dependencies() -> list[str]:
+    missing: list[str] = []
+    for module_name, package_name in REQUIRED_RUNTIME_MODULES.items():
+        if importlib.util.find_spec(module_name) is None:
+            missing.append(package_name)
+    return missing
+
+
+def format_missing_runtime_dependencies(missing: list[str]) -> str:
+    package_names = "、".join(missing)
+    return f"缺少 Python 依赖：{package_names}。请重新安装或重新构建 gameknife-stable-audio-sfx 服务。"
+
+
 def encode_wav_pcm16(audio: Any, sample_rate: int) -> bytes:
     if len(audio.shape) != 2:
         raise RuntimeError("声效输出格式不正确，无法写入 WAV。")
@@ -307,6 +340,9 @@ def model_status() -> dict[str, Any]:
 
 @app.post("/models/install", dependencies=[Depends(verify_token)])
 def install_model() -> dict[str, Any]:
+    missing_dependencies = missing_runtime_dependencies()
+    if missing_dependencies:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=format_missing_runtime_dependencies(missing_dependencies))
     current = install_state.read()
     if current["status"] == "running":
         return worker_pool.status()
@@ -318,6 +354,9 @@ def install_model() -> dict[str, Any]:
 
 @app.post("/generate", dependencies=[Depends(verify_token)])
 def generate_sound_effect(payload: GenerateRequest) -> Response:
+    missing_dependencies = missing_runtime_dependencies()
+    if missing_dependencies:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=format_missing_runtime_dependencies(missing_dependencies))
     if not model_files_cached():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stable Audio Open 模型尚未安装，请先调用安装接口。")
     job = worker_pool.submit(payload)

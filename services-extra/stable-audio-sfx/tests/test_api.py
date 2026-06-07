@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import queue
+import sys
 import wave
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -20,6 +22,7 @@ def test_health() -> None:
 
 def test_generate_returns_wav(monkeypatch) -> None:
     monkeypatch.setattr(main, "model_files_cached", lambda: True)
+    monkeypatch.setattr(main, "missing_runtime_dependencies", lambda: [])
     monkeypatch.setattr(main.StableAudioWorkerPool, "_generate", _fake_generate)
     client = TestClient(main.app)
 
@@ -32,6 +35,49 @@ def test_generate_returns_wav(monkeypatch) -> None:
     assert response.headers["content-type"].startswith("audio/wav")
     assert response.headers["x-stable-audio-device"]
     assert response.content.startswith(b"RIFF")
+
+
+def test_status_reports_missing_runtime_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(main, "model_files_cached", lambda: True)
+    monkeypatch.setattr(main, "missing_runtime_dependencies", lambda: ["stable-audio-tools"])
+
+    response = TestClient(main.app).get("/models/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "unavailable"
+    assert payload["installed"] is False
+    assert payload["model_files_cached"] is True
+    assert payload["runtime_dependencies"]["missing"] == ["stable-audio-tools"]
+    assert "stable-audio-tools" in payload["error"]
+
+
+def test_generate_rejects_missing_runtime_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(main, "model_files_cached", lambda: True)
+    monkeypatch.setattr(main, "missing_runtime_dependencies", lambda: ["stable-audio-tools"])
+
+    response = TestClient(main.app).post("/generate", json={"prompt": "coin pickup"})
+
+    assert response.status_code == 503
+    assert "stable-audio-tools" in response.json()["detail"]
+
+
+def test_model_files_cached_uses_local_snapshot(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_snapshot_download(model_id: str, *, repo_type: str, local_files_only: bool) -> None:
+        calls["model_id"] = model_id
+        calls["repo_type"] = repo_type
+        calls["local_files_only"] = local_files_only
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(snapshot_download=fake_snapshot_download))
+
+    assert main.model_files_cached() is True
+    assert calls == {
+        "model_id": main.MODEL_ID,
+        "repo_type": "model",
+        "local_files_only": True,
+    }
 
 
 def test_token_is_required_when_configured(monkeypatch) -> None:

@@ -95,6 +95,7 @@ export function CommunitySettingsPage() {
   const isRigInstalling = visibleRigInstallStatus?.status === "running";
   const isUpscaleInstalling = visibleUpscaleInstallStatus?.status === "running";
   const isStableAudioInstalling = visibleStableAudioInstallStatus?.status === "running";
+  const isStableAudioUnavailable = visibleStableAudioInstallStatus?.status === "unavailable";
   const isBirefNetInstalled = visibleInstallStatus?.installed ?? visibleInstallStatus?.status === "success";
   const isRigInstalled = visibleRigInstallStatus?.installed ?? visibleRigInstallStatus?.status === "success";
   const isUpscaleInstalled = visibleUpscaleInstallStatus?.installed ?? visibleUpscaleInstallStatus?.status === "success";
@@ -419,7 +420,7 @@ export function CommunitySettingsPage() {
           <KeyValue label="权重许可" value="Hugging Face 许可确认后安装" />
           <div className="install-block">
             {!isStableAudioInstalled ? (
-              <button className="primary install-button" disabled={isStableAudioInstalling || !settings?.stable_audio.base_url_configured || !canManageSettings} onClick={startStableAudioInstall} type="button">
+              <button className="primary install-button" disabled={isStableAudioInstalling || isStableAudioUnavailable || !settings?.stable_audio.base_url_configured || !canManageSettings} onClick={startStableAudioInstall} type="button">
                 <Download size={18} />
                 下载安装模型文件
               </button>
@@ -427,7 +428,7 @@ export function CommunitySettingsPage() {
             <div className="progress-track" aria-label="Stable Audio 安装进度">
               <div className="progress-bar" style={{ width: `${stableAudioProgress}%` }} />
             </div>
-            <div className={`install-message ${visibleStableAudioInstallStatus?.status === "failed" ? "failed" : ""}`}>
+            <div className={`install-message ${visibleStableAudioInstallStatus?.status === "failed" || visibleStableAudioInstallStatus?.status === "unavailable" ? "failed" : ""}`}>
               <span>{visibleStableAudioInstallStatus?.message ?? "尚未手动安装。"}</span>
               <strong>{stableAudioProgress}%</strong>
             </div>

@@ -325,6 +325,11 @@ export type UpscaleModelInstallStatus = ModelInstallStatus;
 
 export type StableAudioInstallStatus = ModelInstallStatus & {
   model_id?: string;
+  model_files_cached?: boolean;
+  runtime_dependencies?: {
+    available: boolean;
+    missing: string[];
+  };
   queue_size?: number;
   queued?: number;
   workers?: Array<{
