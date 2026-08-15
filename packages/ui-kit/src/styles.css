@@ -5,10 +5,19 @@
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --gk-font-sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --gk-font-weight-regular: 500;
-  --gk-font-weight-medium: 700;
-  --gk-font-weight-strong: 850;
+  --gk-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --gk-font-weight-regular: 450;
+  --gk-font-weight-medium: 600;
+  --gk-font-weight-strong: 700;
+  --gk-line-height-body: 1.5;
+  --gk-letter-spacing-heading: -0.025em;
+  --gk-letter-spacing-label: 0.01em;
+
+  --gk-motion-instant: 80ms;
+  --gk-motion-fast: 140ms;
+  --gk-motion-standard: 220ms;
+  --gk-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --gk-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
   --gk-space-1: 4px;
   --gk-space-2: 8px;
@@ -46,6 +55,11 @@
   --gk-shadow-panel: 0 1px 0 color-mix(in srgb, var(--gk-color-text) 6%, transparent), 0 18px 46px rgb(0 0 0 / 0.24);
   --gk-shadow-floating: 0 1px 0 color-mix(in srgb, var(--gk-color-text) 8%, transparent), 0 12px 30px rgb(0 0 0 / 0.3);
   --gk-focus-ring: 0 0 0 3px color-mix(in oklch, var(--gk-color-accent) 34%, transparent);
+  --gk-material-chrome: color-mix(in srgb, var(--gk-color-canvas) 82%, transparent);
+  --gk-material-panel: color-mix(in srgb, var(--gk-color-surface) 92%, transparent);
+  --gk-material-floating: color-mix(in srgb, var(--gk-color-surface-elevated) 88%, transparent);
+  --gk-material-filter: blur(22px) saturate(150%);
+  --gk-material-border-highlight: rgb(255 255 255 / 0.07);
 
   --gk-body-background:
     linear-gradient(color-mix(in srgb, var(--gk-color-border) 22%, transparent) 1px, transparent 1px),
@@ -62,7 +76,7 @@
   --line: var(--gk-color-border);
   --line-soft: color-mix(in oklch, var(--gk-color-border) 74%, var(--gk-color-surface));
   --line-strong: var(--gk-color-border-strong);
-  --panel: color-mix(in oklch, var(--gk-color-surface) 94%, transparent);
+  --panel: var(--gk-material-panel);
   --panel-solid: var(--gk-color-surface);
   --field: var(--gk-color-field);
   --field-muted: var(--gk-color-surface-muted);
@@ -72,7 +86,7 @@
   --hint: color-mix(in oklch, var(--gk-color-accent) 12%, var(--gk-color-surface));
   --hint-text: color-mix(in oklch, var(--gk-color-text) 78%, var(--gk-color-accent));
   --soft: var(--gk-color-surface-muted);
-  --nav-panel: color-mix(in oklch, var(--gk-color-canvas) 90%, transparent);
+  --nav-panel: var(--gk-material-chrome);
   --body-bg: var(--gk-body-background);
   --shadow: var(--gk-shadow-floating);
   --panel-shadow: var(--gk-shadow-panel);
@@ -101,6 +115,10 @@
   --gk-color-checker-tile: oklch(0.88 0.02 252);
   --gk-shadow-panel: 0 1px 0 rgb(255 255 255 / 0.7), 0 16px 40px rgb(35 73 132 / 0.1);
   --gk-shadow-floating: 0 1px 0 rgb(255 255 255 / 0.85), 0 12px 28px rgb(35 73 132 / 0.16);
+  --gk-material-chrome: color-mix(in srgb, var(--gk-color-surface) 78%, transparent);
+  --gk-material-panel: color-mix(in srgb, var(--gk-color-surface) 90%, transparent);
+  --gk-material-floating: color-mix(in srgb, var(--gk-color-surface-elevated) 88%, transparent);
+  --gk-material-border-highlight: rgb(255 255 255 / 0.76);
   --gk-body-background:
     linear-gradient(color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
@@ -121,14 +139,28 @@
   background: transparent;
   font-family: var(--gk-font-sans);
   font-weight: var(--gk-font-weight-strong);
+  letter-spacing: var(--gk-letter-spacing-label);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition: color 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--gk-motion-fast) ease,
+    background var(--gk-motion-fast) ease,
+    border-color var(--gk-motion-fast) ease,
+    box-shadow var(--gk-motion-fast) ease,
+    translate var(--gk-motion-fast) var(--gk-ease-out),
+    scale var(--gk-motion-instant) var(--gk-ease-out);
 }
 
 .gk-button:hover:not(:disabled) {
-  transform: translateY(-1px);
+  translate: 0 -1px;
+}
+
+.gk-button:active:not(:disabled) {
+  translate: 0;
+  scale: 0.97;
 }
 
 .gk-button:focus-visible,
@@ -140,7 +172,8 @@
 .gk-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-  transform: none;
+  translate: none;
+  scale: 1;
 }
 
 .gk-button svg {
@@ -293,7 +326,7 @@
   display: block;
   border-radius: inherit;
   background: var(--gk-color-accent);
-  transition: width 180ms ease-out;
+  transition: width var(--gk-motion-standard) var(--gk-ease-out);
 }
 
 .gk-progress--success > span {
@@ -320,6 +353,7 @@
   background: transparent;
   cursor: col-resize;
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .gk-panel-resize-handle::before {
@@ -330,7 +364,7 @@
   left: 50%;
   background: var(--gk-color-border);
   transform: translateX(-50%);
-  transition: background 140ms ease, width 140ms ease;
+  transition: background var(--gk-motion-fast) ease, width var(--gk-motion-fast) ease;
 }
 
 .gk-panel-resize-handle::after {
@@ -345,28 +379,62 @@
   box-shadow: 0 -7px 0 var(--gk-color-text-muted), 0 7px 0 var(--gk-color-text-muted);
   opacity: 0;
   transform: translate(-50%, -50%);
-  transition: opacity 140ms ease;
+  transition: opacity var(--gk-motion-fast) ease;
 }
 
 .gk-panel-resize-handle:hover::before,
-.gk-panel-resize-handle:focus-visible::before {
+.gk-panel-resize-handle:focus-visible::before,
+.gk-panel-resize-handle:active::before {
   width: 2px;
   background: var(--gk-color-accent);
 }
 
 .gk-panel-resize-handle:hover::after,
-.gk-panel-resize-handle:focus-visible::after {
+.gk-panel-resize-handle:focus-visible::after,
+.gk-panel-resize-handle:active::after {
   opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .gk-button,
+  .gk-progress > span,
   .gk-panel-resize-handle::before,
   .gk-panel-resize-handle::after {
     transition-duration: 0.01ms;
   }
 
+  .gk-button {
+    translate: none;
+    scale: 1;
+  }
+
   .gk-status-badge--busy > i {
     animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --gk-material-chrome: var(--gk-color-canvas);
+    --gk-material-panel: var(--gk-color-surface);
+    --gk-material-floating: var(--gk-color-surface-elevated);
+    --gk-material-filter: none;
+    --gk-body-background: var(--gk-color-canvas);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --gk-color-border: color-mix(in oklch, var(--gk-color-text) 42%, var(--gk-color-canvas));
+    --gk-color-border-strong: color-mix(in oklch, var(--gk-color-text) 68%, var(--gk-color-canvas));
+    --gk-material-chrome: var(--gk-color-canvas);
+    --gk-material-panel: var(--gk-color-surface);
+    --gk-material-floating: var(--gk-color-surface-elevated);
+    --gk-material-filter: none;
+    --gk-focus-ring: 0 0 0 3px color-mix(in oklch, var(--gk-color-accent) 72%, transparent);
   }
 }
