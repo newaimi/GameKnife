@@ -1,8 +1,9 @@
-import { Download, Trash2 } from "lucide-react";
 import type { JobResponse, OutputAssetRef } from "@gameknife/shared-types";
+import { JobAssetActions } from "../../components/JobAssetActions";
+import { JobStatusBadge } from "../../components/JobStatusBadge";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
-import { formatAbsoluteTime, formatJobFileMeta, formatJobStatus, readJobDisplayName, readJobInitial, readJobThumbnailPath, readJobTitle } from "./jobHistory";
+import { formatAbsoluteTime, formatJobFileMeta, readJobDisplayName, readJobInitial, readJobThumbnailPath, readJobTitle } from "./jobHistory";
 
 export function JobHistoryRow({
   deletingJobId,
@@ -36,21 +37,8 @@ export function JobHistoryRow({
           {formatJobFileMeta(job)} · {formatAbsoluteTime(job.updated_at)}
         </p>
       </div>
-      <span className="task-status-pill">{formatJobStatus(job.status)}</span>
-      <div className="recent-actions">
-        <button
-          className="recent-icon-button"
-          type="button"
-          title={outputAsset ? "下载结果" : "当前任务没有可下载文件"}
-          disabled={!outputAsset || isDownloading}
-          onClick={() => outputAsset && void onDownload(job, outputAsset)}
-        >
-          <Download size={18} strokeWidth={2.2} />
-        </button>
-        <button className="recent-icon-button danger" type="button" title="删除任务" disabled={isDeleting} onClick={() => void onDelete(job)}>
-          <Trash2 size={18} strokeWidth={2.2} />
-        </button>
-      </div>
+      <JobStatusBadge status={job.status} />
+      <JobAssetActions job={job} outputAsset={outputAsset} downloading={isDownloading} deleting={isDeleting} onDownload={onDownload} onDelete={onDelete} />
     </article>
   );
 }

@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 import type { JobResponse } from "@gameknife/shared-types";
+import { Button } from "@gameknife/ui-kit";
 import type { FailureDialogState } from "../types/failure";
 import { readJobTitle } from "../utils/jobPresentation";
 
@@ -13,9 +14,9 @@ export function FailureDialog({ dialog, onClose }: { dialog: FailureDialogState;
             <span>处理失败</span>
             <strong id={dialogId}>{dialog.title}</strong>
           </div>
-          <button className="ghost compact" type="button" onClick={onClose}>
+          <Button size="small" onClick={onClose}>
             关闭
-          </button>
+          </Button>
         </div>
         <p>{dialog.message}</p>
         <pre>{dialog.detail}</pre>

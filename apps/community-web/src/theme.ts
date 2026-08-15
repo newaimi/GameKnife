@@ -1,14 +1,10 @@
-export type ThemeMode = "light" | "dark";
+import { parseThemeMode, THEME_STORAGE_KEY, type ThemeMode } from "@gameknife/ui-kit";
 
-export const THEME_STORAGE_KEY = "gameknife-theme";
+export { THEME_STORAGE_KEY };
+export type { ThemeMode };
 
 export function readInitialTheme(): ThemeMode {
-  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (savedTheme === "light" || savedTheme === "dark") {
-    return savedTheme;
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return parseThemeMode(window.localStorage.getItem(THEME_STORAGE_KEY));
 }
 
 export function isTypingTarget(target: EventTarget | null) {

@@ -1,47 +1,6 @@
-/* 公共工作流被 Community 和 Studio 同时使用，样式放在包内可以让商业版复用页面时保留原工程的工作台体验。 */
-:root {
-  --blue: #1767ff;
-  --primary: var(--blue);
-  --blue-dark: #0a47d4;
-  --ink: #08152f;
-  --muted: #6d7890;
-  --line: #dce5f4;
-  --line-soft: #e8eef8;
-  --panel: rgba(255, 255, 255, 0.88);
-  --panel-solid: #ffffff;
-  --field: #ffffff;
-  --field-muted: #eaf1fb;
-  --checker-base: #eef2f7;
-  --checker-tile: #d4dbe6;
-  --chip: #e5eeff;
-  --hint: #edf4ff;
-  --hint-text: #40506c;
-  --soft: #edf4ff;
-  --shadow: 0 24px 70px rgba(35, 73, 132, 0.14);
-  --panel-shadow: 0 18px 50px rgba(33, 67, 124, 0.08);
-}
+@import "@gameknife/ui-kit/styles.css";
 
-:root[data-theme="dark"] {
-  --blue: #6ca2ff;
-  --primary: var(--blue);
-  --blue-dark: #3478ff;
-  --ink: #eef4ff;
-  --muted: #96a6c1;
-  --line: #26364f;
-  --line-soft: #233249;
-  --panel: rgba(16, 25, 39, 0.9);
-  --panel-solid: #111c2d;
-  --field: #0c1523;
-  --field-muted: #121d2e;
-  --checker-base: #111a28;
-  --checker-tile: #1d2a3d;
-  --chip: #152a51;
-  --hint: #13233d;
-  --hint-text: #b7c7e3;
-  --soft: #13233d;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
-  --panel-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
-}
+/* 公共工作流只保留工具布局和业务状态样式，主题令牌与基础交互统一由 ui-kit 提供。 */
 
 .workflow-page,
 .page-panel,
@@ -173,9 +132,12 @@
 
 .workspace {
   --workspace-panel-height: clamp(720px, calc(100vh - 240px), 1120px);
+  --workspace-left-track: var(--workspace-left-width, 220px);
+  --workspace-right-track: var(--workspace-right-width, 320px);
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) 330px;
-  gap: 16px;
+  grid-template-columns: var(--workspace-left-track) 12px minmax(0, 1fr) 12px var(--workspace-right-track);
+  column-gap: 0;
+  row-gap: 16px;
   margin-top: 18px;
   align-items: stretch;
 }
@@ -194,7 +156,7 @@
 .tool-panel,
 .settings-panel,
 .preview-stage {
-  border-radius: 16px;
+  border-radius: var(--gk-radius-panel);
 }
 
 .tool-panel,
@@ -209,6 +171,50 @@
   margin: 0 0 18px;
   font-size: 20px;
   letter-spacing: -0.04em;
+}
+
+.tool-panel-header {
+  min-width: 0;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tool-panel-header h2 {
+  margin: 0;
+}
+
+.workspace-divider {
+  min-width: 0;
+  height: var(--workspace-panel-height);
+  position: relative;
+}
+
+.workspace-divider-left {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.workspace-divider-right {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.workspace-right-toggle {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  z-index: 2;
+  border-color: var(--line);
+  background: var(--panel-solid);
+  box-shadow: var(--soft-shadow);
+  transform: translateX(-50%);
+}
+
+.workspace-right-toggle:hover:not(:disabled) {
+  transform: translate(-50%, -1px);
 }
 
 .tool-button,
@@ -237,7 +243,8 @@
 .editor-tool-button:hover:not(:disabled),
 .editor-tool-button.active {
   color: var(--blue);
-  background: linear-gradient(90deg, rgba(23, 103, 255, 0.14), rgba(23, 103, 255, 0.04));
+  background: var(--chip);
+  box-shadow: inset 3px 0 0 var(--blue);
 }
 
 .tool-button:disabled,
@@ -447,9 +454,8 @@
   line-height: 1.8;
 }
 
-.status-text {
-  color: var(--blue);
-  font-weight: 900;
+.workflow-status-message {
+  margin-top: 14px;
 }
 
 .hint-box {
@@ -1080,10 +1086,36 @@
   color: var(--ink);
 }
 
-.install-block {
+.model-install-status {
   margin-top: 20px;
   padding-top: 18px;
+  display: grid;
+  gap: 10px;
   border-top: 1px solid var(--line);
+}
+
+.model-install-status-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-install-status-heading > strong {
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.model-install-status > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.model-install-status .install-button {
+  margin-top: 2px;
 }
 
 .install-button {
@@ -1093,51 +1125,6 @@
 .install-button:disabled {
   opacity: 0.72;
   cursor: wait;
-}
-
-.progress-track {
-  height: 10px;
-  margin-top: 14px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--soft);
-}
-
-.progress-bar {
-  height: 100%;
-  min-width: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2177ff, #62a3ff);
-  transition: width 180ms ease-out;
-}
-
-.install-message {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.install-message.failed {
-  color: #a12222;
-}
-
-.install-message strong {
-  color: var(--blue);
-}
-
-.install-error {
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  color: #d24b4b;
-  background: color-mix(in srgb, #d24b4b 12%, var(--panel-solid));
-  line-height: 1.6;
-  overflow-wrap: anywhere;
 }
 
 .settings-message {
@@ -1745,10 +1732,12 @@
 }
 
 .manual-editor-shell {
+  --manual-editor-left-track: var(--manual-editor-left-width, 220px);
+  --manual-editor-right-track: var(--manual-editor-right-width, 320px);
   height: calc(100vh - 98px);
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) 330px;
-  gap: 16px;
+  grid-template-columns: var(--manual-editor-left-track) 12px minmax(0, 1fr) 12px var(--manual-editor-right-track);
+  gap: 0;
   min-width: 0;
 }
 
@@ -1756,9 +1745,30 @@
 .manual-editor-stage,
 .manual-editor-inspector {
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--gk-radius-panel);
   background: var(--panel);
   box-shadow: var(--panel-shadow);
+}
+
+.manual-editor-divider {
+  min-width: 0;
+  height: 100%;
+  position: relative;
+}
+
+.manual-editor-panel-toggle {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  z-index: 2;
+  border-color: var(--line);
+  background: var(--panel-solid);
+  box-shadow: var(--soft-shadow);
+  transform: translateX(-50%);
+}
+
+.manual-editor-panel-toggle:hover:not(:disabled) {
+  transform: translate(-50%, -1px);
 }
 
 .manual-editor-tools,
@@ -2043,8 +2053,9 @@
 }
 
 .editor-layer-row.active {
-  border-color: rgba(23, 103, 255, 0.68);
-  background: linear-gradient(90deg, rgba(23, 103, 255, 0.14), rgba(23, 103, 255, 0.04));
+  border-color: color-mix(in oklch, var(--blue) 64%, var(--line));
+  background: var(--chip);
+  box-shadow: inset 3px 0 0 var(--blue);
 }
 
 .editor-layer-row input[type="text"],
@@ -2472,15 +2483,6 @@
   font-size: 12px;
 }
 
-.task-status-pill {
-  padding: 7px 10px;
-  border-radius: 999px;
-  color: var(--blue);
-  background: var(--chip);
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .task-empty {
   min-height: 220px;
   display: grid;
@@ -2589,44 +2591,85 @@
   font-size: 12px;
 }
 
+.recent-status-line {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-status-line > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.recent-status-line .gk-status-badge {
+  min-height: 22px;
+  padding-inline: 7px;
+  font-size: 11px;
+}
+
 .recent-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.recent-icon-button {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 10px;
-  color: var(--ink);
-  background: transparent;
-}
-
-.recent-icon-button:hover:not(:disabled) {
-  color: var(--blue);
-  background: var(--soft);
-}
-
-.recent-icon-button.danger:hover:not(:disabled) {
-  color: #d13b3b;
-  background: rgba(209, 59, 59, 0.08);
-}
-
-.recent-icon-button:disabled {
-  color: var(--muted);
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 @media (min-width: 1181px) {
+  .workspace > .tool-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .workspace > .preview-stage {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .workspace > .settings-panel {
+    grid-column: 5;
+    grid-row: 1;
+  }
+
   .workspace > .tool-panel,
   .workspace > .settings-panel,
   .workspace > .preview-stage {
     height: var(--workspace-panel-height);
+  }
+
+  .workspace-left-collapsed {
+    --workspace-left-track: 68px;
+  }
+
+  .workspace-right-collapsed {
+    --workspace-right-track: 0px;
+  }
+
+  .workspace-left-collapsed > .tool-panel {
+    padding: 12px 8px;
+  }
+
+  .workspace-left-collapsed .tool-panel-header {
+    justify-content: center;
+  }
+
+  .workspace-left-collapsed .tool-panel-header h2,
+  .workspace-left-collapsed .tool-title,
+  .workspace-left-collapsed .tool-button em {
+    display: none;
+  }
+
+  .workspace-left-collapsed .tool-button {
+    min-height: 50px;
+    padding: 0;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .workspace-right-collapsed > .settings-panel {
+    display: none;
   }
 
   .workspace > .settings-panel {
@@ -2642,11 +2685,70 @@
     height: auto;
     min-height: 0;
   }
+
+  .manual-editor-tools {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .manual-editor-divider-left {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .manual-editor-stage {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .manual-editor-divider-right {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .manual-editor-inspector {
+    grid-column: 5;
+    grid-row: 1;
+  }
+
+  .manual-editor-left-collapsed {
+    --manual-editor-left-track: 68px;
+  }
+
+  .manual-editor-right-collapsed {
+    --manual-editor-right-track: 0px;
+  }
+
+  .manual-editor-left-collapsed > .manual-editor-tools {
+    padding: 12px 8px;
+  }
+
+  .manual-editor-left-collapsed .manual-editor-tools h2,
+  .manual-editor-left-collapsed .editor-tool-title,
+  .manual-editor-left-collapsed .editor-tool-button em {
+    display: none;
+  }
+
+  .manual-editor-left-collapsed .editor-tool-button {
+    min-height: 50px;
+    padding: 0;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .manual-editor-right-collapsed > .manual-editor-inspector {
+    display: none;
+  }
 }
 
 @media (max-width: 1180px) {
   .workspace {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .workspace-divider {
+    display: none;
   }
 
   .tool-panel {
@@ -2655,7 +2757,7 @@
     gap: 10px;
   }
 
-  .tool-panel h2 {
+  .tool-panel-header {
     grid-column: 1 / -1;
     margin-bottom: 4px;
   }
@@ -2697,7 +2799,7 @@
     grid-template-columns: 74px minmax(0, 1fr);
   }
 
-  .task-row .task-status-pill,
+  .task-row > .gk-status-badge,
   .task-row .recent-actions {
     grid-column: 2;
     justify-self: start;
@@ -2710,6 +2812,17 @@
   .manual-editor-shell {
     height: auto;
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .manual-editor-divider {
+    display: none;
+  }
+
+  .manual-editor-tools,
+  .manual-editor-stage,
+  .manual-editor-inspector {
+    grid-column: 1;
   }
 
   .manual-editor-tools,
@@ -2829,6 +2942,21 @@
 
 @media (max-width: 520px) {
   .tool-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .tool-button {
+    min-height: 82px;
+    padding: 12px 6px;
     grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 6px;
+    text-align: center;
+  }
+
+  .tool-title {
+    font-size: 13px;
+    white-space: normal;
   }
 }

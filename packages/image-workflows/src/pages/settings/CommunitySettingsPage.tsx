@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Download, RefreshCw, Save } from "lucide-react";
+import { RefreshCw, Save } from "lucide-react";
 import { useGameKnifePermissions } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
+import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import type {
   BiRefNetInstallStatus,
   CharacterRigModelInstallStatus,
@@ -10,6 +11,7 @@ import type {
   UpscaleModelInstallStatus,
   VideoGenerationConfig,
 } from "@gameknife/shared-types";
+import { ModelInstallStatusPanel } from "../../components/ModelInstallStatusPanel";
 import { readMessage } from "../../utils/errors";
 
 const VIDEO_PROVIDER_BASE_URL: Record<VideoGenerationConfig["provider"], string> = {
@@ -91,19 +93,6 @@ export function CommunitySettingsPage() {
   const visibleRigInstallStatus = rigInstallStatus ?? settings?.character_rig_models.install_status ?? null;
   const visibleUpscaleInstallStatus = upscaleInstallStatus ?? settings?.upscale_models.install_status ?? null;
   const visibleStableAudioInstallStatus = stableAudioInstallStatus ?? settings?.stable_audio.install_status ?? null;
-  const isBirefNetInstalling = visibleInstallStatus?.status === "running";
-  const isRigInstalling = visibleRigInstallStatus?.status === "running";
-  const isUpscaleInstalling = visibleUpscaleInstallStatus?.status === "running";
-  const isStableAudioInstalling = visibleStableAudioInstallStatus?.status === "running";
-  const isStableAudioUnavailable = visibleStableAudioInstallStatus?.status === "unavailable";
-  const isBirefNetInstalled = visibleInstallStatus?.installed ?? visibleInstallStatus?.status === "success";
-  const isRigInstalled = visibleRigInstallStatus?.installed ?? visibleRigInstallStatus?.status === "success";
-  const isUpscaleInstalled = visibleUpscaleInstallStatus?.installed ?? visibleUpscaleInstallStatus?.status === "success";
-  const isStableAudioInstalled = visibleStableAudioInstallStatus?.installed ?? visibleStableAudioInstallStatus?.status === "success";
-  const progress = visibleInstallStatus?.progress ?? 0;
-  const rigProgress = visibleRigInstallStatus?.progress ?? 0;
-  const upscaleProgress = visibleUpscaleInstallStatus?.progress ?? 0;
-  const stableAudioProgress = visibleStableAudioInstallStatus?.progress ?? 0;
   const runtimeInfo = settings?.runtime;
   const rigModels = settings?.character_rig_models.models ?? [];
   const readRigModel = (key: "florence" | "grounding_dino" | "sam") => rigModels.find((model) => model.key === key)?.model_id ?? "-";
@@ -228,13 +217,13 @@ export function CommunitySettingsPage() {
           <h1>系统设置</h1>
           <p>这里展示后端当前实际运行配置。涉及模型尺寸、上传上限、存储目录的配置通过环境变量修改后重启服务。</p>
         </div>
-        <button className="ghost" onClick={() => void refreshSettings()} type="button">
+        <Button onClick={() => void refreshSettings()}>
           <RefreshCw size={18} />
           刷新状态
-        </button>
+        </Button>
       </div>
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {error ? <FeedbackMessage tone="danger">{error}</FeedbackMessage> : null}
 
       <div className="settings-grid">
         <section className="config-card wide">
@@ -299,9 +288,8 @@ export function CommunitySettingsPage() {
               />
             </label>
             <div className="settings-inline-actions">
-              <button
-                className="ghost compact"
-                type="button"
+              <Button
+                size="small"
                 disabled={!canManageSettings}
                 onClick={() => {
                   setVideoApiKey("");
@@ -309,18 +297,18 @@ export function CommunitySettingsPage() {
                 }}
               >
                 清空密钥
-              </button>
+              </Button>
               <span>不填写会保留当前密钥。</span>
             </div>
             <div className="settings-actions">
-              <button className="primary" type="button" disabled={!canManageSettings} onClick={() => void saveVideoGenerationConfig()}>
+              <Button variant="primary" disabled={!canManageSettings} onClick={() => void saveVideoGenerationConfig()}>
                 <Save size={18} />
                 保存视频 API
-              </button>
-              <button className="ghost" type="button" disabled={!canManageSettings} onClick={() => void testVideoGenerationConfig()}>
+              </Button>
+              <Button disabled={!canManageSettings} onClick={() => void testVideoGenerationConfig()}>
                 <RefreshCw size={18} />
                 检查配置
-              </button>
+              </Button>
             </div>
             {videoMessage ? <p className="settings-message">{videoMessage}</p> : null}
           </section>
@@ -335,22 +323,7 @@ export function CommunitySettingsPage() {
           <KeyValue label="输入尺寸" value={`${settings?.birefnet.model_input_size ?? "-"} px`} />
           <KeyValue label="GPU 并发" value={`${settings?.birefnet.gpu_concurrency ?? 1}`} />
           <KeyValue label="加载方式" value={settings?.birefnet.lazy_load ? "设置页手动安装后使用" : "启动时加载"} />
-          <div className="install-block">
-            {!isBirefNetInstalled ? (
-              <button className="primary install-button" disabled={isBirefNetInstalling || !canManageSettings} onClick={startBiRefNetInstall} type="button">
-                <Download size={18} />
-                下载安装模型文件
-              </button>
-            ) : null}
-            <div className="progress-track" aria-label="BiRefNet 安装进度">
-              <div className="progress-bar" style={{ width: `${progress}%` }} />
-            </div>
-            <div className={`install-message ${visibleInstallStatus?.status === "failed" ? "failed" : ""}`}>
-              <span>{visibleInstallStatus?.message ?? "尚未手动安装。"}</span>
-              <strong>{progress}%</strong>
-            </div>
-            {visibleInstallStatus?.error ? <p className="install-error">{visibleInstallStatus.error}</p> : null}
-          </div>
+          <ModelInstallStatusPanel label="BiRefNet" status={visibleInstallStatus} installDisabled={!canManageSettings} onInstall={startBiRefNetInstall} />
         </section>
 
         <section className="config-card">
@@ -362,22 +335,7 @@ export function CommunitySettingsPage() {
           <KeyValue label="候选检测" value={readRigModel("grounding_dino")} />
           <KeyValue label="Mask 精修" value={readRigModel("sam")} />
           <KeyValue label="加载方式" value={settings?.character_rig_models.lazy_load ? "手动安装后使用" : "启动时加载"} />
-          <div className="install-block">
-            {!isRigInstalled ? (
-              <button className="primary install-button" disabled={isRigInstalling || !canManageSettings} onClick={startCharacterRigInstall} type="button">
-                <Download size={18} />
-                下载安装模型文件
-              </button>
-            ) : null}
-            <div className="progress-track" aria-label="骨骼拆分模型安装进度">
-              <div className="progress-bar" style={{ width: `${rigProgress}%` }} />
-            </div>
-            <div className={`install-message ${visibleRigInstallStatus?.status === "failed" ? "failed" : ""}`}>
-              <span>{visibleRigInstallStatus?.message ?? "尚未手动安装。"}</span>
-              <strong>{rigProgress}%</strong>
-            </div>
-            {visibleRigInstallStatus?.error ? <p className="install-error">{visibleRigInstallStatus.error}</p> : null}
-          </div>
+          <ModelInstallStatusPanel label="骨骼拆分模型" status={visibleRigInstallStatus} installDisabled={!canManageSettings} onInstall={startCharacterRigInstall} />
         </section>
 
         <section className="config-card">
@@ -389,22 +347,7 @@ export function CommunitySettingsPage() {
           <KeyValue label="动漫插画" value={readUpscaleModel("anime")} />
           <KeyValue label="噪点压缩" value={readUpscaleModel("noisy")} />
           <KeyValue label="加载方式" value={settings?.upscale_models.lazy_load ? "手动安装后使用" : "启动时加载"} />
-          <div className="install-block">
-            {!isUpscaleInstalled ? (
-              <button className="primary install-button" disabled={isUpscaleInstalling || !canManageSettings} onClick={startUpscaleInstall} type="button">
-                <Download size={18} />
-                下载安装模型文件
-              </button>
-            ) : null}
-            <div className="progress-track" aria-label="图片放大模型安装进度">
-              <div className="progress-bar" style={{ width: `${upscaleProgress}%` }} />
-            </div>
-            <div className={`install-message ${visibleUpscaleInstallStatus?.status === "failed" ? "failed" : ""}`}>
-              <span>{visibleUpscaleInstallStatus?.message ?? "尚未手动安装。"}</span>
-              <strong>{upscaleProgress}%</strong>
-            </div>
-            {visibleUpscaleInstallStatus?.error ? <p className="install-error">{visibleUpscaleInstallStatus.error}</p> : null}
-          </div>
+          <ModelInstallStatusPanel label="图片放大模型" status={visibleUpscaleInstallStatus} installDisabled={!canManageSettings} onInstall={startUpscaleInstall} />
         </section>
 
         <section className="config-card">
@@ -418,22 +361,12 @@ export function CommunitySettingsPage() {
           <KeyValue label="队列" value={`${visibleStableAudioInstallStatus?.queued ?? 0} / ${visibleStableAudioInstallStatus?.queue_size ?? "-"}`} />
           <KeyValue label="加载方式" value={settings?.stable_audio.lazy_load ? "手动安装后使用" : "启动时加载"} />
           <KeyValue label="权重许可" value="Hugging Face 许可确认后安装" />
-          <div className="install-block">
-            {!isStableAudioInstalled ? (
-              <button className="primary install-button" disabled={isStableAudioInstalling || isStableAudioUnavailable || !settings?.stable_audio.base_url_configured || !canManageSettings} onClick={startStableAudioInstall} type="button">
-                <Download size={18} />
-                下载安装模型文件
-              </button>
-            ) : null}
-            <div className="progress-track" aria-label="Stable Audio 安装进度">
-              <div className="progress-bar" style={{ width: `${stableAudioProgress}%` }} />
-            </div>
-            <div className={`install-message ${visibleStableAudioInstallStatus?.status === "failed" || visibleStableAudioInstallStatus?.status === "unavailable" ? "failed" : ""}`}>
-              <span>{visibleStableAudioInstallStatus?.message ?? "尚未手动安装。"}</span>
-              <strong>{stableAudioProgress}%</strong>
-            </div>
-            {visibleStableAudioInstallStatus?.error ? <p className="install-error">{visibleStableAudioInstallStatus.error}</p> : null}
-          </div>
+          <ModelInstallStatusPanel
+            label="Stable Audio"
+            status={visibleStableAudioInstallStatus}
+            installDisabled={!settings?.stable_audio.base_url_configured || !canManageSettings}
+            onInstall={startStableAudioInstall}
+          />
         </section>
       </div>
     </section>

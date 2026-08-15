@@ -1,0 +1,372 @@
+/*
+ * 公共令牌由 ui-kit 持有，Community 和 Commercial 只选择主题，不再各自维护一套同名颜色。
+ * 默认值对应暗色工作台；显式 light 主题覆盖同一组语义变量，保证功能和状态层级一致。
+ */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --gk-font-sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --gk-font-weight-regular: 500;
+  --gk-font-weight-medium: 700;
+  --gk-font-weight-strong: 850;
+
+  --gk-space-1: 4px;
+  --gk-space-2: 8px;
+  --gk-space-3: 12px;
+  --gk-space-4: 16px;
+  --gk-space-5: 20px;
+  --gk-space-6: 24px;
+  --gk-space-8: 32px;
+
+  --gk-radius-small: 7px;
+  --gk-radius-medium: 10px;
+  --gk-radius-large: 13px;
+  --gk-radius-panel: 15px;
+  --gk-radius-pill: 999px;
+
+  --gk-color-canvas: oklch(0.155 0.025 252);
+  --gk-color-surface: oklch(0.205 0.03 252);
+  --gk-color-surface-elevated: oklch(0.235 0.035 252);
+  --gk-color-surface-muted: oklch(0.185 0.027 252);
+  --gk-color-field: oklch(0.17 0.024 252);
+  --gk-color-text: oklch(0.955 0.015 252);
+  --gk-color-text-muted: oklch(0.72 0.035 252);
+  --gk-color-border: oklch(0.31 0.04 252);
+  --gk-color-border-strong: oklch(0.4 0.055 252);
+  --gk-color-accent: oklch(0.69 0.17 255);
+  --gk-color-accent-strong: oklch(0.6 0.21 255);
+  --gk-color-accent-soft: color-mix(in oklch, var(--gk-color-accent) 18%, var(--gk-color-surface));
+  --gk-color-success: oklch(0.72 0.16 150);
+  --gk-color-warning: oklch(0.78 0.16 75);
+  --gk-color-danger: oklch(0.7 0.18 25);
+  --gk-color-danger-soft: color-mix(in oklch, var(--gk-color-danger) 14%, var(--gk-color-surface));
+  --gk-color-checker-base: oklch(0.18 0.025 252);
+  --gk-color-checker-tile: oklch(0.24 0.035 252);
+
+  --gk-shadow-panel: 0 1px 0 color-mix(in srgb, var(--gk-color-text) 6%, transparent), 0 18px 46px rgb(0 0 0 / 0.24);
+  --gk-shadow-floating: 0 1px 0 color-mix(in srgb, var(--gk-color-text) 8%, transparent), 0 12px 30px rgb(0 0 0 / 0.3);
+  --gk-focus-ring: 0 0 0 3px color-mix(in oklch, var(--gk-color-accent) 34%, transparent);
+
+  --gk-body-background:
+    linear-gradient(color-mix(in srgb, var(--gk-color-border) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--gk-color-border) 22%, transparent) 1px, transparent 1px),
+    var(--gk-color-canvas);
+  --gk-body-grid-size: 48px 48px;
+
+  /* 旧工作流仍在逐步迁移，别名让令牌收敛期间保持已有页面的视觉与业务行为。 */
+  --blue: var(--gk-color-accent);
+  --primary: var(--gk-color-accent);
+  --blue-dark: var(--gk-color-accent-strong);
+  --ink: var(--gk-color-text);
+  --muted: var(--gk-color-text-muted);
+  --line: var(--gk-color-border);
+  --line-soft: color-mix(in oklch, var(--gk-color-border) 74%, var(--gk-color-surface));
+  --line-strong: var(--gk-color-border-strong);
+  --panel: color-mix(in oklch, var(--gk-color-surface) 94%, transparent);
+  --panel-solid: var(--gk-color-surface);
+  --field: var(--gk-color-field);
+  --field-muted: var(--gk-color-surface-muted);
+  --checker-base: var(--gk-color-checker-base);
+  --checker-tile: var(--gk-color-checker-tile);
+  --chip: var(--gk-color-accent-soft);
+  --hint: color-mix(in oklch, var(--gk-color-accent) 12%, var(--gk-color-surface));
+  --hint-text: color-mix(in oklch, var(--gk-color-text) 78%, var(--gk-color-accent));
+  --soft: var(--gk-color-surface-muted);
+  --nav-panel: color-mix(in oklch, var(--gk-color-canvas) 90%, transparent);
+  --body-bg: var(--gk-body-background);
+  --shadow: var(--gk-shadow-floating);
+  --panel-shadow: var(--gk-shadow-panel);
+  --soft-shadow: var(--gk-shadow-floating);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --gk-color-canvas: oklch(0.975 0.012 252);
+  --gk-color-surface: oklch(0.995 0.006 252);
+  --gk-color-surface-elevated: oklch(1 0 0);
+  --gk-color-surface-muted: oklch(0.955 0.018 252);
+  --gk-color-field: oklch(0.995 0.006 252);
+  --gk-color-text: oklch(0.245 0.055 252);
+  --gk-color-text-muted: oklch(0.54 0.045 252);
+  --gk-color-border: oklch(0.885 0.028 252);
+  --gk-color-border-strong: oklch(0.79 0.045 252);
+  --gk-color-accent: oklch(0.57 0.22 255);
+  --gk-color-accent-strong: oklch(0.49 0.23 255);
+  --gk-color-accent-soft: color-mix(in oklch, var(--gk-color-accent) 12%, var(--gk-color-surface));
+  --gk-color-success: oklch(0.58 0.16 150);
+  --gk-color-warning: oklch(0.65 0.16 75);
+  --gk-color-danger: oklch(0.58 0.2 25);
+  --gk-color-danger-soft: color-mix(in oklch, var(--gk-color-danger) 10%, var(--gk-color-surface));
+  --gk-color-checker-base: oklch(0.95 0.012 252);
+  --gk-color-checker-tile: oklch(0.88 0.02 252);
+  --gk-shadow-panel: 0 1px 0 rgb(255 255 255 / 0.7), 0 16px 40px rgb(35 73 132 / 0.1);
+  --gk-shadow-floating: 0 1px 0 rgb(255 255 255 / 0.85), 0 12px 28px rgb(35 73 132 / 0.16);
+  --gk-body-background:
+    linear-gradient(color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
+    var(--gk-color-canvas);
+}
+
+.gk-button {
+  min-width: 0;
+  height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gk-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--gk-radius-medium);
+  color: var(--gk-color-text);
+  background: transparent;
+  font-family: var(--gk-font-sans);
+  font-weight: var(--gk-font-weight-strong);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.gk-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.gk-button:focus-visible,
+.gk-panel-resize-handle:focus-visible {
+  outline: none;
+  box-shadow: var(--gk-focus-ring);
+}
+
+.gk-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.gk-button svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.gk-button--primary {
+  color: oklch(0.99 0.005 255);
+  background: var(--gk-color-accent-strong);
+  border-color: color-mix(in oklch, var(--gk-color-accent-strong) 78%, black);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 20%, transparent), 0 8px 20px color-mix(in oklch, var(--gk-color-accent) 22%, transparent);
+}
+
+.gk-button--primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--gk-color-accent-strong) 90%, white);
+}
+
+.gk-button--secondary {
+  color: var(--gk-color-text);
+  background: var(--gk-color-surface-elevated);
+  border-color: var(--gk-color-border);
+}
+
+.gk-button--secondary:hover:not(:disabled),
+.gk-button--quiet:hover:not(:disabled) {
+  color: var(--gk-color-accent);
+  border-color: color-mix(in oklch, var(--gk-color-accent) 42%, var(--gk-color-border));
+  background: var(--gk-color-accent-soft);
+}
+
+.gk-button--quiet {
+  color: var(--gk-color-text-muted);
+  border-color: transparent;
+}
+
+.gk-button--danger {
+  color: var(--gk-color-danger);
+  border-color: color-mix(in oklch, var(--gk-color-danger) 32%, var(--gk-color-border));
+  background: var(--gk-color-danger-soft);
+}
+
+.gk-button--small {
+  height: 34px;
+  padding: 0 11px;
+  border-radius: var(--gk-radius-small);
+  font-size: 13px;
+}
+
+.gk-icon-button {
+  width: 34px;
+  padding: 0;
+}
+
+.gk-status-badge {
+  min-height: 26px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--gk-color-border);
+  border-radius: var(--gk-radius-pill);
+  color: var(--gk-color-text-muted);
+  background: var(--gk-color-surface-muted);
+  font-size: 12px;
+  font-weight: var(--gk-font-weight-strong);
+  line-height: 1;
+}
+
+.gk-status-badge > i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.gk-status-badge--info {
+  color: var(--gk-color-accent);
+  border-color: color-mix(in oklch, var(--gk-color-accent) 38%, var(--gk-color-border));
+  background: var(--gk-color-accent-soft);
+}
+
+.gk-status-badge--success {
+  color: var(--gk-color-success);
+  border-color: color-mix(in oklch, var(--gk-color-success) 34%, var(--gk-color-border));
+  background: color-mix(in oklch, var(--gk-color-success) 12%, var(--gk-color-surface));
+}
+
+.gk-status-badge--warning {
+  color: var(--gk-color-warning);
+  border-color: color-mix(in oklch, var(--gk-color-warning) 34%, var(--gk-color-border));
+  background: color-mix(in oklch, var(--gk-color-warning) 12%, var(--gk-color-surface));
+}
+
+.gk-status-badge--danger {
+  color: var(--gk-color-danger);
+  border-color: color-mix(in oklch, var(--gk-color-danger) 34%, var(--gk-color-border));
+  background: var(--gk-color-danger-soft);
+}
+
+.gk-status-badge--busy > i {
+  animation: gk-status-pulse 1.2s steps(2, end) infinite;
+}
+
+.gk-feedback-message {
+  padding: 11px 12px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid color-mix(in oklch, var(--gk-color-accent) 28%, var(--gk-color-border));
+  border-radius: var(--gk-radius-medium);
+  color: var(--gk-color-text-muted);
+  background: var(--gk-color-accent-soft);
+  font-size: 13px;
+  font-weight: var(--gk-font-weight-medium);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.gk-feedback-message strong {
+  color: var(--gk-color-text);
+}
+
+.gk-feedback-message--success {
+  border-color: color-mix(in oklch, var(--gk-color-success) 28%, var(--gk-color-border));
+  background: color-mix(in oklch, var(--gk-color-success) 10%, var(--gk-color-surface));
+}
+
+.gk-feedback-message--warning {
+  border-color: color-mix(in oklch, var(--gk-color-warning) 28%, var(--gk-color-border));
+  background: color-mix(in oklch, var(--gk-color-warning) 10%, var(--gk-color-surface));
+}
+
+.gk-feedback-message--danger {
+  border-color: color-mix(in oklch, var(--gk-color-danger) 28%, var(--gk-color-border));
+  color: color-mix(in oklch, var(--gk-color-danger) 78%, var(--gk-color-text));
+  background: var(--gk-color-danger-soft);
+}
+
+.gk-progress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--gk-color-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--gk-color-border);
+}
+
+.gk-progress > span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--gk-color-accent);
+  transition: width 180ms ease-out;
+}
+
+.gk-progress--success > span {
+  background: var(--gk-color-success);
+}
+
+.gk-progress--danger > span {
+  background: var(--gk-color-danger);
+}
+
+@keyframes gk-status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* 拖拽区域用三段短线保留像素工具感，静止时降低对画布的视觉干扰。 */
+.gk-panel-resize-handle {
+  width: 100%;
+  height: 100%;
+  min-height: 96px;
+  position: relative;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.gk-panel-resize-handle::before {
+  content: "";
+  width: 1px;
+  position: absolute;
+  inset: 10px auto;
+  left: 50%;
+  background: var(--gk-color-border);
+  transform: translateX(-50%);
+  transition: background 140ms ease, width 140ms ease;
+}
+
+.gk-panel-resize-handle::after {
+  content: "";
+  width: 3px;
+  height: 3px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 1px;
+  background: var(--gk-color-text-muted);
+  box-shadow: 0 -7px 0 var(--gk-color-text-muted), 0 7px 0 var(--gk-color-text-muted);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 140ms ease;
+}
+
+.gk-panel-resize-handle:hover::before,
+.gk-panel-resize-handle:focus-visible::before {
+  width: 2px;
+  background: var(--gk-color-accent);
+}
+
+.gk-panel-resize-handle:hover::after,
+.gk-panel-resize-handle:focus-visible::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gk-button,
+  .gk-panel-resize-handle::before,
+  .gk-panel-resize-handle::after {
+    transition-duration: 0.01ms;
+  }
+
+  .gk-status-badge--busy > i {
+    animation: none;
+  }
+}

@@ -1,47 +1,7 @@
 :root {
-  color-scheme: light;
-  font-family:
-    "Avenir Next",
-    "PingFang SC",
-    "Hiragino Sans GB",
-    "Microsoft YaHei",
-    sans-serif;
-  color: #07142f;
-  background: #f5f8ff;
-  --blue: #1767ff;
-  --blue-dark: #0a47d4;
-  --ink: #08152f;
-  --muted: #6d7890;
-  --line: #dce5f4;
-  --line-strong: #c7d5ea;
-  --panel-solid: #ffffff;
-  --nav-panel: rgba(255, 255, 255, 0.86);
-  --chip: #e5eeff;
-  --body-bg:
-    radial-gradient(circle at 74% 12%, rgba(23, 103, 255, 0.16), transparent 28rem),
-    linear-gradient(180deg, #fbfdff 0%, #f3f7ff 52%, #f8fbff 100%);
-  --panel-shadow: 0 18px 50px rgba(33, 67, 124, 0.08);
-  --soft-shadow: 0 14px 34px rgba(33, 67, 124, 0.12);
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  color: #eaf1ff;
-  background: #09111e;
-  --blue: #6ca2ff;
-  --blue-dark: #3478ff;
-  --ink: #eef4ff;
-  --muted: #96a6c1;
-  --line: #26364f;
-  --line-strong: #36506f;
-  --panel-solid: #111c2d;
-  --nav-panel: rgba(8, 15, 27, 0.88);
-  --chip: #152a51;
-  --body-bg:
-    radial-gradient(circle at 76% 8%, rgba(64, 118, 255, 0.18), transparent 30rem),
-    linear-gradient(180deg, #08101b 0%, #0b1422 48%, #070d16 100%);
-  --panel-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
-  --soft-shadow: 0 16px 38px rgba(0, 0, 0, 0.3);
+  font-family: var(--gk-font-sans);
+  color: var(--gk-color-text);
+  background: var(--gk-color-canvas);
 }
 
 * {
@@ -52,6 +12,7 @@ body {
   margin: 0;
   min-width: 1180px;
   background: var(--body-bg);
+  background-size: var(--gk-body-grid-size);
 }
 
 a {

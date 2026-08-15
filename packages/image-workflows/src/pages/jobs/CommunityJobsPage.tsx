@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobPageResponse, JobResponse, OutputAssetRef } from "@gameknife/shared-types";
+import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import { readMessage } from "../../utils/errors";
 import { DatePickerField } from "./DatePickerField";
 import { JobHistoryRow } from "./JobHistoryRow";
@@ -97,10 +98,10 @@ export function CommunityJobsPage() {
           <h1>可下载结果</h1>
           <p>这里只展示已经生成文件的任务，识别素材框、刷新框选这类中间步骤不会混进来。</p>
         </div>
-        <button className="ghost" type="button" onClick={() => setReloadKey((current) => current + 1)}>
+        <Button onClick={() => setReloadKey((current) => current + 1)}>
           <RefreshCw size={18} />
           刷新
-        </button>
+        </Button>
       </div>
 
       <section className="task-filter-card">
@@ -115,16 +116,15 @@ export function CommunityJobsPage() {
         <div className="task-date-filters">
           <DatePickerField label="开始时间" value={startDate} onChange={setStartDate} />
           <DatePickerField label="结束时间" value={endDate} onChange={setEndDate} />
-          <button
-            className="ghost compact"
-            type="button"
+          <Button
+            size="small"
             onClick={() => {
               setStartDate("");
               setEndDate("");
             }}
           >
             清空时间
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -135,7 +135,7 @@ export function CommunityJobsPage() {
             第 {Math.min(page, totalPages)} / {totalPages} 页
           </span>
         </div>
-        {error ? <p className="recent-error">{error}</p> : null}
+        {error ? <FeedbackMessage tone="danger">{error}</FeedbackMessage> : null}
         <div className="task-table">
           {jobPage?.items.length ? (
             jobPage.items.map((job) => <JobHistoryRow deletingJobId={deletingJobId} downloadingAssetId={downloadingAssetId} job={job} key={job.id} onDelete={handleDelete} onDownload={handleDownload} />)
@@ -147,12 +147,12 @@ export function CommunityJobsPage() {
           )}
         </div>
         <div className="task-pagination">
-          <button className="ghost compact" type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+          <Button size="small" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
             上一页
-          </button>
-          <button className="ghost compact" type="button" disabled={page >= totalPages || loading} onClick={() => setPage((current) => current + 1)}>
+          </Button>
+          <Button size="small" disabled={page >= totalPages || loading} onClick={() => setPage((current) => current + 1)}>
             下一页
-          </button>
+          </Button>
         </div>
       </section>
     </section>

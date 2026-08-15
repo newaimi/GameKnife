@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { BackgroundRemoveParameters } from "@gameknife/shared-types";
-import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
+import { Button, NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { ComparePreview, EmptyCanvas } from "../../components/ImageComparePreview";
 import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
@@ -64,13 +64,13 @@ export function BackgroundRemoveWorkspace() {
             </div>
             <div className="toolbar-actions">
               {outputAsset ? (
-                <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`)}>
+                <Button variant="secondary" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`)}>
                   下载
-                </button>
+                </Button>
               ) : null}
-              <button className="primary" type="button" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
+              <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
                 {busy ? "处理中" : "开始处理"}
-              </button>
+              </Button>
             </div>
           </div>
 

@@ -10,6 +10,7 @@
   "scripts": {
     "dev:web": "npm --workspace apps/community-web run dev",
     "build": "npm --workspaces --if-present run build",
-    "typecheck": "npm --workspaces --if-present run typecheck"
+    "typecheck": "npm --workspaces --if-present run typecheck",
+    "test": "npm --workspaces --if-present run test"
   }
 }

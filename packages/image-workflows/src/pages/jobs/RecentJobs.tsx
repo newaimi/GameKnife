@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Trash2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, OutputAssetRef } from "@gameknife/shared-types";
+import { JobAssetActions } from "../../components/JobAssetActions";
+import { JobStatusBadge } from "../../components/JobStatusBadge";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
 import { readMessage } from "../../utils/errors";
-import { downloadJobAsset, formatJobFileMeta, formatJobStatus, formatRelativeTime, readJobDisplayName, readJobInitial, readJobThumbnailPath } from "./jobHistory";
+import { downloadJobAsset, formatJobFileMeta, formatRelativeTime, readJobDisplayName, readJobInitial, readJobThumbnailPath } from "./jobHistory";
 
 const RECENT_JOB_PAGE_SIZE = 4;
 
@@ -129,30 +130,20 @@ function RecentJobCard({
       <div className="recent-info">
         <strong title={readJobDisplayName(job)}>{readJobDisplayName(job)}</strong>
         <p>{formatJobFileMeta(job)}</p>
-        <p>
-          {formatJobStatus(job.status)} · {formatRelativeTime(job.updated_at)}
-        </p>
+        <div className="recent-status-line">
+          <JobStatusBadge status={job.status} />
+          <span>{formatRelativeTime(job.updated_at)}</span>
+        </div>
       </div>
-      <div className="recent-actions">
-        <button
-          className="recent-icon-button"
-          type="button"
-          title={outputAsset ? "下载结果" : "当前任务没有可下载文件"}
-          disabled={!outputAsset || isDownloading}
-          onClick={() => outputAsset && void onDownload(job, outputAsset)}
-        >
-          <Download size={18} strokeWidth={2.2} />
-        </button>
-        <button
-          className="recent-icon-button danger"
-          type="button"
-          title={canDelete ? "删除任务" : "任务处理中，完成后才能删除"}
-          disabled={!canDelete || isDeleting}
-          onClick={() => void onDelete(job)}
-        >
-          <Trash2 size={18} strokeWidth={2.2} />
-        </button>
-      </div>
+      <JobAssetActions
+        job={job}
+        outputAsset={outputAsset}
+        downloading={isDownloading}
+        deleting={isDeleting}
+        deleteDisabled={!canDelete}
+        onDownload={onDownload}
+        onDelete={onDelete}
+      />
     </article>
   );
 }
