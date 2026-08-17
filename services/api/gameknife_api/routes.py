@@ -17,7 +17,6 @@ from gameknife_api.deps import (
     CommunitySettings,
     get_community_settings,
     get_birefnet_service,
-    get_character_rig_model_service,
     get_repository,
     get_request_context,
     get_stable_audio_service,
@@ -26,10 +25,6 @@ from gameknife_api.deps import (
 from gameknife_api.job_service import (
     create_job,
     delete_job,
-    run_character_part_refine_job,
-    run_character_rig_analyze_job,
-    run_character_rig_export_dragonbones_job,
-    run_character_rig_export_spine_job,
     run_sequence_clean_job,
     run_sequence_generate_video_job,
     run_sequence_from_video_job,
@@ -39,11 +34,6 @@ from gameknife_api.schemas import (
     AssetBoardRefineRequest,
     AssetJobRequest,
     AssetResponse,
-    CharacterPartResponse,
-    CharacterPartsUpdateRequest,
-    CharacterRigResponse,
-    CharacterRigTaskRequest,
-    CharacterRigUpdateRequest,
     ContextResponse,
     JobPageResponse,
     JobResponse,
@@ -62,7 +52,6 @@ from gameknife_api.schemas import (
 from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import GameKnifeRepository
 from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
-from gameknife_api.character_rig_models import CharacterRigModelService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
@@ -90,8 +79,6 @@ DOWNLOADABLE_JOB_TYPES = [
     "asset_board_export",
     "sequence_export_frames",
     "sequence_export_spine",
-    "character_rig_export_spine",
-    "character_rig_export_dragonbones",
     "image_upscale",
     "sound_effect_generate",
 ]
@@ -101,7 +88,6 @@ JOB_CATEGORY_TYPES = {
     "sound": ["sound_effect_generate"],
     "asset_board": ["asset_board_region_detect", "asset_board_cutout", "asset_board_region_refine", "asset_board_export"],
     "sequence": ["sequence_clean", "sequence_generate_video", "sequence_video_to_frames", "sequence_export_frames", "sequence_export_spine"],
-    "character_rig": ["character_rig_analyze", "character_rig_refine_part", "character_rig_export_spine", "character_rig_export_dragonbones"],
 }
 PROJECT_WORKFLOW_PERMISSION = "jobs.create"
 SETTINGS_MANAGE_PERMISSION = "settings.manage"
@@ -111,11 +97,6 @@ ALLOWED_SEQUENCE_TYPES = {
     "image/webp": ".webp",
 }
 ALLOWED_MANUAL_EDIT_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-}
-ALLOWED_CHARACTER_RIG_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
@@ -163,7 +144,6 @@ def settings(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> SettingsResponse:
@@ -175,12 +155,6 @@ def settings(
         "gpu_concurrency": 1,
         "lazy_load": True,
         "install_status": birefnet.install_status(),
-    }
-    character_rig_settings = {
-        "models": character_rig_models.model_specs(),
-        "device": character_rig_models.device_label,
-        "lazy_load": True,
-        "install_status": character_rig_models.install_status(),
     }
     upscale_settings = {
         "models": upscale_models.model_specs(),
@@ -211,7 +185,6 @@ def settings(
         },
         runtime=_read_runtime_info(),
         birefnet=birefnet_settings,
-        character_rig_models=character_rig_settings,
         upscale_models=upscale_settings,
         stable_audio=stable_audio_settings,
         video_generation=VideoGenerationClient(repository).read_config(),
@@ -737,233 +710,6 @@ def create_sequence_spine_export_task(
     return _job_response(job, context, repository)
 
 
-@router.post("/character-rigs/import", response_model=CharacterRigResponse)
-async def import_character_rig(
-    file: UploadFile = File(...),
-    name: str | None = Form(None),
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> CharacterRigResponse:
-    _require_project_workflow_write(context, "import_character_rig")
-    if file.content_type not in ALLOWED_CHARACTER_RIG_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 角色图。")
-
-    content = await file.read()
-    _verify_image(content)
-    filename = Path(file.filename or "character.png").name
-    try:
-        with Image.open(BytesIO(content)) as opened:
-            image = opened.convert("RGBA")
-            canvas_width, canvas_height = image.size
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色图读取失败。") from exc
-
-    asset_id = uuid4().hex
-    now = _now()
-    relative_path = context.storage.write_asset(asset_id, filename, content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="character_rig_source",
-        original_name=filename,
-        path=relative_path,
-        mime_type=file.content_type,
-        size_bytes=len(content),
-        created_at=now,
-        updated_at=now,
-    )
-    try:
-        repository.create_asset(asset)
-        rig = repository.create_character_rig(
-            workspace_id=context.workspace.id,
-            created_by=context.principal.id,
-            source_asset_id=asset.id,
-            name=(name or Path(filename).stem or "骨骼素材").strip(),
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-            export_format="spine",
-            created_at=now,
-        )
-    except Exception:
-        # 骨骼项目和源图必须同时成功，否则后续分析会找不到源资产。
-        # 这里清理刚写入的文件和资产记录，避免留下无法从项目入口访问的游离素材。
-        repository.delete_assets_for_workspace([asset.id], context.workspace.id)
-        context.storage.remove_asset_file(relative_path)
-        raise
-    return _character_rig_response(rig, context, repository)
-
-
-@router.get("/character-rigs", response_model=list[CharacterRigResponse])
-def list_character_rigs(
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> list[CharacterRigResponse]:
-    return [_character_rig_response(rig, context, repository, include_parts=False) for rig in repository.list_character_rigs_for_workspace(context.workspace.id)]
-
-
-@router.get("/character-rigs/{rig_id}", response_model=CharacterRigResponse)
-def get_character_rig(
-    rig_id: str,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> CharacterRigResponse:
-    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
-    if rig is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    return _character_rig_response(rig, context, repository)
-
-
-@router.patch("/character-rigs/{rig_id}", response_model=CharacterRigResponse)
-def update_character_rig(
-    rig_id: str,
-    payload: CharacterRigUpdateRequest,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> CharacterRigResponse:
-    _require_project_workflow_write(context, "update_character_rig", {"rig_id": rig_id})
-    rig = repository.update_character_rig(
-        rig_id,
-        context.workspace.id,
-        name=payload.name.strip() if payload.name else None,
-        export_format=payload.export_format,
-        updated_at=_now(),
-    )
-    if rig is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    return _character_rig_response(rig, context, repository)
-
-
-@router.patch("/character-rigs/{rig_id}/parts", response_model=CharacterRigResponse)
-def update_character_parts(
-    rig_id: str,
-    payload: CharacterPartsUpdateRequest,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> CharacterRigResponse:
-    _require_project_workflow_write(context, "update_character_parts", {"rig_id": rig_id})
-    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
-    if rig is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    repository.update_character_parts(rig_id, context.workspace.id, [part.model_dump(exclude_none=True) for part in payload.parts], updated_at=_now())
-    updated = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
-    if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    return _character_rig_response(updated, context, repository)
-
-
-@router.delete("/character-rigs/{rig_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_character_rig(
-    rig_id: str,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> Response:
-    _require_project_workflow_write(context, "delete_character_rig", {"rig_id": rig_id})
-    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
-    if rig is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    asset_ids = repository.collect_character_rig_asset_ids(rig_id, context.workspace.id)
-    asset_records = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
-    deleted = repository.delete_character_rig_for_workspace(rig_id, context.workspace.id)
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    repository.delete_assets_for_workspace([asset.id for asset in asset_records], context.workspace.id)
-    for asset in asset_records:
-        context.storage.remove_asset_file(asset.path)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post("/character-rigs/{rig_id}/analyze", response_model=JobResponse)
-def create_character_rig_analyze_task(
-    rig_id: str,
-    payload: CharacterRigTaskRequest,
-    background_tasks: BackgroundTasks,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
-) -> JobResponse:
-    rig = _ensure_character_rig(repository, context, rig_id)
-    source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
-    if not _asset_has_transparency(context, source_asset):
-        _ensure_character_rig_models_installed(character_rig_models)
-    job = create_job(
-        repository,
-        context,
-        job_type="character_rig_analyze",
-        input_asset_id=source_asset.id,
-        parameters={"rig_id": rig_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_character_rig_analyze_job, repository, context, character_rig_models, job.id, rig_id)
-    return _job_response(job, context, repository)
-
-
-@router.post("/character-rigs/{rig_id}/parts/{part_id}/refine", response_model=JobResponse)
-def create_character_part_refine_task(
-    rig_id: str,
-    part_id: str,
-    payload: CharacterRigTaskRequest,
-    background_tasks: BackgroundTasks,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
-) -> JobResponse:
-    rig = _ensure_character_rig(repository, context, rig_id)
-    source_asset = _ensure_asset_exists(repository, context, rig["source_asset_id"])
-    if repository.get_character_part_for_workspace(rig_id, part_id, context.workspace.id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼部件不存在。")
-    if not _asset_has_transparency(context, source_asset):
-        _ensure_character_rig_models_installed(character_rig_models)
-    job = create_job(
-        repository,
-        context,
-        job_type="character_rig_refine_part",
-        input_asset_id=source_asset.id,
-        parameters={"rig_id": rig_id, "part_id": part_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_character_part_refine_job, repository, context, character_rig_models, job.id, rig_id, part_id)
-    return _job_response(job, context, repository)
-
-
-@router.post("/character-rigs/{rig_id}/export/spine", response_model=JobResponse)
-def create_character_rig_spine_export_task(
-    rig_id: str,
-    payload: CharacterRigTaskRequest,
-    background_tasks: BackgroundTasks,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> JobResponse:
-    rig = _ensure_character_rig(repository, context, rig_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="character_rig_export_spine",
-        input_asset_id=rig["source_asset_id"],
-        parameters={"rig_id": rig_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_character_rig_export_spine_job, repository, context, job.id, rig_id)
-    return _job_response(job, context, repository)
-
-
-@router.post("/character-rigs/{rig_id}/export/dragonbones", response_model=JobResponse)
-def create_character_rig_dragonbones_export_task(
-    rig_id: str,
-    payload: CharacterRigTaskRequest,
-    background_tasks: BackgroundTasks,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-) -> JobResponse:
-    rig = _ensure_character_rig(repository, context, rig_id)
-    job = create_job(
-        repository,
-        context,
-        job_type="character_rig_export_dragonbones",
-        input_asset_id=rig["source_asset_id"],
-        parameters={"rig_id": rig_id, **payload.parameters},
-    )
-    background_tasks.add_task(run_character_rig_export_dragonbones_job, repository, context, job.id, rig_id)
-    return _job_response(job, context, repository)
-
-
 @router.post("/assets/images", response_model=AssetResponse)
 async def upload_image_asset(
     file: UploadFile = File(...),
@@ -1109,73 +855,6 @@ async def save_manual_edit_asset(
     return _asset_response(asset)
 
 
-def _character_rig_response(
-    rig,
-    context: RequestContext,
-    repository: GameKnifeRepository,
-    *,
-    include_parts: bool = True,
-    warnings: list[str] | None = None,
-) -> CharacterRigResponse:
-    parts = repository.list_character_parts(rig["id"], context.workspace.id) if include_parts else []
-    return CharacterRigResponse(
-        id=rig["id"],
-        name=rig["name"],
-        source_asset_id=rig["source_asset_id"],
-        source_url=f"/api/assets/{rig['source_asset_id']}",
-        canvas_width=int(rig["canvas_width"]),
-        canvas_height=int(rig["canvas_height"]),
-        export_format=rig["export_format"],
-        status=rig["status"],
-        part_count=int(rig["part_count"]),
-        parts=[_character_part_response(part) for part in parts],
-        warnings=warnings or [],
-        created_at=rig["created_at"],
-        updated_at=rig["updated_at"],
-    )
-
-
-def _character_part_response(part) -> CharacterPartResponse:
-    part_asset_id = part["part_asset_id"]
-    mask_asset_id = part["mask_asset_id"]
-    return CharacterPartResponse(
-        id=part["id"],
-        rig_id=part["rig_id"],
-        part_asset_id=part_asset_id,
-        mask_asset_id=mask_asset_id,
-        part_url=f"/api/assets/{part_asset_id}" if part_asset_id else None,
-        mask_url=f"/api/assets/{mask_asset_id}" if mask_asset_id else None,
-        name=part["name"],
-        semantic_type=part["semantic_type"],
-        bbox=json.loads(part["bbox_json"]),
-        pivot_x=float(part["pivot_x"]),
-        pivot_y=float(part["pivot_y"]),
-        parent_id=part["parent_id"],
-        z_index=int(part["z_index"]),
-        enabled=bool(part["enabled"]),
-        needs_completion=bool(part["needs_completion"]),
-        created_at=part["created_at"],
-        updated_at=part["updated_at"],
-    )
-
-
-def _ensure_character_rig(repository: GameKnifeRepository, context: RequestContext, rig_id: str):
-    rig = repository.get_character_rig_for_workspace(rig_id, context.workspace.id)
-    if rig is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="骨骼素材项目不存在。")
-    return rig
-
-
-def _asset_has_transparency(context: RequestContext, asset: AssetRecord) -> bool:
-    try:
-        with Image.open(context.storage.resolve_asset_path(asset.path)) as opened:
-            image = opened.convert("RGBA")
-            alpha = image.getchannel("A")
-            return alpha.getextrema()[0] < 250
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色图读取失败。") from exc
-
-
 def _verify_image(content: bytes) -> None:
     if not content:
         raise HTTPException(status_code=400, detail="上传文件不能为空。")
@@ -1231,24 +910,6 @@ def start_birefnet_install(
 ) -> dict[str, object]:
     _require_settings_manage(context, "install_birefnet")
     return birefnet.start_install()
-
-
-@router.get("/settings/character-rig-models/install")
-def read_character_rig_model_install(
-    context: RequestContext = Depends(get_request_context),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
-) -> dict[str, object]:
-    _require_settings_manage(context, "read_character_rig_models_install")
-    return character_rig_models.install_status()
-
-
-@router.post("/settings/character-rig-models/install")
-def start_character_rig_model_install(
-    context: RequestContext = Depends(get_request_context),
-    character_rig_models: CharacterRigModelService = Depends(get_character_rig_model_service),
-) -> dict[str, object]:
-    _require_settings_manage(context, "install_character_rig_models")
-    return character_rig_models.start_install()
 
 
 @router.get("/settings/upscale-models/install")
@@ -1502,13 +1163,6 @@ def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
     if birefnet.is_installed():
         return
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
-
-
-def _ensure_character_rig_models_installed(character_rig_models: CharacterRigModelService) -> None:
-    if character_rig_models.is_installed():
-        return
-    # 不透明角色图只有真实模型才能生成可信的候选框和 mask，创建阶段先阻止缺模型任务。
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。")
 
 
 def _read_runtime_info() -> dict[str, object]:

@@ -10,6 +10,5 @@ export { AssetBoardWorkspace } from "./workspaces/asset-board/AssetBoardWorkspac
 export { SequenceWorkspace } from "./workspaces/sequence/SequenceWorkspace";
 export { VideoToSequenceWorkspace } from "./workspaces/video-to-sequence/VideoToSequenceWorkspace";
 export { VideoGenerateWorkspace } from "./workspaces/video-generate/VideoGenerateWorkspace";
-export { CharacterRigWorkspace } from "./workspaces/character-rig/CharacterRigWorkspace";
 export { communityToolEntries, toolIconById } from "./tools/toolEntries";
 export { communityWorkflowRoutes } from "./tools/workflowRoutes";

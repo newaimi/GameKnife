@@ -26,7 +26,6 @@ export const communityFeatureEntries: FeatureEntry[] = [
   { id: "sequence", label: "序列帧", badge: "Game", route: "/tools/sequence", permission: "jobs.create" },
   { id: "video-generate", label: "AI生成视频", badge: "API", route: "/tools/video-generate", permission: "jobs.create" },
   { id: "video-to-sequence", label: "视频转帧", badge: "Local", route: "/tools/video-to-sequence", permission: "jobs.create" },
-  { id: "character-rig", label: "骨骼拆分", badge: "Rig", route: "/tools/character-rig", permission: "jobs.create" },
   { id: "sound-effect", label: "声效生成", badge: "SFX", route: "/tools/sound-effect", permission: "jobs.create" },
   { id: "manual-edit", label: "手动编辑", badge: "Edit", route: "/manual-edit", permission: "jobs.create" },
 ];

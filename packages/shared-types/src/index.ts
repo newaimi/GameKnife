@@ -151,53 +151,6 @@ export interface VideoToSequenceParameters {
   stabilize: boolean;
 }
 
-export interface CharacterPartResponse {
-  id: string;
-  rig_id: string;
-  part_asset_id?: string | null;
-  mask_asset_id?: string | null;
-  part_url?: string | null;
-  mask_url?: string | null;
-  name: string;
-  semantic_type: string;
-  bbox: [number, number, number, number];
-  pivot_x: number;
-  pivot_y: number;
-  parent_id?: string | null;
-  z_index: number;
-  enabled: boolean;
-  needs_completion: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CharacterRigResponse {
-  id: string;
-  name: string;
-  source_asset_id: string;
-  source_url: string;
-  canvas_width: number;
-  canvas_height: number;
-  export_format: string;
-  status: string;
-  part_count: number;
-  parts: CharacterPartResponse[];
-  warnings: string[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CharacterRigAnalyzeParameters {
-  alpha_threshold: number;
-  overlap_padding: number;
-  box_threshold: number;
-  text_threshold: number;
-  max_candidates: number;
-  min_mask_area: number;
-  enabled_part_keys?: string[];
-  extra_prompts: string;
-}
-
 export interface OutputAssetRef {
   id: string;
   url: string;
@@ -276,17 +229,6 @@ export interface RuntimeSettings {
     lazy_load: boolean;
     install_status: BiRefNetInstallStatus;
   };
-  character_rig_models: {
-    models: Array<{
-      key: "florence" | "grounding_dino" | "sam" | string;
-      name: string;
-      role: string;
-      model_id: string;
-    }>;
-    device: string;
-    lazy_load: boolean;
-    install_status: CharacterRigModelInstallStatus;
-  };
   upscale_models: {
     models: Array<{
       key: "general" | "anime" | "noisy" | string;
@@ -318,8 +260,6 @@ export interface ModelInstallStatus {
 }
 
 export type BiRefNetInstallStatus = ModelInstallStatus;
-
-export type CharacterRigModelInstallStatus = ModelInstallStatus;
 
 export type UpscaleModelInstallStatus = ModelInstallStatus;
 

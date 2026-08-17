@@ -166,68 +166,6 @@ class VideoGenerationConfigResponse(BaseModel):
     masked_api_key: str | None = None
 
 
-class CharacterPartResponse(BaseModel):
-    id: str
-    rig_id: str
-    part_asset_id: str | None = None
-    mask_asset_id: str | None = None
-    part_url: str | None = None
-    mask_url: str | None = None
-    name: str
-    semantic_type: str
-    bbox: list[int]
-    pivot_x: float
-    pivot_y: float
-    parent_id: str | None = None
-    z_index: int
-    enabled: bool
-    needs_completion: bool
-    created_at: str
-    updated_at: str
-
-
-class CharacterRigResponse(BaseModel):
-    id: str
-    name: str
-    source_asset_id: str
-    source_url: str
-    canvas_width: int
-    canvas_height: int
-    export_format: str
-    status: str
-    part_count: int
-    parts: list[CharacterPartResponse] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    created_at: str
-    updated_at: str
-
-
-class CharacterRigUpdateRequest(BaseModel):
-    name: str | None = None
-    export_format: str | None = None
-
-
-class CharacterPartPatch(BaseModel):
-    id: str
-    name: str | None = None
-    semantic_type: str | None = None
-    bbox: list[int] | None = None
-    pivot_x: float | None = Field(default=None, ge=0, le=1)
-    pivot_y: float | None = Field(default=None, ge=0, le=1)
-    parent_id: str | None = None
-    z_index: int | None = None
-    enabled: bool | None = None
-    needs_completion: bool | None = None
-
-
-class CharacterPartsUpdateRequest(BaseModel):
-    parts: list[CharacterPartPatch]
-
-
-class CharacterRigTaskRequest(BaseModel):
-    parameters: dict[str, Any] = Field(default_factory=dict)
-
-
 class PrincipalResponse(BaseModel):
     id: str
     kind: Literal["anonymous", "user"]
@@ -260,7 +198,6 @@ class SettingsResponse(BaseModel):
     system: dict[str, Any]
     runtime: dict[str, Any]
     birefnet: dict[str, Any]
-    character_rig_models: dict[str, Any]
     upscale_models: dict[str, Any]
     stable_audio: dict[str, Any]
     video_generation: VideoGenerationConfigResponse

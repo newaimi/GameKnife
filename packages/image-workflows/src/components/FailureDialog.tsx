@@ -33,7 +33,7 @@ export function readJobFailureDialog(job: JobResponse): FailureDialogState {
   const jobTitle = readJobTitle(job);
   return {
     title: `${jobTitle}失败`,
-    message: job.type === "character_rig_analyze" ? "智能候选拆分没有完成，请根据下面的报错检查模型文件或运行环境。" : "任务没有完成，下面是后端返回的原始错误内容。",
+    message: "任务没有完成，下面是后端返回的原始错误内容。",
     detail: `任务 ID：${job.id}\n错误内容：${detail}`,
   };
 }

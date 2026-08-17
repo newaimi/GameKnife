@@ -2,8 +2,6 @@ import type {
   AppContext,
   AssetResponse,
   BiRefNetInstallStatus,
-  CharacterRigModelInstallStatus,
-  CharacterRigResponse,
   JobPageResponse,
   JobResponse,
   RuntimeSettings,
@@ -268,78 +266,6 @@ export class GameKnifeApiClient {
     await this.requestVoid(`/api/sequences/${sequenceId}`, { method: "DELETE" });
   }
 
-  async importCharacterRig(file: File, name?: string): Promise<CharacterRigResponse> {
-    const form = new FormData();
-    form.append("file", file);
-    if (name) {
-      form.append("name", name);
-    }
-    return this.requestJson<CharacterRigResponse>("/api/character-rigs/import", {
-      method: "POST",
-      body: form,
-    });
-  }
-
-  async listCharacterRigs(): Promise<CharacterRigResponse[]> {
-    return this.requestJson<CharacterRigResponse[]>("/api/character-rigs");
-  }
-
-  async getCharacterRig(rigId: string): Promise<CharacterRigResponse> {
-    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}`);
-  }
-
-  async updateCharacterRig(rigId: string, payload: { name?: string; export_format?: string }): Promise<CharacterRigResponse> {
-    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}`, {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async updateCharacterParts(rigId: string, parts: object[]): Promise<CharacterRigResponse> {
-    return this.requestJson<CharacterRigResponse>(`/api/character-rigs/${rigId}/parts`, {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ parts }),
-    });
-  }
-
-  async createCharacterRigAnalyzeJob(rigId: string, parameters: object): Promise<JobResponse> {
-    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/analyze`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ parameters }),
-    });
-  }
-
-  async createCharacterPartRefineJob(rigId: string, partId: string, parameters: object): Promise<JobResponse> {
-    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/parts/${partId}/refine`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ parameters }),
-    });
-  }
-
-  async createCharacterRigSpineExportJob(rigId: string, parameters: object): Promise<JobResponse> {
-    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/spine`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ parameters }),
-    });
-  }
-
-  async createCharacterRigDragonBonesExportJob(rigId: string, parameters: object): Promise<JobResponse> {
-    return this.requestJson<JobResponse>(`/api/character-rigs/${rigId}/export/dragonbones`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ parameters }),
-    });
-  }
-
-  async deleteCharacterRig(rigId: string): Promise<void> {
-    await this.requestVoid(`/api/character-rigs/${rigId}`, { method: "DELETE" });
-  }
-
   async getVideoGenerationSettings(): Promise<VideoGenerationConfig> {
     return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation");
   }
@@ -350,16 +276,6 @@ export class GameKnifeApiClient {
 
   async startBiRefNetInstall(): Promise<BiRefNetInstallStatus> {
     return this.requestJson<BiRefNetInstallStatus>("/api/settings/birefnet/install", {
-      method: "POST",
-    });
-  }
-
-  async getCharacterRigModelInstallStatus(): Promise<CharacterRigModelInstallStatus> {
-    return this.requestJson<CharacterRigModelInstallStatus>("/api/settings/character-rig-models/install");
-  }
-
-  async startCharacterRigModelInstall(): Promise<CharacterRigModelInstallStatus> {
-    return this.requestJson<CharacterRigModelInstallStatus>("/api/settings/character-rig-models/install", {
       method: "POST",
     });
   }

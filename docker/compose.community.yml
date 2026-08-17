@@ -29,7 +29,6 @@ services:
       GAMEKNIFE_DB_PATH: /data/storage/gameknife.sqlite3
       GAMEKNIFE_WEB_DIST: /app/apps/community-web/dist
       GAMEKNIFE_BIREFNET_MODEL_ROOT: /data/storage/models/birefnet
-      GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT: /data/storage/models/character-rig
       GAMEKNIFE_UPSCALE_MODEL_ROOT: /data/storage/models/upscale
       GAMEKNIFE_STABLE_AUDIO_BASE_URL: http://gameknife-stable-audio-sfx:8090
       GAMEKNIFE_STABLE_AUDIO_TOKEN: ${GAMEKNIFE_STABLE_AUDIO_TOKEN:-}

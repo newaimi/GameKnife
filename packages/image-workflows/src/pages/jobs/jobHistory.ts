@@ -21,7 +21,6 @@ export const JOB_CATEGORY_OPTIONS: Array<{ value: string; label: string; note: s
   { value: "sound", label: "声效生成", note: "文字生成 WAV" },
   { value: "asset_board", label: "素材拆分", note: "素材板抠图和导出" },
   { value: "sequence", label: "序列帧", note: "PNG 序列和 Spine 工程" },
-  { value: "character_rig", label: "骨骼素材", note: "角色拆分和骨骼工程" },
 ];
 
 export const DATE_PICKER_WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];

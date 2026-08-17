@@ -14,7 +14,6 @@ GameKnife 是面向游戏美术资源处理的本地工具箱。Community 版本
 | 序列帧 | 导入、清洗、差异查看、导出 PNG 包和 Spine 包。 |
 | AI 生成视频 | 独立外部视频 API 工具，调用前需要用户确认。 |
 | 视频转序列帧 | 本地视频抽帧、抠图和序列帧项目生成。 |
-| 骨骼拆分 | Florence、Grounding DINO、SAM 链路生成角色部件和导出包。 |
 | 手动编辑 | Canvas2D 单图层编辑、选区、画笔、橡皮、吸管、恢复、保存和导出。 |
 | 声效生成 | 通过独立 Stable Audio SFX 服务生成 WAV 声效。 |
 | 任务历史 | 查看任务状态、下载结果、删除任务及其输出资产。 |
@@ -114,7 +113,7 @@ Community 版本没有登录、注册、退出和用户管理入口。后端固�
 | 数据库 | `storage/gameknife.sqlite3` |
 | 文件存储根目录 | `storage` |
 
-Community API 不要求 Authorization header、登录 Cookie 或 localStorage token。所有资产、任务、序列帧和骨骼拆分项目都写入本地工作区。
+Community API 不要求 Authorization header、登录 Cookie 或 localStorage token。所有资产、任务和序列帧项目都写入本地工作区。
 
 ## 配置
 
@@ -135,7 +134,6 @@ copy .env.example .env
 | `GAMEKNIFE_MAX_UPLOAD_MB` | `50` | 上传文件大小上限。 |
 | `GAMEKNIFE_MODEL_INPUT_SIZE` | `1024` | 模型预处理输入尺寸。 |
 | `GAMEKNIFE_BIREFNET_MODEL_ROOT` | `storage/models/birefnet` | BiRefNet 模型目录。 |
-| `GAMEKNIFE_CHARACTER_RIG_MODEL_ROOT` | `storage/models/character-rig` | 骨骼拆分模型目录。 |
 | `GAMEKNIFE_UPSCALE_MODEL_ROOT` | `storage/models/upscale` | Real-ESRGAN 模型目录。 |
 | `GAMEKNIFE_STABLE_AUDIO_BASE_URL` | `http://127.0.0.1:8090` | 独立声效服务地址。 |
 | `GAMEKNIFE_STABLE_AUDIO_TOKEN` | `change-me` | Community API 调用声效服务的内部 token。 |
@@ -155,7 +153,6 @@ copy .env.example .env
 | --- | --- | --- |
 | 去背景 | BiRefNet | 设置页或对应模型安装接口。 |
 | AI 图片放大 | Real-ESRGAN | 设置页或对应模型安装接口。 |
-| 骨骼拆分 | Florence、Grounding DINO、SAM | 设置页或对应模型安装接口。 |
 | 声效生成 | Stable Audio Open | 独立声效服务 `/models/install`。 |
 
 像素风图片放大使用最近邻算法，不要求安装 AI 模型。
@@ -315,7 +312,7 @@ POST   /api/jobs/asset-board/export
 POST   /api/manual-edits/save
 ```
 
-序列帧、骨骼拆分、设置和模型安装接口继续由对应模块维护。接口返回中文错误信息，方便本地部署和内网使用场景排查。
+序列帧、设置和模型安装接口继续由对应模块维护。接口返回中文错误信息，方便本地部署和内网使用场景排查。
 
 ## 模块边界
 

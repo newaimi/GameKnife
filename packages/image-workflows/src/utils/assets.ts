@@ -21,13 +21,11 @@ function buildJobOutputFileName(job: JobResponse, asset: OutputAssetRef, blob: B
         ? "upscale"
         : job.type === "sound_effect_generate"
           ? "sound"
-          : job.type.includes("character_rig")
-            ? "rig"
-            : job.type.includes("sequence")
-              ? "sequence"
-              : job.type.includes("export")
-                ? "components"
-                : "component";
+          : job.type.includes("sequence")
+            ? "sequence"
+            : job.type.includes("export")
+              ? "components"
+              : "component";
   const sourceName = job.input_filename?.replace(/\.[^.]+$/, "") || asset.id;
   return `${sourceName}-${prefix}.${extension}`;
 }

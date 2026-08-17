@@ -82,7 +82,7 @@ export function WorkbenchPreview({
         doubleClick={{ disabled: true }}
         panning={{ velocityDisabled: true, excluded: ["no-pan"] }}
         // no-pan 只表达“这里有自己的拖拽逻辑，不能拖动画布”。
-        // 滚轮缩放不能共用这个排除规则，否则鼠标停在素材框、骨骼框上时会退回页面滚动。
+        // 滚轮缩放不能共用这个排除规则，否则鼠标停在素材框上时会退回页面滚动。
         wheel={{ step: wheelStep }}
         pinch={{ step: 5 }}
         onTransform={(_ref, state) => {

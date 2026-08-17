@@ -5,7 +5,6 @@ import { gameKnifeApiClient } from "@gameknife/api-client";
 import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import type {
   BiRefNetInstallStatus,
-  CharacterRigModelInstallStatus,
   RuntimeSettings,
   StableAudioInstallStatus,
   UpscaleModelInstallStatus,
@@ -81,7 +80,6 @@ export function CommunitySettingsPage() {
   const permissions = useGameKnifePermissions();
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [installStatus, setInstallStatus] = useState<BiRefNetInstallStatus | null>(null);
-  const [rigInstallStatus, setRigInstallStatus] = useState<CharacterRigModelInstallStatus | null>(null);
   const [upscaleInstallStatus, setUpscaleInstallStatus] = useState<UpscaleModelInstallStatus | null>(null);
   const [stableAudioInstallStatus, setStableAudioInstallStatus] = useState<StableAudioInstallStatus | null>(null);
   const [draftVideoConfig, setDraftVideoConfig] = useState<VideoGenerationConfig | null>(null);
@@ -90,12 +88,9 @@ export function CommunitySettingsPage() {
   const [videoMessage, setVideoMessage] = useState("");
   const [error, setError] = useState("");
   const visibleInstallStatus = installStatus ?? settings?.birefnet.install_status ?? null;
-  const visibleRigInstallStatus = rigInstallStatus ?? settings?.character_rig_models.install_status ?? null;
   const visibleUpscaleInstallStatus = upscaleInstallStatus ?? settings?.upscale_models.install_status ?? null;
   const visibleStableAudioInstallStatus = stableAudioInstallStatus ?? settings?.stable_audio.install_status ?? null;
   const runtimeInfo = settings?.runtime;
-  const rigModels = settings?.character_rig_models.models ?? [];
-  const readRigModel = (key: "florence" | "grounding_dino" | "sam") => rigModels.find((model) => model.key === key)?.model_id ?? "-";
   const upscaleModels = settings?.upscale_models.models ?? [];
   const readUpscaleModel = (key: "general" | "anime" | "noisy") => upscaleModels.find((model) => model.key === key)?.name ?? "-";
   const stableAudioDevice = formatStableAudioDevice(visibleStableAudioInstallStatus, settings?.stable_audio.base_url_configured);
@@ -130,16 +125,14 @@ export function CommunitySettingsPage() {
   async function refreshSettings() {
     try {
       setError("");
-      const [nextSettings, nextBiRefNetStatus, nextCharacterRigStatus, nextUpscaleStatus, nextStableAudioStatus] = await Promise.all([
+      const [nextSettings, nextBiRefNetStatus, nextUpscaleStatus, nextStableAudioStatus] = await Promise.all([
         gameKnifeApiClient.getSettings(),
         gameKnifeApiClient.getBiRefNetInstallStatus(),
-        gameKnifeApiClient.getCharacterRigModelInstallStatus(),
         gameKnifeApiClient.getUpscaleModelInstallStatus(),
         gameKnifeApiClient.getStableAudioInstallStatus(),
       ]);
       setSettings(nextSettings);
       setInstallStatus(nextBiRefNetStatus);
-      setRigInstallStatus(nextCharacterRigStatus);
       setUpscaleInstallStatus(nextUpscaleStatus);
       setStableAudioInstallStatus(nextStableAudioStatus);
     } catch (exc) {
@@ -177,15 +170,6 @@ export function CommunitySettingsPage() {
     try {
       setError("");
       setInstallStatus(await gameKnifeApiClient.startBiRefNetInstall());
-    } catch (exc) {
-      setError(readMessage(exc));
-    }
-  }
-
-  async function startCharacterRigInstall() {
-    try {
-      setError("");
-      setRigInstallStatus(await gameKnifeApiClient.startCharacterRigModelInstall());
     } catch (exc) {
       setError(readMessage(exc));
     }
@@ -324,18 +308,6 @@ export function CommunitySettingsPage() {
           <KeyValue label="GPU 并发" value={`${settings?.birefnet.gpu_concurrency ?? 1}`} />
           <KeyValue label="加载方式" value={settings?.birefnet.lazy_load ? "设置页手动安装后使用" : "启动时加载"} />
           <ModelInstallStatusPanel label="BiRefNet" status={visibleInstallStatus} installDisabled={!canManageSettings} onInstall={startBiRefNetInstall} />
-        </section>
-
-        <section className="config-card">
-          <div className="config-card-title">
-            <h2>骨骼拆分模型</h2>
-            <span>{settings?.character_rig_models.device ?? "未知"}</span>
-          </div>
-          <KeyValue label="素材描述" value={readRigModel("florence")} />
-          <KeyValue label="候选检测" value={readRigModel("grounding_dino")} />
-          <KeyValue label="Mask 精修" value={readRigModel("sam")} />
-          <KeyValue label="加载方式" value={settings?.character_rig_models.lazy_load ? "手动安装后使用" : "启动时加载"} />
-          <ModelInstallStatusPanel label="骨骼拆分模型" status={visibleRigInstallStatus} installDisabled={!canManageSettings} onInstall={startCharacterRigInstall} />
         </section>
 
         <section className="config-card">

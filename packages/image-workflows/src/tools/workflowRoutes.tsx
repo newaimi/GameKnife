@@ -8,7 +8,6 @@ const AssetBoardWorkspace = lazy(() => import("../workspaces/asset-board/AssetBo
 const SequenceWorkspace = lazy(() => import("../workspaces/sequence/SequenceWorkspace").then((module) => ({ default: module.SequenceWorkspace })));
 const VideoGenerateWorkspace = lazy(() => import("../workspaces/video-generate/VideoGenerateWorkspace").then((module) => ({ default: module.VideoGenerateWorkspace })));
 const VideoToSequenceWorkspace = lazy(() => import("../workspaces/video-to-sequence/VideoToSequenceWorkspace").then((module) => ({ default: module.VideoToSequenceWorkspace })));
-const CharacterRigWorkspace = lazy(() => import("../workspaces/character-rig/CharacterRigWorkspace").then((module) => ({ default: module.CharacterRigWorkspace })));
 const SoundEffectWorkspace = lazy(() => import("../workspaces/sound-effect/SoundEffectWorkspace").then((module) => ({ default: module.SoundEffectWorkspace })));
 const ManualEditWorkspace = lazy(() => import("../workspaces/manual-edit/ManualEditWorkspace").then((module) => ({ default: module.ManualEditWorkspace })));
 
@@ -19,7 +18,6 @@ const workflowComponentById: Record<string, FeatureRoute["component"]> = {
   sequence: SequenceWorkspace,
   "video-generate": VideoGenerateWorkspace,
   "video-to-sequence": VideoToSequenceWorkspace,
-  "character-rig": CharacterRigWorkspace,
   "sound-effect": SoundEffectWorkspace,
   "manual-edit": ManualEditWorkspace,
 };

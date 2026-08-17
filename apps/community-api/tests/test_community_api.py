@@ -17,7 +17,6 @@ from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
 from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
 from gameknife_core import AssetRecord, JobRecord
-from gameknife_processors.character_rig import CharacterRigDetection, CharacterRigHints
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -69,25 +68,6 @@ def make_asset_board_png_bytes() -> bytes:
             image.putpixel((x, y), (0, 0, 255, 255))
     buffer = BytesIO()
     image.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def make_character_rig_png_bytes() -> bytes:
-    image = Image.new("RGBA", (40, 24), (0, 0, 0, 0))
-    for x in range(3, 13):
-        for y in range(5, 17):
-            image.putpixel((x, y), (255, 0, 0, 255))
-    for x in range(24, 34):
-        for y in range(4, 18):
-            image.putpixel((x, y), (0, 0, 255, 255))
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def make_opaque_character_png_bytes() -> bytes:
-    buffer = BytesIO()
-    Image.new("RGBA", (16, 16), (255, 255, 255, 255)).save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -196,47 +176,6 @@ class FakeUpscaleModelService:
         self.upscale_calls += 1
         output = image.resize((image.width * target_scale, image.height * target_scale), Image.Resampling.BICUBIC)
         return output, "fake-real-esrgan", "CPU", []
-
-
-class FakeCharacterRigModelService:
-    device_label = "CPU"
-
-    def __init__(self) -> None:
-        self.describe_calls = 0
-        self.detect_calls = 0
-        self.refine_calls = 0
-        self.install_calls = 0
-
-    def install_status(self) -> dict[str, object]:
-        return {"status": "success", "installed": True, "loaded": True, "progress": 100, "message": "ok", "error": None}
-
-    def is_installed(self) -> bool:
-        return True
-
-    def start_install(self) -> dict[str, object]:
-        self.install_calls += 1
-        return self.install_status()
-
-    def model_specs(self) -> list[dict[str, str]]:
-        return [{"key": "florence", "name": "fake-florence", "role": "测试", "model_id": "fake"}]
-
-    def describe_parts(self, image: Image.Image, parameters: dict[str, object]) -> CharacterRigHints:
-        self.describe_calls += 1
-        return CharacterRigHints(description="head and torso", candidate_keys=[])
-
-    def detect_parts(self, image: Image.Image, candidate_keys: list[str], parameters: dict[str, object]) -> list[CharacterRigDetection]:
-        self.detect_calls += 1
-        return [CharacterRigDetection(key="head", label="head", bbox=[2, 2, 12, 12], score=0.9)]
-
-    def refine_bbox(self, image: Image.Image, bbox: list[int], alpha: np.ndarray, parameters: dict[str, object]) -> np.ndarray:
-        self.refine_calls += 1
-        x, y, width, height = bbox
-        mask = np.zeros((image.height, image.width), dtype=np.uint8)
-        mask[y : y + height, x : x + width] = 255
-        return mask
-
-    def model_report(self) -> dict[str, str]:
-        return {"florence": "fake", "grounding_dino": "fake", "sam": "fake"}
 
 
 def test_context_is_anonymous_local_workspace(tmp_path: Path) -> None:
@@ -481,26 +420,6 @@ def test_birefnet_install_can_start_without_login(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["installed"] is True
     assert fake_birefnet.install_calls == 1
-
-
-def test_character_rig_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        response = client.get("/api/settings/character-rig-models/install")
-
-    assert response.status_code == 200
-    assert "installed" in response.json()
-
-
-def test_character_rig_model_install_can_start_without_login(tmp_path: Path) -> None:
-    fake_models = FakeCharacterRigModelService()
-    with make_client(tmp_path) as client:
-        # Community 本地部署没有账号体系，设置页安装模型必须能直接触发后端本地管理员能力。
-        client.app.state.character_rig_models = fake_models
-        response = client.post("/api/settings/character-rig-models/install")
-
-    assert response.status_code == 200
-    assert response.json()["installed"] is True
-    assert fake_models.install_calls == 1
 
 
 def test_upscale_model_install_status_is_readable_without_login(tmp_path: Path) -> None:
@@ -1138,113 +1057,3 @@ def test_video_generation_job_creates_video_asset(tmp_path: Path, monkeypatch) -
             (job["result"]["video_asset_id"],),
         ).fetchone()
     assert row == ("sequence_video", "video/mp4")
-
-
-def test_character_rig_import_analyze_refine_export_and_delete(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        imported = client.post(
-            "/api/character-rigs/import",
-            data={"name": "hero"},
-            files={"file": ("hero.png", make_character_rig_png_bytes(), "image/png")},
-        )
-        rig = imported.json()
-        analyze_created = client.post(
-            f"/api/character-rigs/{rig['id']}/analyze",
-            json={"parameters": {"min_component_area": 8, "padding": 1}},
-        )
-        analyze_job = client.get(f"/api/jobs/{analyze_created.json()['id']}").json()
-        analyzed = client.get(f"/api/character-rigs/{rig['id']}").json()
-        first_part = analyzed["parts"][0]
-        patched = client.patch(
-            f"/api/character-rigs/{rig['id']}/parts",
-            json={"parts": [{"id": first_part["id"], "name": "head", "pivot_x": 0.4, "pivot_y": 0.6}]},
-        ).json()
-        refine_created = client.post(
-            f"/api/character-rigs/{rig['id']}/parts/{first_part['id']}/refine",
-            json={"parameters": {"padding": 2}},
-        )
-        refine_job = client.get(f"/api/jobs/{refine_created.json()['id']}").json()
-        spine_created = client.post(f"/api/character-rigs/{rig['id']}/export/spine", json={"parameters": {}})
-        spine_job = client.get(f"/api/jobs/{spine_created.json()['id']}").json()
-        spine_zip = client.get(spine_job["result"]["output_assets"][0]["url"])
-        dragonbones_created = client.post(f"/api/character-rigs/{rig['id']}/export/dragonbones", json={"parameters": {}})
-        dragonbones_job = client.get(f"/api/jobs/{dragonbones_created.json()['id']}").json()
-        dragonbones_zip = client.get(dragonbones_job["result"]["output_assets"][0]["url"])
-        source_url = analyzed["source_url"]
-        part_url = analyzed["parts"][0]["part_url"]
-        deleted = client.delete(f"/api/character-rigs/{rig['id']}")
-        deleted_source = client.get(source_url)
-        deleted_part = client.get(part_url)
-
-    assert imported.status_code == 200
-    assert rig["source_asset_id"]
-    assert analyze_created.status_code == 200
-    assert analyze_job["status"] == "success"
-    assert analyze_job["type"] == "character_rig_analyze"
-    assert analyze_job["result"]["part_count"] == 2
-    assert analyzed["part_count"] == 2
-    assert analyzed["parts"][0]["part_asset_id"]
-    assert "part_file_id" not in analyzed["parts"][0]
-    assert patched["parts"][0]["name"] == "head"
-    assert patched["parts"][0]["pivot_x"] == 0.4
-    assert refine_job["status"] == "success"
-    assert spine_job["status"] == "success"
-    with zipfile.ZipFile(BytesIO(spine_zip.content)) as archive:
-        spine_names = set(archive.namelist())
-    assert "rig_manifest.json" in spine_names
-    assert "hero.json" in spine_names
-    assert any(name.startswith("parts/") for name in spine_names)
-    assert dragonbones_job["status"] == "success"
-    with zipfile.ZipFile(BytesIO(dragonbones_zip.content)) as archive:
-        dragonbones_names = set(archive.namelist())
-    assert "hero_ske.json" in dragonbones_names
-    assert "hero_tex.json" in dragonbones_names
-    assert deleted.status_code == 204
-    assert deleted_source.status_code == 404
-    assert deleted_part.status_code == 404
-
-
-def test_character_rig_opaque_source_requires_models_at_creation(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        rig = client.post(
-            "/api/character-rigs/import",
-            data={"name": "opaque"},
-            files={"file": ("opaque.png", make_opaque_character_png_bytes(), "image/png")},
-        ).json()
-        response = client.post(
-            f"/api/character-rigs/{rig['id']}/analyze",
-            json={"parameters": {}},
-        )
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "骨骼拆分模型尚未下载安装，请先到设置页下载安装模型文件。"
-
-
-def test_character_rig_opaque_source_uses_installed_model_service(tmp_path: Path) -> None:
-    fake_models = FakeCharacterRigModelService()
-    with make_client(tmp_path) as client:
-        client.app.state.character_rig_models = fake_models
-        rig = client.post(
-            "/api/character-rigs/import",
-            data={"name": "opaque"},
-            files={"file": ("opaque.png", make_opaque_character_png_bytes(), "image/png")},
-        ).json()
-        created = client.post(
-            f"/api/character-rigs/{rig['id']}/analyze",
-            json={"parameters": {"min_mask_area": 16}},
-        )
-        job = client.get(f"/api/jobs/{created.json()['id']}").json()
-        analyzed = client.get(f"/api/character-rigs/{rig['id']}").json()
-        part = analyzed["parts"][0]
-        part_asset = client.get(part["part_url"])
-
-    assert created.status_code == 200
-    assert job["status"] == "success"
-    assert job["result"]["part_count"] == 1
-    assert job["result"]["models"]["sam"] == "fake"
-    assert analyzed["part_count"] == 1
-    assert part["semantic_type"] == "head"
-    assert part_asset.status_code == 200
-    assert fake_models.describe_calls == 1
-    assert fake_models.detect_calls == 1
-    assert fake_models.refine_calls == 1

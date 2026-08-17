@@ -14,10 +14,6 @@ export function readJobTitle(job: JobResponse) {
     sequence_video_to_frames: "视频转序列帧",
     sequence_export_frames: "PNG 序列导出",
     sequence_export_spine: "Spine 导出",
-    character_rig_analyze: "智能候选拆分",
-    character_rig_refine_part: "骨骼部件精修",
-    character_rig_export_spine: "Spine 骨骼导出",
-    character_rig_export_dragonbones: "DragonBones 导出",
     sound_effect_generate: "声效生成",
   };
   return titleMap[job.type] ?? (job.type.includes("export") ? "组件导出" : job.type);
@@ -25,7 +21,6 @@ export function readJobTitle(job: JobResponse) {
 
 export function readJobInitial(job: JobResponse) {
   if (job.type === "sound_effect_generate") return "声";
-  if (job.type.includes("character_rig")) return "骨";
   if (job.type === "sequence_generate_video" || job.type === "sequence_video_to_frames") return "视";
   if (job.type.includes("sequence")) return "帧";
   if (job.type === "image_upscale") return "放";
@@ -86,7 +81,7 @@ export function formatRelativeTime(value: string) {
 
 function formatJobFileType(job: JobResponse) {
   if (job.type === "sound_effect_generate") return "WAV";
-  if ((job.type.includes("character_rig") || job.type.includes("sequence") || job.type.includes("export")) && readFirstJobOutputAsset(job)) return "ZIP";
+  if ((job.type.includes("sequence") || job.type.includes("export")) && readFirstJobOutputAsset(job)) return "ZIP";
   const mimeType = job.input_mime_type ?? "";
   if (mimeType.includes("jpeg")) return "JPG";
   if (mimeType.includes("png")) return "PNG";

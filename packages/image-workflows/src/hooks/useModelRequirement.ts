@@ -2,12 +2,11 @@ import { useCallback } from "react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { ModelInstallStatus } from "@gameknife/shared-types";
 
-export type RequiredModel = "birefnet" | "upscale" | "character-rig" | "stable-audio";
+export type RequiredModel = "birefnet" | "upscale" | "stable-audio";
 
 const MODEL_LABEL: Record<RequiredModel, string> = {
   birefnet: "BiRefNet",
   upscale: "图片放大",
-  "character-rig": "骨骼拆分",
   "stable-audio": "Stable Audio",
 };
 
@@ -35,8 +34,6 @@ function readInstallStatus(model: RequiredModel): Promise<ModelInstallStatus> {
   switch (model) {
     case "upscale":
       return gameKnifeApiClient.getUpscaleModelInstallStatus();
-    case "character-rig":
-      return gameKnifeApiClient.getCharacterRigModelInstallStatus();
     case "stable-audio":
       return gameKnifeApiClient.getStableAudioInstallStatus();
     case "birefnet":
