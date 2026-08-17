@@ -17,7 +17,7 @@
 后端改动运行：
 
 ```powershell
-conda run -n codex python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
+python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
 ```
 
 前端改动运行：

@@ -8,9 +8,11 @@ import zipfile
 
 import cv2
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import gameknife_api.routes as api_routes
 from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
 from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
@@ -256,6 +258,7 @@ def test_community_serves_web_dist_on_same_port(tmp_path: Path) -> None:
         logo_response = client.get("/gameknife-logo.png")
         spa_response = client.get("/tools/background-remove")
         api_response = client.get("/api/health")
+        missing_api_response = client.get("/api")
 
     assert root_response.status_code == 200
     assert "GameKnife" in root_response.text
@@ -263,6 +266,38 @@ def test_community_serves_web_dist_on_same_port(tmp_path: Path) -> None:
     assert logo_response.headers["content-type"] == "image/png"
     assert spa_response.status_code == 200
     assert api_response.status_code == 200
+    assert missing_api_response.status_code == 404
+    assert missing_api_response.json()["detail"] == "接口不存在。"
+
+
+def test_job_runtime_reports_detected_cuda_device(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        api_routes,
+        "_read_runtime_info",
+        lambda: {
+            "cuda_available": True,
+            "current_gpu_name": "NVIDIA Test GPU",
+            "mps_available": False,
+        },
+    )
+
+    with make_client(tmp_path) as client:
+        response = client.get("/api/jobs/runtime")
+
+    assert response.status_code == 200
+    assert response.json() == {"device": "NVIDIA Test GPU"}
+
+
+@pytest.mark.parametrize(
+    ("runtime", "expected"),
+    [
+        ({"cuda_available": True, "current_gpu_name": None, "mps_available": False}, "CUDA"),
+        ({"cuda_available": False, "current_gpu_name": None, "mps_available": True}, "MPS"),
+        ({"cuda_available": False, "current_gpu_name": None, "mps_available": False}, "CPU"),
+    ],
+)
+def test_runtime_device_label_covers_supported_backends(runtime: dict[str, object], expected: str) -> None:
+    assert api_routes._runtime_device_label(runtime) == expected
 
 
 def test_image_upload_creates_local_anonymous_asset(tmp_path: Path) -> None:

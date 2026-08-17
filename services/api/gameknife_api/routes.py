@@ -268,7 +268,7 @@ def list_job_history(
 
 @router.get("/jobs/runtime")
 def job_runtime() -> dict[str, str]:
-    return {"device": "CPU"}
+    return {"device": _runtime_device_label(_read_runtime_info())}
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
@@ -1574,6 +1574,16 @@ def _read_runtime_info() -> dict[str, object]:
 
     info["gpus"] = gpus
     return info
+
+
+def _runtime_device_label(runtime: dict[str, object]) -> str:
+    # 该接口保留原有单字段响应，调用方无需理解设置页的完整 PyTorch 环境结构。
+    # CUDA 优先返回当前显卡名称，MPS 使用稳定后端名，其余情况明确落到 CPU。
+    if bool(runtime.get("cuda_available")):
+        return str(runtime.get("current_gpu_name") or "CUDA")
+    if bool(runtime.get("mps_available")):
+        return "MPS"
+    return "CPU"
 
 
 def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:
