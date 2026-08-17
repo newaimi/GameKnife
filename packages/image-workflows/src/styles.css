@@ -130,6 +130,7 @@
 
 .tool-panel-header h2 {
   margin: 0;
+  white-space: nowrap;
 }
 
 .workspace-divider {
@@ -221,6 +222,20 @@
   min-width: 0;
   line-height: 1.18;
   white-space: nowrap;
+}
+
+/*
+ * 收起菜单后按钮只保留图标，固定宽高可以避免面板内边距把按钮压成窄矩形。
+ * margin 使用自动水平边距，使按钮在不同视口下都位于收起面板中央。
+ */
+.workspace-left-collapsed .tool-button {
+  width: 50px;
+  height: 50px;
+  min-height: 50px;
+  margin: 0 auto 10px;
+  padding: 0;
+  grid-template-columns: 1fr;
+  justify-items: center;
 }
 
 .preview-stage {
@@ -2497,13 +2512,6 @@
     display: none;
   }
 
-  .workspace-left-collapsed .tool-button {
-    min-height: 50px;
-    padding: 0;
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
   .workspace-right-collapsed > .settings-panel {
     display: none;
   }
@@ -2639,13 +2647,6 @@
   .workspace-left-collapsed .tool-title,
   .workspace-left-collapsed .tool-button em {
     display: none;
-  }
-
-  .workspace-left-collapsed .tool-button {
-    min-height: 50px;
-    padding: 0;
-    grid-template-columns: 1fr;
-    justify-items: center;
   }
 
   .workspace > .preview-stage,
