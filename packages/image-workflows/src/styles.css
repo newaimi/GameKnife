@@ -1626,45 +1626,70 @@
 }
 
 .manual-editor-page {
-  width: calc(100vw - clamp(24px, 3vw, 64px));
-  min-height: calc(100vh - 70px);
-  margin: 0 auto;
-  padding: 12px 0 16px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .manual-editor-shell {
   --manual-editor-left-track: var(--manual-editor-left-width, 220px);
   --manual-editor-right-track: var(--manual-editor-right-width, 320px);
-  height: calc(100vh - 98px);
-  display: grid;
-  grid-template-columns: var(--manual-editor-left-track) 12px minmax(0, 1fr) 12px var(--manual-editor-right-track);
-  gap: 0;
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .manual-editor-tools,
-.manual-editor-stage,
 .manual-editor-inspector {
+  min-width: 0;
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  z-index: 6;
+  padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: var(--gk-radius-panel);
-  box-shadow: var(--panel-shadow);
-}
-
-.manual-editor-tools,
-.manual-editor-inspector {
-  background: var(--gk-material-panel);
+  background: var(--gk-material-floating);
+  box-shadow: var(--gk-shadow-floating);
   backdrop-filter: var(--gk-material-filter);
   -webkit-backdrop-filter: var(--gk-material-filter);
 }
 
-.manual-editor-stage {
-  background: var(--panel-solid);
+.manual-editor-tools {
+  left: 14px;
+  width: var(--manual-editor-left-track);
+}
+
+.manual-editor-inspector {
+  right: 14px;
+  width: var(--manual-editor-right-track);
 }
 
 .manual-editor-divider {
-  min-width: 0;
-  height: 100%;
-  position: relative;
+  width: 12px;
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  z-index: 7;
+}
+
+.manual-editor-divider-left {
+  left: calc(14px + var(--manual-editor-left-track));
+}
+
+.manual-editor-divider-right {
+  right: calc(14px + var(--manual-editor-right-track));
 }
 
 .manual-editor-panel-toggle {
@@ -1678,16 +1703,9 @@
   transform: translateX(-50%);
 }
 
-.manual-editor-tools,
-.manual-editor-inspector {
-  min-width: 0;
-  padding: 20px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
 .manual-editor-tools h2 {
-  margin-bottom: 18px;
+  margin: 0 0 18px;
+  white-space: nowrap;
 }
 
 .manual-editor-tool-list {
@@ -1696,33 +1714,22 @@
 }
 
 .manual-editor-stage {
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 12px;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.manual-editor-commandbar {
-  min-height: 46px;
-  margin-bottom: 10px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-}
-
-.manual-editor-history-actions,
-.manual-editor-export-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  background: var(--gk-color-canvas);
 }
 
 .manual-editor-status {
   min-width: 0;
-  text-align: center;
+  text-align: left;
 }
 
 .manual-editor-status strong,
@@ -1747,29 +1754,55 @@
 
 .manual-editor-stage > .canvas {
   flex: 1 1 auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   min-height: 0;
+}
+
+/* 底部主操作占用第一行，手动编辑的缩放入口固定在其上方。 */
+.manual-editor-shell .zoom-controls {
+  bottom: 78px;
+}
+
+.manual-editor-shell .workbench-action-bar {
+  max-width: calc(100% - var(--manual-editor-left-track) - var(--manual-editor-right-track) - 72px);
+}
+
+.manual-editor-left-collapsed {
+  --manual-editor-left-track: 68px;
+}
+
+.manual-editor-right-collapsed {
+  --manual-editor-right-track: 0px;
+}
+
+.manual-editor-left-collapsed > .manual-editor-tools {
+  padding: 12px 8px;
+}
+
+.manual-editor-left-collapsed .manual-editor-tools h2,
+.manual-editor-left-collapsed .editor-tool-title,
+.manual-editor-left-collapsed .editor-tool-button em {
+  display: none;
+}
+
+.manual-editor-left-collapsed .editor-tool-button {
+  width: 50px;
+  height: 50px;
+  min-height: 50px;
+  margin: 0 auto 10px;
+  padding: 0;
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.manual-editor-right-collapsed > .manual-editor-inspector {
+  display: none;
 }
 
 .manual-editor-inspector .editor-section:first-child {
   border-top: 0;
   padding-top: 0;
-}
-
-.manual-editor-empty {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 16px;
-  color: var(--ink);
-  text-align: center;
-}
-
-.manual-editor-empty strong {
-  font-size: 24px;
-  letter-spacing: var(--gk-letter-spacing-heading);
 }
 
 .manual-editor-document {
@@ -2522,59 +2555,6 @@
     min-height: 0;
   }
 
-  .manual-editor-tools {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .manual-editor-divider-left {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .manual-editor-stage {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .manual-editor-divider-right {
-    grid-column: 4;
-    grid-row: 1;
-  }
-
-  .manual-editor-inspector {
-    grid-column: 5;
-    grid-row: 1;
-  }
-
-  .manual-editor-left-collapsed {
-    --manual-editor-left-track: 68px;
-  }
-
-  .manual-editor-right-collapsed {
-    --manual-editor-right-track: 0px;
-  }
-
-  .manual-editor-left-collapsed > .manual-editor-tools {
-    padding: 12px 8px;
-  }
-
-  .manual-editor-left-collapsed .manual-editor-tools h2,
-  .manual-editor-left-collapsed .editor-tool-title,
-  .manual-editor-left-collapsed .editor-tool-button em {
-    display: none;
-  }
-
-  .manual-editor-left-collapsed .editor-tool-button {
-    min-height: 50px;
-    padding: 0;
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
-  .manual-editor-right-collapsed > .manual-editor-inspector {
-    display: none;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -2693,76 +2673,54 @@
     justify-self: start;
   }
 
-  .manual-editor-page {
-    width: calc(100vw - 32px);
+  .manual-editor-shell {
+    --manual-editor-left-track: min(var(--manual-editor-left-width, 220px), 42vw);
+    --manual-editor-right-track: min(var(--manual-editor-right-width, 320px), 54vw);
   }
 
-  .manual-editor-shell {
-    height: auto;
-    grid-template-columns: 1fr;
-    gap: 16px;
+  .manual-editor-tools,
+  .manual-editor-inspector {
+    top: 10px;
+    bottom: 10px;
+  }
+
+  .manual-editor-tools {
+    left: 10px;
+  }
+
+  .manual-editor-inspector {
+    right: 10px;
   }
 
   .manual-editor-divider {
-    display: none;
+    top: 10px;
+    bottom: 10px;
   }
 
-  .manual-editor-tools,
-  .manual-editor-stage,
-  .manual-editor-inspector {
-    grid-column: 1;
+  .manual-editor-divider-left {
+    left: calc(10px + var(--manual-editor-left-track));
   }
 
-  .manual-editor-tools,
-  .manual-editor-inspector,
-  .manual-editor-stage {
-    min-height: 0;
+  .manual-editor-divider-right {
+    right: calc(10px + var(--manual-editor-right-track));
   }
 
-  .manual-editor-tool-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .manual-editor-left-collapsed {
+    --manual-editor-left-track: 68px;
   }
 
-  .manual-editor-stage > .canvas {
-    height: clamp(560px, calc(100vh - 260px), 760px);
+  .manual-editor-right-collapsed {
+    --manual-editor-right-track: 0px;
+  }
+
+  .manual-editor-shell .workbench-action-bar {
+    max-width: calc(100% - 24px);
   }
 }
 
 @media (max-width: 760px) {
   .tool-panel {
     padding: 16px;
-  }
-
-  .manual-editor-page {
-    width: calc(100vw - 20px);
-  }
-
-  .manual-editor-tools,
-  .manual-editor-stage,
-  .manual-editor-inspector {
-    border-radius: 14px;
-  }
-
-  .manual-editor-commandbar {
-    grid-template-columns: 1fr;
-  }
-
-  .manual-editor-status {
-    text-align: left;
-  }
-
-  .manual-editor-history-actions,
-  .manual-editor-export-actions {
-    width: 100%;
-  }
-
-  .manual-editor-history-actions > button,
-  .manual-editor-export-actions > button {
-    flex: 1;
-  }
-
-  .manual-editor-tool-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tool-button {

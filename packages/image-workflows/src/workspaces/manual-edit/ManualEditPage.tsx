@@ -18,7 +18,6 @@ export function ManualEditPage({
   source,
   gridVisible,
   canWrite,
-  fileInput,
   onGridVisibleChange,
   onUpload,
   onFailure,
@@ -26,7 +25,6 @@ export function ManualEditPage({
   source: ManualEditSource | null;
   gridVisible: boolean;
   canWrite: boolean;
-  fileInput: React.RefObject<HTMLInputElement | null>;
   onGridVisibleChange: React.Dispatch<React.SetStateAction<boolean>>;
   onUpload: (file: File) => void;
   onFailure: React.Dispatch<React.SetStateAction<FailureDialogState | null>>;
@@ -66,10 +64,6 @@ export function ManualEditPage({
     setSaveMessage("");
     setTool("brush");
   }, [source?.url]);
-
-  function importImage() {
-    if (canWrite) fileInput.current?.click();
-  }
 
   function readExportOptions(): EditorExportOptions {
     return {
@@ -116,19 +110,6 @@ export function ManualEditPage({
 
   return (
     <main className="manual-editor-page">
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        hidden
-        disabled={!canWrite}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onUpload(file);
-          event.currentTarget.value = "";
-        }}
-      />
-
       <ManualEditorLayout
         tools={<ManualEditorToolRail activeTool={tool} onSelect={setTool} />}
         stage={
@@ -151,7 +132,7 @@ export function ManualEditPage({
             onBrushChange={setBrush}
             onStatusChange={setStatus}
             onFailure={onFailure}
-            onImport={importImage}
+            onUpload={onUpload}
             onSave={() => void saveEditedImage()}
             onExport={() => void downloadEditedImage()}
           />
@@ -160,7 +141,6 @@ export function ManualEditPage({
           <ManualEditorInspector
             editorRef={editorRef}
             hasSource={Boolean(source)}
-            canWrite={canWrite}
             tool={tool}
             brush={brush}
             gridVisible={gridVisible}
@@ -176,7 +156,7 @@ export function ManualEditPage({
             featherRadius={featherRadius}
             padding={padding}
             status={status}
-            saving={saving}
+            sourceName={source?.name}
             saveMessage={saveMessage}
             onBrushChange={setBrush}
             onGridVisibleChange={onGridVisibleChange}
@@ -191,9 +171,6 @@ export function ManualEditPage({
             onEdgeAmountChange={setEdgeAmount}
             onFeatherRadiusChange={setFeatherRadius}
             onPaddingChange={setPadding}
-            onImport={importImage}
-            onDownload={() => void downloadEditedImage()}
-            onSave={() => void saveEditedImage()}
           />
         }
       />

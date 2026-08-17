@@ -8,6 +8,7 @@ import {
   VideoUploadAction,
   WorkbenchActionBar,
 } from "../dist/components/WorkbenchActionBar.js";
+import { readManualEditorActionState } from "../dist/workspaces/manual-edit/manualEditorActionState.js";
 
 test("WorkbenchActionBar exposes one toolbar for primary workflow actions", () => {
   const markup = renderToStaticMarkup(
@@ -30,4 +31,32 @@ test("upload actions keep file scopes and disabled state explicit", () => {
   assert.match(imageMarkup, /disabled=""/);
   assert.match(sequenceMarkup, /multiple=""/);
   assert.match(videoMarkup, /accept="video\/mp4,video\/webm,video\/quicktime,.mp4,.webm,.mov"/);
+});
+
+test("manual editor action states keep each command dependency explicit", () => {
+  assert.deepEqual(
+    readManualEditorActionState({ hasSource: false, canWrite: true, saving: false, canUndo: false, canRedo: false }),
+    {
+      uploadLabel: "导入图片",
+      uploadDisabled: false,
+      undoDisabled: true,
+      redoDisabled: true,
+      saveLabel: "保存",
+      saveDisabled: true,
+      exportDisabled: true,
+    },
+  );
+
+  assert.deepEqual(
+    readManualEditorActionState({ hasSource: true, canWrite: false, saving: true, canUndo: true, canRedo: false }),
+    {
+      uploadLabel: "更换图片",
+      uploadDisabled: true,
+      undoDisabled: false,
+      redoDisabled: true,
+      saveLabel: "保存中",
+      saveDisabled: true,
+      exportDisabled: false,
+    },
+  );
 });

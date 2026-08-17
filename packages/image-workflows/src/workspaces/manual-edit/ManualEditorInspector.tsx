@@ -12,7 +12,6 @@ const BACKGROUND_PRESETS = ["#ffffff", "#f5f7fb", "#d7ecff", "#ff3b30", "#1f6fff
 export function ManualEditorInspector({
   editorRef,
   hasSource,
-  canWrite,
   tool,
   brush,
   gridVisible,
@@ -28,7 +27,7 @@ export function ManualEditorInspector({
   featherRadius,
   padding,
   status,
-  saving,
+  sourceName,
   saveMessage,
   onBrushChange,
   onGridVisibleChange,
@@ -43,13 +42,9 @@ export function ManualEditorInspector({
   onEdgeAmountChange,
   onFeatherRadiusChange,
   onPaddingChange,
-  onImport,
-  onDownload,
-  onSave,
 }: {
   editorRef: RefObject<ManualEditorHandle | null>;
   hasSource: boolean;
-  canWrite: boolean;
   tool: EditorTool;
   brush: EditorBrushSettings;
   gridVisible: boolean;
@@ -65,7 +60,7 @@ export function ManualEditorInspector({
   featherRadius: number;
   padding: number;
   status: EditorStatus;
-  saving: boolean;
+  sourceName?: string;
   saveMessage: string;
   onBrushChange: Dispatch<SetStateAction<EditorBrushSettings>>;
   onGridVisibleChange: (visible: boolean) => void;
@@ -80,9 +75,6 @@ export function ManualEditorInspector({
   onEdgeAmountChange: (value: number) => void;
   onFeatherRadiusChange: (value: number) => void;
   onPaddingChange: (value: number) => void;
-  onImport: () => void;
-  onDownload: () => void;
-  onSave: () => void;
 }) {
   const activeToolInfo = readManualEditorToolInfo(tool);
   const showBrushControls = tool === "brush" || tool === "eraser" || tool === "restore";
@@ -90,6 +82,14 @@ export function ManualEditorInspector({
 
   return (
     <aside className="manual-editor-inspector">
+      <div className="editor-section manual-editor-status">
+        <strong>{sourceName ?? "未导入图片"}</strong>
+        <span>
+          {status.width || "-"}×{status.height || "-"} · {status.dirty ? "未保存" : "已同步"} · {status.sample}
+        </span>
+        {saveMessage ? <span>{saveMessage}</span> : null}
+      </div>
+
       <div className="editor-section editor-tool-context">
         <div className="editor-section-heading">
           <div>
@@ -98,7 +98,6 @@ export function ManualEditorInspector({
           </div>
           <em>{activeToolInfo.shortcut}</em>
         </div>
-        <p className="helper-text">{activeToolInfo.description}</p>
 
         {showBrushControls ? (
           <>
@@ -212,7 +211,6 @@ export function ManualEditorInspector({
             </div>
           </label>
         ) : null}
-        <p className="helper-text">颜色背景只在导出或保存时合成，不会改动当前图层像素。</p>
       </div>
 
       <div className="editor-section">
@@ -257,12 +255,6 @@ export function ManualEditorInspector({
         </div>
       </div>
 
-      <Button className="install-button" disabled={!canWrite} onClick={onImport}>导入图片</Button>
-      <Button className="install-button" disabled={!hasSource} onClick={onDownload}>下载</Button>
-      <Button className="install-button" variant="primary" disabled={!hasSource || saving || !canWrite} onClick={onSave}>
-        {saving ? "保存中" : "保存到资源库"}
-      </Button>
-      {saveMessage ? <p className="helper-text">{saveMessage}</p> : null}
     </aside>
   );
 }

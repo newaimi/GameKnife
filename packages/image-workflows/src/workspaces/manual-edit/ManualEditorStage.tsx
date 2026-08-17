@@ -1,9 +1,9 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { EditorBrushSettings, EditorExportBackgroundMode, EditorTool, EditorZoomPreviewMode } from "@gameknife/editor-core";
-import { Button, WorkbenchPreview } from "@gameknife/ui-kit";
+import { WorkbenchPreview } from "@gameknife/ui-kit";
 import type { FailureDialogState, ManualEditSource } from "../../types/manualEdit";
 import { EditorCanvas } from "./EditorCanvas";
-import { ManualEditorCommandBar } from "./ManualEditorCommandBar";
+import { ManualEditorActionBar } from "./ManualEditorActionBar";
 import type { EditorStatus, ManualEditorHandle } from "./types";
 
 export function ManualEditorStage({
@@ -25,7 +25,7 @@ export function ManualEditorStage({
   onBrushChange,
   onStatusChange,
   onFailure,
-  onImport,
+  onUpload,
   onSave,
   onExport,
 }: {
@@ -47,25 +47,12 @@ export function ManualEditorStage({
   onBrushChange: Dispatch<SetStateAction<EditorBrushSettings>>;
   onStatusChange: Dispatch<SetStateAction<EditorStatus>>;
   onFailure: Dispatch<SetStateAction<FailureDialogState | null>>;
-  onImport: () => void;
+  onUpload: (file: File) => void;
   onSave: () => void;
   onExport: () => void;
 }) {
   return (
     <section className="manual-editor-stage">
-      <ManualEditorCommandBar
-        sourceName={source?.name}
-        hasSource={Boolean(source)}
-        status={status}
-        canWrite={canWrite}
-        saving={saving}
-        onUndo={() => editorRef.current?.undo()}
-        onRedo={() => editorRef.current?.redo()}
-        onImport={onImport}
-        onSave={onSave}
-        onExport={onExport}
-      />
-
       <WorkbenchPreview key={source ? `manual-edit-${source.url}` : "manual-edit-empty"} contentMode={source ? "intrinsic" : "fill"}>
         {source ? (
           <EditorCanvas
@@ -85,15 +72,20 @@ export function ManualEditorStage({
             onStatusChange={onStatusChange}
             onFailure={onFailure}
           />
-        ) : (
-          <div className="manual-editor-empty">
-            <strong>导入一张图片</strong>
-            <Button variant="primary" disabled={!canWrite} onClick={onImport}>
-              选择图片
-            </Button>
-          </div>
-        )}
+        ) : null}
       </WorkbenchPreview>
+
+      <ManualEditorActionBar
+        hasSource={Boolean(source)}
+        status={status}
+        canWrite={canWrite}
+        saving={saving}
+        onUndo={() => editorRef.current?.undo()}
+        onRedo={() => editorRef.current?.redo()}
+        onUpload={onUpload}
+        onSave={onSave}
+        onExport={onExport}
+      />
     </section>
   );
 }

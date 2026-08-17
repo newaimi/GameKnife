@@ -12,6 +12,10 @@ import {
 
 const MANUAL_EDITOR_LAYOUT_STORAGE_KEY = "gameknife-manual-editor-layout";
 
+/**
+ * 维护手动编辑页左右面板的宽度与折叠状态。
+ * 画布始终占满工作区，工具和参数面板覆盖在画布上方，拖拽只更新各自的持久化宽度。
+ */
 export function ManualEditorLayout({ tools, stage, inspector }: { tools: ReactNode; stage: ReactNode; inspector: ReactNode }) {
   const [layout, setLayout] = useWorkspaceLayout(MANUAL_EDITOR_LAYOUT_STORAGE_KEY);
   const className = [

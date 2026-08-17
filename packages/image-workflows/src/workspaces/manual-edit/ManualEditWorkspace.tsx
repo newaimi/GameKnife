@@ -6,7 +6,6 @@ import { ManualEditPage } from "./ManualEditPage";
 import { loadManualEditTransfer } from "./transfer";
 
 export function ManualEditWorkspace() {
-  const fileInput = useRef<HTMLInputElement | null>(null);
   const sourceRef = useRef<ManualEditSource | null>(null);
   const transferLoadedRef = useRef(false);
   const [source, setSource] = useState<ManualEditSource | null>(null);
@@ -79,7 +78,6 @@ export function ManualEditWorkspace() {
         source={source}
         gridVisible={gridVisible}
         canWrite={canWrite}
-        fileInput={fileInput}
         onGridVisibleChange={setGridVisible}
         onUpload={upload}
         onFailure={setFailureDialog}
