@@ -1,2 +1,3 @@
-export * from './types';
-export * from './editorCore';
+export * from "./types.js";
+export * from "./history.js";
+export * from "./editorCore.js";

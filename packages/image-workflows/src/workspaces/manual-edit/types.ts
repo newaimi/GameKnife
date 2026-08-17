@@ -2,7 +2,10 @@ import type {
   EditorExportOptions,
   EditorHistoryEntry,
   EditorLayer,
+  EditorPixelHistoryState,
+  EditorPixelRecorder,
   EditorSelection,
+  EditorSelectionHistoryState,
   EditorSnapshot,
 } from "@gameknife/editor-core";
 
@@ -62,11 +65,8 @@ export type EditorStatus = {
 
 export type EditorStrokeState = {
   pointerId: number;
-  before: EditorSnapshot;
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
+  recorder: EditorPixelRecorder;
+  beforeSelection: EditorSelectionHistoryState;
 };
 
 export type ImagePoint = { x: number; y: number };
@@ -74,18 +74,20 @@ export type ImagePoint = { x: number; y: number };
 export type EditorSelectionDraft = {
   start: ImagePoint;
   current: ImagePoint;
-  before: EditorSnapshot;
+  before: EditorSelectionHistoryState;
 };
 
 export type EditorLassoDraft = {
   pointerId: number;
-  before: EditorSnapshot;
+  before: EditorSelectionHistoryState;
   path: ImagePoint[];
 };
 
 export type EditorMoveDraft = {
   pointerId: number;
-  before: EditorSnapshot;
+  layerId: string;
+  before: EditorPixelHistoryState;
   start: ImagePoint;
   initialBounds: EditorSelection;
+  historyBounds: EditorSelection;
 };

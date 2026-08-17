@@ -357,13 +357,13 @@
 }
 
 /*
- * 文件、处理和下载共享同一条底部操作栏。操作数量较多的工具只在操作栏内部横向滚动，
+ * 文件、处理和下载共享同一条顶部操作栏。操作数量较多的工具只在操作栏内部横向滚动，
  * 页面和画布坐标保持固定，避免浏览器横向滚动影响拖动画布。
  */
 .workbench-action-bar {
   position: absolute;
   left: 50%;
-  bottom: 16px;
+  top: 16px;
   z-index: 10;
   max-width: calc(100% - var(--workspace-left-track) - var(--workspace-right-track) - 72px);
   min-width: 0;
@@ -753,11 +753,6 @@
   transform: translateX(-50%);
   backdrop-filter: var(--gk-material-filter);
   -webkit-backdrop-filter: var(--gk-material-filter);
-}
-
-/* 底部操作栏占用第一行，缩放控制固定在其上方，避免两个浮层相互遮挡。 */
-.workspace .zoom-controls {
-  bottom: 78px;
 }
 
 .zoom-controls button {
@@ -1759,11 +1754,7 @@
   min-height: 0;
 }
 
-/* 底部主操作占用第一行，手动编辑的缩放入口固定在其上方。 */
-.manual-editor-shell .zoom-controls {
-  bottom: 78px;
-}
-
+/* 手动编辑按左右悬浮面板的宽度收窄顶部操作栏，避免按钮进入面板覆盖区域。 */
 .manual-editor-shell .workbench-action-bar {
   max-width: calc(100% - var(--manual-editor-left-track) - var(--manual-editor-right-track) - 72px);
 }
@@ -1843,6 +1834,18 @@
   background-image: none;
 }
 
+.manual-editor-document.pixel-grid-visible::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(54, 105, 170, 0.56) 0.08px, transparent 0.08px),
+    linear-gradient(to bottom, rgba(54, 105, 170, 0.56) 0.08px, transparent 0.08px);
+  background-size: 1px 1px;
+}
+
 .manual-editor-canvas,
 .manual-editor-overlay {
   display: block;
@@ -1851,6 +1854,8 @@
 }
 
 .manual-editor-canvas {
+  position: relative;
+  z-index: 1;
   width: auto;
   height: auto;
 }
@@ -1858,6 +1863,7 @@
 .manual-editor-overlay {
   position: absolute;
   inset: 0;
+  z-index: 3;
   width: 100%;
   height: 100%;
   pointer-events: none;

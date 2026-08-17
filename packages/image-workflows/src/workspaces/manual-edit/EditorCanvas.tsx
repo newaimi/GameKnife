@@ -5,7 +5,10 @@ import type {
   EditorDocument,
   EditorExportBackgroundMode,
   EditorHistoryEntry,
+  EditorLayerHistoryState,
+  EditorPixelHistoryState,
   EditorSelection,
+  EditorSelectionHistoryState,
   EditorSnapshot,
   EditorTool,
   EditorZoomPreviewMode,
@@ -14,9 +17,11 @@ import type { FailureDialogState, ManualEditSource } from "../../types/manualEdi
 import { isTypingTarget } from "../../utils/dom";
 import { clamp } from "../../utils/math";
 import { EDITOR_HISTORY_LIMIT, EDITOR_HISTORY_MEMORY_LIMIT_BYTES, EDITOR_SNAPSHOT_LIMIT } from "./constants";
+import { clearManualEditorScheduledWork } from "./manualEditorScheduling";
 import type { EditorLassoDraft, EditorMoveDraft, EditorSelectionDraft, EditorStatus, EditorStrokeState, ImagePoint, ManualEditorHandle } from "./types";
 import {
   addImageDataPadding,
+  applyEditorHistoryEntry,
   appendLassoPoint,
   applyAlphaThreshold,
   blobToImageData,
@@ -24,6 +29,10 @@ import {
   buildMagicWandSelection,
   buildRectSelectionMask,
   centerClipboardBounds,
+  buildEditorStrokeHistoryStates,
+  captureEditorLayerHistoryState,
+  captureEditorPixelHistoryState,
+  captureEditorSelectionHistoryState,
   clearSelectionPixels,
   cloneEditorClipboardItem,
   cloneEditorLayer,
@@ -33,10 +42,13 @@ import {
   compositeEditorLayers,
   createBlankEditorLayer,
   createEditorId,
+  createEditorPixelRecorder,
   cropImageData,
   drawEditorBrush,
   exportEditorPng,
   extractSelectionClipboard,
+  expandEditorPixelHistoryState,
+  estimateEditorHistoryBytes,
   featherAlpha,
   flipImageData,
   getActiveEditorLayer,
@@ -54,6 +66,7 @@ import {
   renderEditorCanvas,
   restoreEditorSnapshot,
   rotateImageDataClockwise,
+  unionEditorBounds,
   writeClipboardImage,
 } from "@gameknife/editor-core";
 
@@ -61,6 +74,7 @@ const EDITOR_STATUS_SYNC_INTERVAL_MS = 90;
 
 type EditorSyncOptions = {
   redrawBitmap?: boolean;
+  bitmapBounds?: EditorSelection;
   status?: "immediate" | "deferred" | "none";
   layout?: boolean;
 };
@@ -107,15 +121,15 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
   const selectionDraftRef = useRef<EditorSelectionDraft | null>(null);
   const lassoDraftRef = useRef<EditorLassoDraft | null>(null);
   const moveDraftRef = useRef<EditorMoveDraft | null>(null);
-  const layerOpacityDraftRef = useRef<{ layerId: string; before: EditorSnapshot; originalOpacity: number } | null>(null);
+  const layerOpacityDraftRef = useRef<{ layerId: string; before: EditorLayerHistoryState; originalOpacity: number } | null>(null);
   const pointerRef = useRef<ImagePoint | null>(null);
-  const gridVisibleRef = useRef(gridVisible);
   const brushRef = useRef(brush);
   const toolRef = useRef(tool);
   const zoomPreviewModeRef = useRef(zoomPreviewMode);
   const onStatusChangeRef = useRef(onStatusChange);
   const renderFrameRef = useRef<number | null>(null);
   const renderNeedsBitmapRef = useRef(false);
+  const renderBitmapBoundsRef = useRef<EditorSelection | null>(null);
   const statusTimerRef = useRef<number | null>(null);
   const lastStatusSyncRef = useRef(0);
   const [, setLayoutRevision] = useState(0);
@@ -147,33 +161,45 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
   function renderNow() {
     renderFrameRef.current = null;
     const redrawBitmap = renderNeedsBitmapRef.current;
+    const bitmapBounds = renderBitmapBoundsRef.current ?? undefined;
     renderNeedsBitmapRef.current = false;
-    renderCurrentCanvas(redrawBitmap);
+    renderBitmapBoundsRef.current = null;
+    renderCurrentCanvas(redrawBitmap, bitmapBounds);
   }
 
-  function renderCurrentCanvas(redrawBitmap: boolean) {
+  function renderCurrentCanvas(redrawBitmap: boolean, bitmapBounds?: EditorSelection) {
     renderEditorCanvas(
       canvasRef.current,
       overlayRef.current,
       documentRef.current,
-      gridVisibleRef.current,
       pointerRef.current,
       brushRef.current,
       toolRef.current,
       zoomPreviewModeRef.current,
       lassoDraftRef.current,
       redrawBitmap,
+      bitmapBounds,
     );
   }
 
-  function scheduleRender(redrawBitmap: boolean) {
-    renderNeedsBitmapRef.current = renderNeedsBitmapRef.current || redrawBitmap;
+  function scheduleRender(redrawBitmap: boolean, bitmapBounds?: EditorSelection) {
+    if (redrawBitmap) {
+      if (!renderNeedsBitmapRef.current) {
+        renderBitmapBoundsRef.current = bitmapBounds ? { ...bitmapBounds } : null;
+      } else if (renderBitmapBoundsRef.current && bitmapBounds) {
+        renderBitmapBoundsRef.current = unionEditorBounds(renderBitmapBoundsRef.current, bitmapBounds);
+      } else {
+        // 任意一次完整重绘请求都会覆盖同一帧内已经累计的局部脏区。
+        renderBitmapBoundsRef.current = null;
+      }
+      renderNeedsBitmapRef.current = true;
+    }
     if (renderFrameRef.current !== null) return;
     renderFrameRef.current = window.requestAnimationFrame(renderNow);
   }
 
   function sync(options: EditorSyncOptions = {}) {
-    scheduleRender(options.redrawBitmap ?? true);
+    scheduleRender(options.redrawBitmap ?? true, options.bitmapBounds);
     scheduleStatusSync(options.status ?? "deferred");
     if (options.layout) {
       setLayoutRevision((current) => current + 1);
@@ -244,7 +270,6 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
   }, [source.name, source.url]);
 
   useEffect(() => {
-    gridVisibleRef.current = gridVisible;
     brushRef.current = brush;
     toolRef.current = tool;
     zoomPreviewModeRef.current = zoomPreviewMode;
@@ -258,8 +283,12 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
 
   useEffect(() => {
     return () => {
-      if (renderFrameRef.current !== null) window.cancelAnimationFrame(renderFrameRef.current);
-      if (statusTimerRef.current !== null) window.clearTimeout(statusTimerRef.current);
+      clearManualEditorScheduledWork(
+        renderFrameRef,
+        statusTimerRef,
+        (frameId) => window.cancelAnimationFrame(frameId),
+        (timerId) => window.clearTimeout(timerId),
+      );
     };
   }, []);
 
@@ -320,18 +349,78 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     redoRef.current = [];
   };
 
-  const commitDocumentChange = (title: string, before: EditorSnapshot, options: EditorSyncOptions = {}) => {
+  const commitHistoryEntry = (entry: EditorHistoryEntry, options: Pick<EditorSyncOptions, "status"> = {}) => {
+    pushHistoryEntry(entry);
     const doc = documentRef.current;
     if (!doc) return;
-    pushHistoryEntry({
-      id: createEditorId("history"),
-      title,
-      createdAt: Date.now(),
+    doc.dirty = true;
+    sync({
+      redrawBitmap: entry.redrawBitmap,
+      bitmapBounds: entry.kind === "pixels" ? entry.bounds : undefined,
+      status: options.status ?? "immediate",
+      layout: entry.layout,
+    });
+  };
+
+  const createHistoryMetadata = (title: string, redrawBitmap: boolean, layout = false) => ({
+    id: createEditorId("history"),
+    title,
+    createdAt: Date.now(),
+    redrawBitmap,
+    layout,
+  });
+
+  const commitSnapshotChange = (title: string, before: EditorSnapshot, options: EditorSyncOptions = {}) => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    commitHistoryEntry({
+      ...createHistoryMetadata(title, options.redrawBitmap ?? true, options.layout ?? false),
+      kind: "snapshot",
       before,
       after: cloneEditorSnapshot(doc, title),
-    });
-    doc.dirty = true;
-    sync({ redrawBitmap: options.redrawBitmap ?? true, status: options.status ?? "immediate", layout: options.layout });
+    }, options);
+  };
+
+  const commitSelectionChange = (title: string, before: EditorSelectionHistoryState, options: EditorSyncOptions = {}) => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    commitHistoryEntry({
+      ...createHistoryMetadata(title, options.redrawBitmap ?? false, options.layout ?? false),
+      kind: "selection",
+      before,
+      after: captureEditorSelectionHistoryState(doc),
+    }, options);
+  };
+
+  const commitLayerChange = (title: string, before: EditorLayerHistoryState, options: EditorSyncOptions = {}) => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    commitHistoryEntry({
+      ...createHistoryMetadata(title, options.redrawBitmap ?? true, options.layout ?? false),
+      kind: "layers",
+      before,
+      after: captureEditorLayerHistoryState(doc),
+    }, options);
+  };
+
+  const commitPixelChange = (
+    title: string,
+    layerId: string,
+    bounds: EditorSelection,
+    before: EditorPixelHistoryState,
+    options: EditorSyncOptions = {},
+  ) => {
+    const doc = documentRef.current;
+    const after = doc ? captureEditorPixelHistoryState(doc, layerId, bounds) : null;
+    if (!doc || !after) return;
+    commitHistoryEntry({
+      ...createHistoryMetadata(title, options.redrawBitmap ?? true, options.layout ?? false),
+      kind: "pixels",
+      layerId,
+      bounds,
+      before,
+      after,
+    }, options);
   };
 
   const commitLayerOpacityPreview = (layerId: string) => {
@@ -346,27 +435,37 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       return;
     }
 
-    commitDocumentChange("调整图层透明度", opacityDraft.before);
+    commitLayerChange("调整图层透明度", opacityDraft.before);
   };
 
   const undo = () => {
     const doc = documentRef.current;
     const entry = historyRef.current.pop();
     if (!doc || !entry) return;
-    restoreEditorSnapshot(doc, entry.before);
+    applyEditorHistoryEntry(doc, entry, "before");
     redoRef.current.push(entry);
     doc.dirty = true;
-    sync({ redrawBitmap: true, status: "immediate", layout: true });
+    sync({
+      redrawBitmap: entry.redrawBitmap,
+      bitmapBounds: entry.kind === "pixels" ? entry.bounds : undefined,
+      status: "immediate",
+      layout: entry.layout,
+    });
   };
 
   const redo = () => {
     const doc = documentRef.current;
     const entry = redoRef.current.pop();
     if (!doc || !entry) return;
-    restoreEditorSnapshot(doc, entry.after);
+    applyEditorHistoryEntry(doc, entry, "after");
     historyRef.current.push(entry);
     doc.dirty = true;
-    sync({ redrawBitmap: true, status: "immediate", layout: true });
+    sync({
+      redrawBitmap: entry.redrawBitmap,
+      bitmapBounds: entry.kind === "pixels" ? entry.bounds : undefined,
+      status: "immediate",
+      layout: entry.layout,
+    });
   };
 
   const copySelection = async () => {
@@ -390,11 +489,15 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
   const cutSelection = async () => {
     const doc = documentRef.current;
     if (!doc?.selection) return;
-    const before = cloneEditorSnapshot(doc, "剪切选区");
+    const layer = getActiveEditorLayer(doc);
+    if (!layer) return;
+    const bounds = { ...doc.selection.bounds };
+    const before = captureEditorPixelHistoryState(doc, layer.id, bounds);
+    if (!before) return;
     const item = extractSelectionClipboard(doc, true);
     if (!item) return;
     clipboardRef.current = item;
-    commitDocumentChange("剪切选区", before);
+    commitPixelChange("剪切选区", layer.id, bounds, before);
     try {
       await writeClipboardImage(item.imageData);
     } catch {
@@ -418,18 +521,31 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       });
       return;
     }
-    const before = cloneEditorSnapshot(doc, "粘贴选区");
+    const before = captureEditorSelectionHistoryState(doc);
     item.bounds = centerClipboardBounds(item.bounds, doc.width, doc.height);
     doc.floatingSelection = item;
-    commitDocumentChange("粘贴选区", before);
+    // 浮动选区参与最终合成，粘贴后要刷新位图，但历史只保存局部浮动内容。
+    commitSelectionChange("粘贴选区", before, { redrawBitmap: true });
   };
 
   const commitFloatingSelection = () => {
     const doc = documentRef.current;
     if (!doc?.floatingSelection) return;
-    const before = cloneEditorSnapshot(doc, "贴入选区");
+    const layer = getActiveEditorLayer(doc);
+    if (!layer) return;
+    const bounds = normalizeEditorBounds(
+      doc.floatingSelection.bounds.x,
+      doc.floatingSelection.bounds.y,
+      doc.floatingSelection.bounds.x + doc.floatingSelection.bounds.width,
+      doc.floatingSelection.bounds.y + doc.floatingSelection.bounds.height,
+      doc.width,
+      doc.height,
+    );
+    if (!bounds) return;
+    const before = captureEditorPixelHistoryState(doc, layer.id, bounds);
+    if (!before) return;
     pasteFloatingSelection(doc);
-    commitDocumentChange("贴入选区", before);
+    commitPixelChange("贴入选区", layer.id, bounds, before);
   };
 
   useImperativeHandle(ref, () => ({
@@ -444,19 +560,22 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     redo,
     clearSelection: () => {
       const doc = documentRef.current;
-      if (!doc) return;
-      const before = cloneEditorSnapshot(doc, "清除选区");
+      if (!doc || (!doc.selection && !doc.floatingSelection)) return;
+      const before = captureEditorSelectionHistoryState(doc);
       doc.selection = null;
-      commitDocumentChange("清除选区", before, { redrawBitmap: false });
+      doc.floatingSelection = null;
+      commitSelectionChange("清除选区", before, { redrawBitmap: Boolean(before.floatingSelection) });
     },
     deleteSelection: () => {
       const doc = documentRef.current;
       if (!doc?.selection) return;
-      const before = cloneEditorSnapshot(doc, "删除选区");
       const layer = getActiveEditorLayer(doc);
       if (!layer) return;
+      const bounds = { ...doc.selection.bounds };
+      const before = captureEditorPixelHistoryState(doc, layer.id, bounds);
+      if (!before) return;
       clearSelectionPixels(layer.imageData, doc.selection);
-      commitDocumentChange("删除选区", before);
+      commitPixelChange("删除选区", layer.id, bounds, before);
     },
     copySelection,
     cutSelection,
@@ -474,7 +593,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       const layer = createBlankEditorLayer(doc.width, doc.height, `图层 ${doc.layers.length + 1}`);
       doc.layers = [...doc.layers, layer];
       doc.activeLayerId = layer.id;
-      commitDocumentChange("新建图层", before);
+      commitSnapshotChange("新建图层", before);
     },
     duplicateLayer: () => {
       const doc = documentRef.current;
@@ -485,7 +604,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       const duplicate = { ...cloneEditorLayer(layer), id: createEditorId("layer"), name: `${layer.name} 副本` };
       doc.layers = [...doc.layers.slice(0, index + 1), duplicate, ...doc.layers.slice(index + 1)];
       doc.activeLayerId = duplicate.id;
-      commitDocumentChange("复制图层", before);
+      commitSnapshotChange("复制图层", before);
     },
     deleteLayer: (layerId) => {
       const doc = documentRef.current;
@@ -496,7 +615,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       if (doc.activeLayerId === layerId) {
         doc.activeLayerId = doc.layers[Math.max(0, index - 1)]?.id ?? doc.layers[0].id;
       }
-      commitDocumentChange("删除图层", before);
+      commitSnapshotChange("删除图层", before);
     },
     setActiveLayer: (layerId) => {
       const doc = documentRef.current;
@@ -509,10 +628,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       const layer = doc?.layers.find((item) => item.id === layerId);
       if (!doc || !layer) return;
       if (layer.name === (name || "图层")) return;
-      const before = cloneEditorSnapshot(doc, "重命名图层");
+      const before = captureEditorLayerHistoryState(doc);
       layer.name = name || "图层";
       doc.activeLayerId = layerId;
-      commitDocumentChange("重命名图层", before);
+      commitLayerChange("重命名图层", before, { redrawBitmap: false });
     },
     updateLayerOpacity: (layerId, opacity) => {
       const doc = documentRef.current;
@@ -521,10 +640,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       layerOpacityDraftRef.current = null;
       const nextOpacity = clamp(Math.round(opacity), 0, 100);
       if (layer.opacity === nextOpacity) return;
-      const before = cloneEditorSnapshot(doc, "调整图层透明度");
+      const before = captureEditorLayerHistoryState(doc);
       layer.opacity = nextOpacity;
       doc.activeLayerId = layerId;
-      commitDocumentChange("调整图层透明度", before);
+      commitLayerChange("调整图层透明度", before);
     },
     previewLayerOpacity: (layerId, opacity) => {
       const doc = documentRef.current;
@@ -535,10 +654,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       }
       if (!layerOpacityDraftRef.current) {
         // 拖动透明度滑杆时要即时预览，但历史记录只能落一次。
-        // 因此先保存拖动前快照，持续拖动只改当前图层，松手后再统一提交。
+        // 这里只保存图层展示属性，避免每次拖动开始时复制大图像素。
         layerOpacityDraftRef.current = {
           layerId,
-          before: cloneEditorSnapshot(doc, "调整图层透明度"),
+          before: captureEditorLayerHistoryState(doc),
           originalOpacity: layer.opacity,
         };
       }
@@ -551,10 +670,10 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       const doc = documentRef.current;
       const layer = doc?.layers.find((item) => item.id === layerId);
       if (!doc || !layer) return;
-      const before = cloneEditorSnapshot(doc, "切换图层显示");
+      const before = captureEditorLayerHistoryState(doc);
       layer.visible = !layer.visible;
       doc.activeLayerId = layerId;
-      commitDocumentChange("切换图层显示", before);
+      commitLayerChange("切换图层显示", before);
     },
     moveLayer: (layerId, direction) => {
       const doc = documentRef.current;
@@ -562,12 +681,12 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       const index = doc.layers.findIndex((layer) => layer.id === layerId);
       const nextIndex = direction === "up" ? index + 1 : index - 1;
       if (index < 0 || nextIndex < 0 || nextIndex >= doc.layers.length) return;
-      const before = cloneEditorSnapshot(doc, "移动图层");
+      const before = captureEditorLayerHistoryState(doc);
       const layers = [...doc.layers];
       [layers[index], layers[nextIndex]] = [layers[nextIndex], layers[index]];
       doc.layers = layers;
       doc.activeLayerId = layerId;
-      commitDocumentChange("移动图层", before);
+      commitLayerChange("移动图层", before);
     },
     mergeLayerDown: (layerId) => {
       const doc = documentRef.current;
@@ -583,7 +702,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       lower.name = `${lower.name}+${upper.name}`;
       doc.layers = doc.layers.filter((layer) => layer.id !== upper.id);
       doc.activeLayerId = lower.id;
-      commitDocumentChange("向下合并", before);
+      commitSnapshotChange("向下合并", before);
     },
     flattenLayers: () => {
       const doc = documentRef.current;
@@ -595,13 +714,15 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       doc.activeLayerId = layerId;
       doc.selection = null;
       doc.floatingSelection = null;
-      commitDocumentChange("扁平化", before);
+      commitSnapshotChange("扁平化", before);
     },
     jumpToHistory: (index) => {
       const doc = documentRef.current;
-      const entry = historyRef.current[index];
-      if (!doc || !entry) return;
-      restoreEditorSnapshot(doc, entry.after);
+      if (!doc || index < 0 || index >= historyRef.current.length) return;
+      // 历史节点可能是局部像素或属性状态，按倒序逐条恢复才能保持各记录类型独立。
+      for (let cursor = historyRef.current.length - 1; cursor > index; cursor -= 1) {
+        applyEditorHistoryEntry(doc, historyRef.current[cursor], "before");
+      }
       historyRef.current = historyRef.current.slice(0, index + 1);
       redoRef.current = [];
       doc.dirty = true;
@@ -619,7 +740,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       if (!doc || !snapshot) return;
       const before = cloneEditorSnapshot(doc, "恢复快照");
       restoreEditorSnapshot(doc, snapshot);
-      commitDocumentChange("恢复快照", before);
+      commitSnapshotChange("恢复快照", before, { layout: before.width !== snapshot.width || before.height !== snapshot.height });
     },
     trimTransparent: () => {
       const doc = documentRef.current;
@@ -637,7 +758,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       doc.height += Math.max(0, Math.round(padding)) * 2;
       doc.originalImageData = addImageDataPadding(doc.originalImageData, padding);
       doc.selection = null;
-      commitDocumentChange("加留边", before, { layout: true });
+      commitSnapshotChange("加留边", before, { layout: true });
     },
     flipHorizontal: () => {
       const doc = documentRef.current;
@@ -646,7 +767,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       doc.layers = doc.layers.map((layer) => ({ ...layer, imageData: flipImageData(layer.imageData, "horizontal") }));
       doc.originalImageData = flipImageData(doc.originalImageData, "horizontal");
       doc.selection = null;
-      commitDocumentChange("水平翻转", before);
+      commitSnapshotChange("水平翻转", before);
     },
     flipVertical: () => {
       const doc = documentRef.current;
@@ -655,7 +776,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       doc.layers = doc.layers.map((layer) => ({ ...layer, imageData: flipImageData(layer.imageData, "vertical") }));
       doc.originalImageData = flipImageData(doc.originalImageData, "vertical");
       doc.selection = null;
-      commitDocumentChange("垂直翻转", before);
+      commitSnapshotChange("垂直翻转", before);
     },
     rotateClockwise: () => {
       const doc = documentRef.current;
@@ -666,7 +787,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       doc.width = doc.layers[0].imageData.width;
       doc.height = doc.layers[0].imageData.height;
       doc.selection = null;
-      commitDocumentChange("旋转90", before, { layout: true });
+      commitSnapshotChange("旋转90", before, { layout: true });
     },
     applyAlphaThreshold: (threshold) => applyAlphaOperation((data) => applyAlphaThreshold(data, threshold)),
     removeAlphaNoise: () => applyAlphaOperation(removeAlphaNoise),
@@ -679,9 +800,11 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     const doc = documentRef.current;
     const layer = doc ? getActiveEditorLayer(doc) : null;
     if (!doc || !layer) return;
-    const before = cloneEditorSnapshot(doc, "修边");
+    const bounds = { x: 0, y: 0, width: doc.width, height: doc.height };
+    const before = captureEditorPixelHistoryState(doc, layer.id, bounds);
+    if (!before) return;
     operation(layer.imageData);
-    commitDocumentChange("修边", before);
+    commitPixelChange("修边", layer.id, bounds, before);
   }
 
   function cropDocumentToSelection(doc: EditorDocument, title: string) {
@@ -697,7 +820,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     doc.height = bounds.height;
     doc.selection = null;
     doc.floatingSelection = null;
-    commitDocumentChange(title, before, { layout: true });
+    commitSnapshotChange(title, before, { layout: true });
   }
 
   const startPointerEdit = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -716,51 +839,66 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
       return;
     }
     if (tool === "magic-wand") {
-      const before = cloneEditorSnapshot(doc, "魔棒选区");
+      const before = captureEditorSelectionHistoryState(doc);
       doc.selection = buildMagicWandSelection(compositeEditorDocument(doc), point, magicTolerance, magicAlphaTolerance, magicContiguous);
-      commitDocumentChange("魔棒选区", before, { redrawBitmap: false });
+      commitSelectionChange("魔棒选区", before, { redrawBitmap: false });
       return;
     }
     if (tool === "rect-selection") {
-      selectionDraftRef.current = { start: point, current: point, before: cloneEditorSnapshot(doc, "矩形选区") };
+      selectionDraftRef.current = { start: point, current: point, before: captureEditorSelectionHistoryState(doc) };
       doc.selection = buildRectSelectionMask(doc.width, doc.height, readSelectionFromDraft(selectionDraftRef.current));
       sync({ redrawBitmap: false, status: "deferred" });
       return;
     }
     if (tool === "lasso-selection") {
-      lassoDraftRef.current = { pointerId: event.pointerId, before: cloneEditorSnapshot(doc, "套索选区"), path: [point] };
+      lassoDraftRef.current = { pointerId: event.pointerId, before: captureEditorSelectionHistoryState(doc), path: [point] };
       doc.selection = null;
       sync({ redrawBitmap: false, status: "deferred" });
       return;
     }
     if (tool === "move-selection") {
-      const before = cloneEditorSnapshot(doc, "移动选区");
+      const layer = getActiveEditorLayer(doc);
+      if (!layer) return;
       if (!doc.floatingSelection && doc.selection) {
         if (!isEditorSelectionPixelSelected(doc.selection, Math.floor(point.x), Math.floor(point.y), doc.width)) return;
-        doc.floatingSelection = extractSelectionClipboard(doc, true);
       }
+      const initialBounds = doc.floatingSelection?.bounds ?? doc.selection?.bounds;
+      if (!initialBounds) return;
+      const historyBounds = normalizeEditorBounds(
+        initialBounds.x,
+        initialBounds.y,
+        initialBounds.x + initialBounds.width,
+        initialBounds.y + initialBounds.height,
+        doc.width,
+        doc.height,
+      );
+      if (!historyBounds) return;
+      const before = captureEditorPixelHistoryState(doc, layer.id, historyBounds);
+      if (!before) return;
+      if (doc.selection) doc.floatingSelection = extractSelectionClipboard(doc, true);
       if (!doc.floatingSelection) return;
       moveDraftRef.current = {
         pointerId: event.pointerId,
+        layerId: layer.id,
         before,
         start: point,
-        initialBounds: { ...doc.floatingSelection.bounds },
+        initialBounds: { ...initialBounds },
+        historyBounds,
       };
       doc.selection = null;
-      sync({ redrawBitmap: true, status: "deferred" });
+      sync({ redrawBitmap: true, bitmapBounds: historyBounds, status: "deferred" });
       return;
     }
+    const layer = getActiveEditorLayer(doc);
+    if (!layer || !["brush", "eraser", "restore"].includes(tool)) return;
     strokeRef.current = {
       pointerId: event.pointerId,
-      before: cloneEditorSnapshot(doc, "绘制"),
-      minX: doc.width,
-      minY: doc.height,
-      maxX: 0,
-      maxY: 0,
+      recorder: createEditorPixelRecorder(layer.id, doc.width, doc.height),
+      beforeSelection: captureEditorSelectionHistoryState(doc),
     };
-    drawEditorBrush(doc, point, tool, brush, strokeRef.current);
+    const bitmapBounds = drawEditorBrush(doc, point, tool, brush, strokeRef.current);
     doc.dirty = true;
-    sync({ redrawBitmap: true, status: "deferred" });
+    sync({ redrawBitmap: Boolean(bitmapBounds), bitmapBounds: bitmapBounds ?? undefined, status: "deferred" });
   };
 
   const movePointerEdit = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -784,6 +922,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     }
     if (tool === "move-selection" && moveDraftRef.current?.pointerId === event.pointerId && doc.floatingSelection) {
       event.preventDefault();
+      const previousBounds = { ...doc.floatingSelection.bounds };
       const dx = Math.round(point.x - moveDraftRef.current.start.x);
       const dy = Math.round(point.y - moveDraftRef.current.start.y);
       doc.floatingSelection.bounds = {
@@ -791,14 +930,14 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
         x: Math.round(clamp(moveDraftRef.current.initialBounds.x + dx, -doc.floatingSelection.bounds.width + 1, doc.width - 1)),
         y: Math.round(clamp(moveDraftRef.current.initialBounds.y + dy, -doc.floatingSelection.bounds.height + 1, doc.height - 1)),
       };
-      sync({ redrawBitmap: true, status: "deferred" });
+      sync({ redrawBitmap: true, bitmapBounds: unionEditorBounds(previousBounds, doc.floatingSelection.bounds), status: "deferred" });
       return;
     }
     if (strokeRef.current && strokeRef.current.pointerId === event.pointerId && ["brush", "eraser", "restore"].includes(tool)) {
       event.preventDefault();
-      drawEditorBrush(doc, point, tool, brush, strokeRef.current);
+      const bitmapBounds = drawEditorBrush(doc, point, tool, brush, strokeRef.current);
       doc.dirty = true;
-      sync({ redrawBitmap: true, status: "deferred" });
+      sync({ redrawBitmap: Boolean(bitmapBounds), bitmapBounds: bitmapBounds ?? undefined, status: "deferred" });
       return;
     }
     sync({ redrawBitmap: false, status: "deferred" });
@@ -810,32 +949,39 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
     if (selectionDraftRef.current) {
       const before = selectionDraftRef.current.before;
       selectionDraftRef.current = null;
-      commitDocumentChange("矩形选区", before, { redrawBitmap: false });
+      commitSelectionChange("矩形选区", before, { redrawBitmap: false });
       return;
     }
     if (lassoDraftRef.current?.pointerId === event.pointerId) {
       const before = lassoDraftRef.current.before;
       doc.selection = buildLassoSelectionMask(doc.width, doc.height, lassoDraftRef.current.path);
       lassoDraftRef.current = null;
-      commitDocumentChange("套索选区", before, { redrawBitmap: false });
+      commitSelectionChange("套索选区", before, { redrawBitmap: false });
       return;
     }
     if (moveDraftRef.current?.pointerId === event.pointerId) {
-      const before = moveDraftRef.current.before;
+      const draft = moveDraftRef.current;
+      const floatingBounds = doc.floatingSelection ? { ...doc.floatingSelection.bounds } : draft.historyBounds;
+      const expanded = expandEditorPixelHistoryState(doc, draft.layerId, draft.historyBounds, draft.before, floatingBounds);
       pasteFloatingSelection(doc);
       moveDraftRef.current = null;
-      commitDocumentChange("移动选区", before);
+      if (expanded) commitPixelChange("移动选区", draft.layerId, expanded.bounds, expanded.before);
       return;
     }
     const stroke = strokeRef.current;
     if (!stroke || stroke.pointerId !== event.pointerId) return;
     strokeRef.current = null;
-    const bounds = normalizeEditorBounds(stroke.minX, stroke.minY, stroke.maxX, stroke.maxY, doc.width, doc.height);
-    if (!bounds) {
+    const states = buildEditorStrokeHistoryStates(doc, stroke.recorder, stroke.beforeSelection);
+    if (!states) {
       sync({ redrawBitmap: false, status: "immediate" });
       return;
     }
-    commitDocumentChange(tool === "eraser" ? "橡皮" : tool === "restore" ? "恢复笔" : "画笔", stroke.before);
+    const title = tool === "eraser" ? "橡皮" : tool === "restore" ? "恢复笔" : "画笔";
+    commitHistoryEntry({
+      ...createHistoryMetadata(title, true),
+      kind: "pixels",
+      ...states,
+    });
   };
 
   const doc = documentRef.current;
@@ -843,6 +989,7 @@ export const EditorCanvas = forwardRef<ManualEditorHandle, {
   const documentClassName = [
     "manual-editor-document",
     tool === "pan" ? "" : "no-pan",
+    gridVisible ? "pixel-grid-visible" : "",
     showExportBackground ? "solid-background" : transparentBackgroundVisible ? "" : "transparent-background-hidden",
   ]
     .filter(Boolean)
@@ -889,32 +1036,11 @@ async function readSourceBlob(source: ManualEditSource, signal: AbortSignal) {
 
 function trimEditorHistory(entries: EditorHistoryEntry[]) {
   let next = entries.slice(-EDITOR_HISTORY_LIMIT);
-  let totalBytes = next.reduce((total, entry) => total + estimateHistoryEntryBytes(entry), 0);
 
-  // 历史记录现在保存整图快照，大图连续绘制时最容易把内存拖垮。
-  // 这里按预算丢弃最旧记录，保留最近操作的撤销体验，也避免浏览器因为长期堆积 ImageData 变慢。
-  while (next.length > 1 && totalBytes > EDITOR_HISTORY_MEMORY_LIMIT_BYTES) {
-    const removed = next[0];
-    totalBytes -= estimateHistoryEntryBytes(removed);
+  // 局部操作通常只占脏区大小，结构操作仍会持有整图快照。
+  // 按唯一像素缓冲估算预算，共享原图只计算一次，超限时从最旧记录开始回收。
+  while (next.length > 1 && estimateEditorHistoryBytes(next) > EDITOR_HISTORY_MEMORY_LIMIT_BYTES) {
     next = next.slice(1);
   }
   return next;
-}
-
-function estimateHistoryEntryBytes(entry: EditorHistoryEntry) {
-  return estimateSnapshotBytes(entry.before) + estimateSnapshotBytes(entry.after);
-}
-
-function estimateSnapshotBytes(snapshot: EditorSnapshot) {
-  let bytes = snapshot.originalImageData.data.byteLength;
-  for (const layer of snapshot.layers) {
-    bytes += layer.imageData.data.byteLength;
-  }
-  if (snapshot.selection) {
-    bytes += snapshot.selection.mask.byteLength;
-  }
-  if (snapshot.floatingSelection) {
-    bytes += snapshot.floatingSelection.imageData.data.byteLength;
-  }
-  return bytes;
 }

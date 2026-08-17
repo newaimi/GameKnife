@@ -29,6 +29,7 @@ export function WorkbenchPreview({
   pixelGridVisible = true,
   contentMode = "fill",
   emptyLabel,
+  onScaleChange,
 }: {
   children?: React.ReactNode;
   toolbarControls?: React.ReactNode;
@@ -36,6 +37,8 @@ export function WorkbenchPreview({
   pixelGridVisible?: boolean;
   contentMode?: "fill" | "intrinsic";
   emptyLabel?: string;
+  /** 向需要按实际显示倍率调整内容细节的工作区同步当前缩放值。 */
+  onScaleChange?: (scale: number) => void;
 }) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const pixelCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -44,6 +47,10 @@ export function WorkbenchPreview({
   const wheelStep = readWheelStep(scale);
   const canvasGridStyle = readCanvasGridStyle(canvasTransform);
   const canvasClassName = `canvas${pixelInspect ? " pixel-inspect" : ""}${contentMode === "intrinsic" ? " canvas-intrinsic-content" : ""}`;
+
+  useEffect(() => {
+    onScaleChange?.(scale);
+  }, [onScaleChange, scale]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

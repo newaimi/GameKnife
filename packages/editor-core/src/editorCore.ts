@@ -10,21 +10,22 @@ import type {
   EditorSnapshot,
   EditorTool,
   EditorZoomPreviewMode,
-} from "./types";
-import { clamp } from "./math";
-import type { EditorLassoDraft, EditorSelectionDraft, EditorStatus, EditorStrokeState, ImagePoint } from "./types";
+} from "./types.js";
+import { clamp } from "./math.js";
+import { cloneImageData, createEditorId, recordEditorPixelBefore } from "./history.js";
+import type { EditorLassoDraft, EditorSelectionDraft, EditorStatus, EditorStrokeState, ImagePoint } from "./types.js";
 
 export function renderEditorCanvas(
   canvas: HTMLCanvasElement | null,
   overlay: HTMLCanvasElement | null,
   doc: EditorDocument | null,
-  gridVisible: boolean,
   pointer: ImagePoint | null,
   brush: EditorBrushSettings,
   tool: EditorTool,
   zoomPreviewMode: EditorZoomPreviewMode,
   lassoDraft: EditorLassoDraft | null,
   redrawBitmap = true,
+  bitmapBounds?: EditorSelection,
 ) {
   if (!canvas || !overlay || !doc) return;
   if (canvas.width !== doc.width || canvas.height !== doc.height) {
@@ -41,14 +42,23 @@ export function renderEditorCanvas(
   if (!context || !overlayContext) return;
   context.imageSmoothingEnabled = false;
   if (redrawBitmap) {
-    context.putImageData(compositeEditorDocument(doc), 0, 0);
+    if (bitmapBounds) {
+      const safeBounds = normalizeEditorBounds(
+        bitmapBounds.x,
+        bitmapBounds.y,
+        bitmapBounds.x + bitmapBounds.width,
+        bitmapBounds.y + bitmapBounds.height,
+        doc.width,
+        doc.height,
+      );
+      if (safeBounds) context.putImageData(compositeEditorDocumentRegion(doc, safeBounds), safeBounds.x, safeBounds.y);
+    } else {
+      context.putImageData(compositeEditorDocument(doc), 0, 0);
+    }
   }
 
   overlayContext.clearRect(0, 0, doc.width, doc.height);
   overlayContext.imageSmoothingEnabled = false;
-  if (gridVisible) {
-    drawEditorPixelGrid(overlayContext, doc.width, doc.height);
-  }
   if (doc.selection) {
     drawEditorSelection(overlayContext, doc.selection);
   }
@@ -63,18 +73,6 @@ export function renderEditorCanvas(
   }
   if (pointer && zoomPreviewMode !== "off") {
     drawEditorZoomPreview(overlayContext, canvas, pointer, zoomPreviewMode);
-  }
-}
-
-export function drawEditorPixelGrid(context: CanvasRenderingContext2D, width: number, height: number) {
-  // 像素编辑里的格线必须落在真实像素边界上，不能复用背景网格。
-  // 这里直接以图片坐标系画 1px 网格，外层 WorkbenchPreview 缩放后仍然能保持和像素完全对齐。
-  context.fillStyle = "rgba(23, 103, 255, 0.28)";
-  for (let x = 0; x <= width; x += 1) {
-    context.fillRect(x, 0, 0.035, height);
-  }
-  for (let y = 0; y <= height; y += 1) {
-    context.fillRect(0, y, width, 0.035);
   }
 }
 
@@ -217,59 +215,8 @@ export function readEditorStatus(
   };
 }
 
-export function cloneImageData(imageData: ImageData) {
-  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-}
-
-export function createEditorId(prefix: string) {
-  return `${prefix}_${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`}`;
-}
-
 export function createBlankEditorLayer(width: number, height: number, name: string): EditorLayer {
   return { id: createEditorId("layer"), name, visible: true, opacity: 100, imageData: new ImageData(width, height) };
-}
-
-export function cloneEditorLayer(layer: EditorLayer): EditorLayer {
-  return { ...layer, imageData: cloneImageData(layer.imageData) };
-}
-
-export function cloneSelectionMask(selection: EditorSelectionMask | null): EditorSelectionMask | null {
-  if (!selection) return null;
-  return {
-    ...selection,
-    bounds: { ...selection.bounds },
-    mask: selection.kind === "rect" ? new Uint8ClampedArray(0) : new Uint8ClampedArray(selection.mask),
-    path: selection.path ? selection.path.map((point) => ({ ...point })) : undefined,
-  };
-}
-
-export function cloneEditorClipboardItem(item: EditorClipboardItem): EditorClipboardItem {
-  return { name: item.name, imageData: cloneImageData(item.imageData), bounds: { ...item.bounds } };
-}
-
-export function cloneEditorSnapshot(doc: EditorDocument, title: string): EditorSnapshot {
-  return {
-    id: createEditorId("snapshot"),
-    title,
-    createdAt: Date.now(),
-    width: doc.width,
-    height: doc.height,
-    originalImageData: cloneImageData(doc.originalImageData),
-    layers: doc.layers.map(cloneEditorLayer),
-    activeLayerId: doc.activeLayerId,
-    selection: cloneSelectionMask(doc.selection),
-    floatingSelection: doc.floatingSelection ? cloneEditorClipboardItem(doc.floatingSelection) : null,
-  };
-}
-
-export function restoreEditorSnapshot(doc: EditorDocument, snapshot: EditorSnapshot) {
-  doc.width = snapshot.width;
-  doc.height = snapshot.height;
-  doc.layers = snapshot.layers.map(cloneEditorLayer);
-  doc.activeLayerId = snapshot.activeLayerId;
-  doc.selection = cloneSelectionMask(snapshot.selection);
-  doc.floatingSelection = snapshot.floatingSelection ? cloneEditorClipboardItem(snapshot.floatingSelection) : null;
-  doc.originalImageData = cloneImageData(snapshot.originalImageData);
 }
 
 export function getActiveEditorLayer(doc: EditorDocument) {
@@ -284,6 +231,59 @@ export function compositeEditorDocument(doc: EditorDocument) {
     pasteImageDataWithAlpha(flattened, doc.floatingSelection.imageData, doc.floatingSelection.bounds.x, doc.floatingSelection.bounds.y);
   }
   return flattened;
+}
+
+/**
+ * 只合成需要刷新的文档区域。画笔和移动选区把该结果写回主 canvas 的对应位置，
+ * 拖动过程中无需为未变化的像素创建和遍历全尺寸缓冲区。
+ */
+export function compositeEditorDocumentRegion(doc: EditorDocument, bounds: EditorSelection) {
+  const safeBounds = normalizeEditorBounds(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height, doc.width, doc.height);
+  if (!safeBounds) return new ImageData(1, 1);
+  const output = new ImageData(safeBounds.width, safeBounds.height);
+  for (const layer of doc.layers) {
+    if (!layer.visible || layer.opacity <= 0) continue;
+    blendImageDataRegionOver(output, layer.imageData, layer.opacity / 100, 0, 0, safeBounds);
+  }
+  if (doc.floatingSelection) {
+    blendImageDataRegionOver(
+      output,
+      doc.floatingSelection.imageData,
+      1,
+      doc.floatingSelection.bounds.x,
+      doc.floatingSelection.bounds.y,
+      safeBounds,
+    );
+  }
+  return output;
+}
+
+function blendImageDataRegionOver(
+  target: ImageData,
+  source: ImageData,
+  opacity: number,
+  sourceLeft: number,
+  sourceTop: number,
+  targetBounds: EditorSelection,
+) {
+  for (let y = 0; y < target.height; y += 1) {
+    const sourceY = targetBounds.y + y - sourceTop;
+    if (sourceY < 0 || sourceY >= source.height) continue;
+    for (let x = 0; x < target.width; x += 1) {
+      const sourceX = targetBounds.x + x - sourceLeft;
+      if (sourceX < 0 || sourceX >= source.width) continue;
+      const sourceIndex = (sourceY * source.width + sourceX) * 4;
+      const targetIndex = (y * target.width + x) * 4;
+      const sourceAlpha = (source.data[sourceIndex + 3] / 255) * opacity;
+      if (sourceAlpha <= 0) continue;
+      const targetAlpha = target.data[targetIndex + 3] / 255;
+      const nextAlpha = sourceAlpha + targetAlpha * (1 - sourceAlpha);
+      target.data[targetIndex] = Math.round((source.data[sourceIndex] * sourceAlpha + target.data[targetIndex] * targetAlpha * (1 - sourceAlpha)) / nextAlpha);
+      target.data[targetIndex + 1] = Math.round((source.data[sourceIndex + 1] * sourceAlpha + target.data[targetIndex + 1] * targetAlpha * (1 - sourceAlpha)) / nextAlpha);
+      target.data[targetIndex + 2] = Math.round((source.data[sourceIndex + 2] * sourceAlpha + target.data[targetIndex + 2] * targetAlpha * (1 - sourceAlpha)) / nextAlpha);
+      target.data[targetIndex + 3] = Math.round(nextAlpha * 255);
+    }
+  }
 }
 
 export function compositeEditorLayers(width: number, height: number, layers: EditorLayer[]) {
@@ -429,9 +429,9 @@ export function readEditorPointer(event: PointerEvent | MouseEvent, canvas: HTML
   };
 }
 
-export function drawEditorBrush(doc: EditorDocument, point: ImagePoint, tool: EditorTool, brush: EditorBrushSettings, stroke: EditorStrokeState) {
+export function drawEditorBrush(doc: EditorDocument, point: ImagePoint, tool: EditorTool, brush: EditorBrushSettings, stroke: EditorStrokeState): EditorSelection | null {
   const layer = getActiveEditorLayer(doc);
-  if (!layer) return;
+  if (!layer) return null;
   const radius = Math.max(0.5, brush.size / 2);
   const radiusSquared = radius * radius;
   const left = clamp(Math.floor(point.x - radius), 0, doc.width - 1);
@@ -443,11 +443,6 @@ export function drawEditorBrush(doc: EditorDocument, point: ImagePoint, tool: Ed
   const hardRadius = tool === "eraser" && brush.hardEraser ? radius : radius * (clamp(brush.hardness, 1, 100) / 100);
   const hardRadiusSquared = hardRadius * hardRadius;
 
-  stroke.minX = Math.min(stroke.minX, left);
-  stroke.minY = Math.min(stroke.minY, top);
-  stroke.maxX = Math.max(stroke.maxX, right + 1);
-  stroke.maxY = Math.max(stroke.maxY, bottom + 1);
-
   for (let y = top; y <= bottom; y += 1) {
     for (let x = left; x <= right; x += 1) {
       const dx = x + 0.5 - point.x;
@@ -458,6 +453,7 @@ export function drawEditorBrush(doc: EditorDocument, point: ImagePoint, tool: Ed
       const falloff = distanceSquared <= hardRadiusSquared ? 1 : (radius - Math.sqrt(distanceSquared)) / Math.max(0.001, radius - hardRadius);
       const amount = clamp(falloff * opacity, 0, 1);
       const index = (y * doc.width + x) * 4;
+      recordEditorPixelBefore(stroke.recorder, layer.imageData.data, index);
       if (tool === "eraser") {
         layer.imageData.data[index + 3] = Math.round(layer.imageData.data[index + 3] * (1 - amount));
         continue;
@@ -469,6 +465,7 @@ export function drawEditorBrush(doc: EditorDocument, point: ImagePoint, tool: Ed
       blendPixel(layer.imageData.data, index, color.r, color.g, color.b, 255, amount);
     }
   }
+  return { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
 }
 
 export function blendPixel(data: Uint8ClampedArray, index: number, red: number, green: number, blue: number, alpha: number, amount: number) {

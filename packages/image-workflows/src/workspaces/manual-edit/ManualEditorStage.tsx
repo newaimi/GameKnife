@@ -1,9 +1,10 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { EditorBrushSettings, EditorExportBackgroundMode, EditorTool, EditorZoomPreviewMode } from "@gameknife/editor-core";
 import { WorkbenchPreview } from "@gameknife/ui-kit";
 import type { FailureDialogState, ManualEditSource } from "../../types/manualEdit";
 import { EditorCanvas } from "./EditorCanvas";
 import { ManualEditorActionBar } from "./ManualEditorActionBar";
+import { shouldShowEditorPixelGrid } from "./manualEditorView";
 import type { EditorStatus, ManualEditorHandle } from "./types";
 
 export function ManualEditorStage({
@@ -51,16 +52,22 @@ export function ManualEditorStage({
   onSave: () => void;
   onExport: () => void;
 }) {
+  const [canvasScale, setCanvasScale] = useState(1);
+
   return (
     <section className="manual-editor-stage">
-      <WorkbenchPreview key={source ? `manual-edit-${source.url}` : "manual-edit-empty"} contentMode={source ? "intrinsic" : "fill"}>
+      <WorkbenchPreview
+        key={source ? `manual-edit-${source.url}` : "manual-edit-empty"}
+        contentMode={source ? "intrinsic" : "fill"}
+        onScaleChange={setCanvasScale}
+      >
         {source ? (
           <EditorCanvas
             ref={editorRef}
             source={source}
             tool={tool}
             brush={brush}
-            gridVisible={gridVisible}
+            gridVisible={shouldShowEditorPixelGrid(gridVisible, canvasScale)}
             transparentBackgroundVisible={transparentBackgroundVisible}
             exportBackgroundMode={exportBackgroundMode}
             exportBackgroundColor={exportBackgroundColor}

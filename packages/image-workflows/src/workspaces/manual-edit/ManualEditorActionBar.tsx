@@ -4,7 +4,7 @@ import { readManualEditorActionState } from "./manualEditorActionState";
 import type { EditorStatus } from "./types";
 
 /**
- * 手动编辑页的主操作入口。导入、历史命令、保存和下载统一放在视口底部，
+ * 手动编辑页的主操作入口。导入、历史命令、保存和下载统一放在工作台顶部中央，
  * 具体命令仍通过编辑器句柄和页面保存链路执行，布局组件不推断编辑状态。
  */
 export function ManualEditorActionBar({

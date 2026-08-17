@@ -57,6 +57,7 @@ export type EditorSnapshot = {
   createdAt: number;
   width: number;
   height: number;
+  /** 原始图片在编辑期间只读，快照共享该引用，避免每条历史重复保存同一份像素。 */
   originalImageData: ImageData;
   layers: EditorLayer[];
   activeLayerId: string;
@@ -64,13 +65,40 @@ export type EditorSnapshot = {
   floatingSelection: EditorClipboardItem | null;
 };
 
-export type EditorHistoryEntry = {
+/** 只影响选区和浮动内容的轻量历史状态。 */
+export type EditorSelectionHistoryState = {
+  activeLayerId: string;
+  selection: EditorSelectionMask | null;
+  floatingSelection: EditorClipboardItem | null;
+};
+
+/** 单个图层局部像素及其关联选区状态，用于画笔和局部像素编辑。 */
+export type EditorPixelHistoryState = EditorSelectionHistoryState & {
+  pixels: ImageData;
+};
+
+/** 不复制像素的图层顺序和展示属性状态。 */
+export type EditorLayerHistoryState = {
+  activeLayerId: string;
+  layers: Array<Pick<EditorLayer, "id" | "name" | "visible" | "opacity">>;
+};
+
+type EditorHistoryMetadata = {
   id: string;
   title: string;
   createdAt: number;
-  before: EditorSnapshot;
-  after: EditorSnapshot;
+  /** 撤销或重做后是否需要刷新位图；纯选区和重命名只刷新覆盖层或状态。 */
+  redrawBitmap: boolean;
+  /** 操作是否改变画布尺寸，用于通知外层重新计算文档布局。 */
+  layout: boolean;
 };
+
+export type EditorHistoryEntry = EditorHistoryMetadata & (
+  | { kind: "snapshot"; before: EditorSnapshot; after: EditorSnapshot }
+  | { kind: "selection"; before: EditorSelectionHistoryState; after: EditorSelectionHistoryState }
+  | { kind: "pixels"; layerId: string; bounds: EditorSelection; before: EditorPixelHistoryState; after: EditorPixelHistoryState }
+  | { kind: "layers"; before: EditorLayerHistoryState; after: EditorLayerHistoryState }
+);
 
 export type EditorZoomPreviewMode = "off" | "loupe" | "panel" | "both";
 
@@ -110,11 +138,20 @@ export type EditorStatus = {
 
 export type EditorStrokeState = {
   pointerId: number;
-  before: EditorSnapshot;
+  recorder: EditorPixelRecorder;
+  beforeSelection: EditorSelectionHistoryState;
+};
+
+/** 笔画期间只记录第一次被修改的像素，结束时再压缩为矩形脏区。 */
+export type EditorPixelRecorder = {
+  layerId: string;
+  width: number;
+  height: number;
   minX: number;
   minY: number;
   maxX: number;
   maxY: number;
+  beforePixels: Map<number, number>;
 };
 
 export type ImagePoint = { x: number; y: number };
@@ -122,18 +159,20 @@ export type ImagePoint = { x: number; y: number };
 export type EditorSelectionDraft = {
   start: ImagePoint;
   current: ImagePoint;
-  before: EditorSnapshot;
+  before: EditorSelectionHistoryState;
 };
 
 export type EditorLassoDraft = {
   pointerId: number;
-  before: EditorSnapshot;
+  before: EditorSelectionHistoryState;
   path: ImagePoint[];
 };
 
 export type EditorMoveDraft = {
   pointerId: number;
-  before: EditorSnapshot;
+  layerId: string;
+  before: EditorPixelHistoryState;
   start: ImagePoint;
   initialBounds: EditorSelection;
+  historyBounds: EditorSelection;
 };
