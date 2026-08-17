@@ -150,6 +150,7 @@ For preview, zoom, drag comparison, upload, download, manual edit, or responsive
 
 - Do not commit unless the user explicitly asks for a commit.
 - When committing, use Conventional Commits.
+- Write commit messages in English.
 - Keep unrelated user changes intact.
 - Do not revert files that are outside the requested work.
 - Before reporting completion, check `git status --short`.
