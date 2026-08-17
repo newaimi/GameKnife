@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceResponse, VideoToSequenceParameters } from "@gameknife/shared-types";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { VideoUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { VideoUploadAction } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useAssetUpload } from "../../hooks/useAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
@@ -104,18 +104,13 @@ export function VideoToSequenceWorkspace() {
 
   return (
     <>
-      <VideoUploadStrip
-        title={video ? "已导入视频" : "导入视频"}
-        description="支持 MP4 / WebM / MOV，本地抽帧并转成透明序列帧"
-        disabled={!canWrite}
-        onFile={upload}
-      />
       <ToolWorkspaceLayout activeToolId="video-to-sequence">
         <VideoToSequenceEditor
           video={video}
           sequence={sequence}
           currentTask={job}
           params={params}
+          error={error}
           canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}
@@ -123,10 +118,10 @@ export function VideoToSequenceWorkspace() {
           onOpenSequence={() => {
             navigate(sequence ? `/tools/sequence?sequence=${encodeURIComponent(sequence.id)}` : "/tools/sequence");
           }}
+          uploadAction={<VideoUploadAction label={video ? "更换视频" : "上传视频"} disabled={!canWrite} onFile={upload} />}
         />
       </ToolWorkspaceLayout>
-      {error ? <p className="error-text">{error}</p> : null}
-      <WorkflowResultFooter refreshKey={job?.id ?? video?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

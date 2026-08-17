@@ -12,12 +12,24 @@
 body {
   margin: 0;
   min-width: 1180px;
-  background: var(--body-bg);
-  background-size: var(--gk-body-grid-size);
+  background: var(--gk-color-canvas);
   font-weight: var(--gk-font-weight-regular);
   line-height: var(--gk-line-height-body);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * 工具路由使用固定视口工作区，浏览器滚动会让悬浮面板和画布产生不同坐标系。
+ * 只在 editor-shell 存在时锁定根节点，任务、设置和帮助页仍保留普通文档滚动。
+ */
+html:has(.editor-shell),
+body:has(.editor-shell),
+body:has(.editor-shell) #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 a {
@@ -311,6 +323,48 @@ button {
 .content {
   width: calc(100vw - clamp(24px, 3vw, 64px));
   margin: 0 auto;
+}
+
+/*
+ * 顶部导航保留独立高度，剩余视口全部交给工作台。content 不再提供页面留白，
+ * 工具和参数面板的悬浮间距统一由共享工作区控制。
+ */
+.editor-shell {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.editor-shell > .content {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-shell > .content > .workspace {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.editor-shell > .content > .manual-editor-page {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.editor-shell .manual-editor-shell {
+  height: 100%;
 }
 
 @media (max-width: 1180px) {

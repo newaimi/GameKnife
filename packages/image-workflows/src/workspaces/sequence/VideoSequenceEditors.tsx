@@ -5,6 +5,7 @@ import type { AssetResponse, JobResponse, SequenceResponse, VideoSequenceGenerat
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { EmptyCanvas } from "../../components/ImageComparePreview";
+import { WorkbenchActionBar } from "../../components/WorkbenchActionBar";
 import type { ManualEditSource } from "../../types/manualEdit";
 
 type VideoJobResponse = JobResponse & {
@@ -27,26 +28,28 @@ const ACTION_OPTIONS = [
 
 export function VideoGenerateEditor({
   upload,
-  currentTask,
   videoTask,
   params,
+  error,
   canWrite,
   isTaskProcessing,
   onParamsChange,
   onStartProcess,
   onUseGeneratedVideo,
   onManualEdit,
+  uploadAction,
 }: {
   upload: AssetResponse | null;
-  currentTask: VideoJobResponse | null;
   videoTask: VideoJobResponse | null;
   params: VideoSequenceGenerateParameters;
+  error: string;
   canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
   onStartProcess: () => void | Promise<void>;
   onUseGeneratedVideo: () => void;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
+  uploadAction: React.ReactNode;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const sourceUrl = useObjectUrl(upload?.url ?? "");
@@ -65,18 +68,6 @@ export function VideoGenerateEditor({
   return (
     <>
       <section className="preview-stage sequence-stage">
-        <div className="stage-toolbar sequence-toolbar">
-          <div className="stage-title">
-            <h2>AI 生成视频</h2>
-            <p>{readVideoGenerateMessage(upload, currentTask, videoReady)}</p>
-          </div>
-          <div className="toolbar-actions sequence-toolbar-actions">
-            <button className="primary compact sequence-clean-button" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
-              {videoTaskRunning ? "生成中" : "调用 API 生成视频"}
-            </button>
-          </div>
-        </div>
-
         <WorkbenchPreview key={`video-generate-${upload?.id ?? "empty"}-${videoTask?.id ?? "none"}`}>
           {!upload ? (
             <EmptyCanvas />
@@ -93,7 +84,6 @@ export function VideoGenerateEditor({
                 <div className="video-tool-working">
                   <Sparkles size={22} />
                   <strong>正在调用外部视频 API</strong>
-                  <span>完成后会保留视频结果，不会自动转成序列帧。</span>
                 </div>
               ) : null}
             </div>
@@ -108,27 +98,29 @@ export function VideoGenerateEditor({
             编辑原图
           </button>
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
       </aside>
 
-      {videoReady ? (
-        <section className="workspace-result-panel video-tool-result">
-          <div className="diagnostics-heading">
-            <div>
-              <strong>生成视频</strong>
-              <span>外部 API 已返回结果，可以下载或发送到本地视频转帧。</span>
-            </div>
-            <div className="video-result-actions">
-              <a className="ghost compact" href={videoUrl} download={videoTask?.result.video_filename || "generated-video.mp4"}>
-                下载视频
-              </a>
-              <button className="primary compact" type="button" disabled={!canWrite} onClick={onUseGeneratedVideo}>
-                发送到视频转帧
-              </button>
-            </div>
-          </div>
-          <video className="video-result-preview" src={videoUrl} controls playsInline />
-        </section>
-      ) : null}
+      <WorkbenchActionBar>
+        {uploadAction}
+        <button className="primary" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
+          {videoTaskRunning ? "生成中" : "生成视频"}
+        </button>
+        <a
+          className={`ghost ${videoReady ? "" : "disabled"}`}
+          href={videoReady ? videoUrl : undefined}
+          download={videoTask?.result.video_filename || "generated-video.mp4"}
+          aria-disabled={!videoReady}
+          onClick={(event) => {
+            if (!videoReady) event.preventDefault();
+          }}
+        >
+          下载
+        </a>
+        <button className="ghost" type="button" disabled={!videoReady || !canWrite} onClick={onUseGeneratedVideo}>
+          发送到视频转帧
+        </button>
+      </WorkbenchActionBar>
 
       {confirmOpen ? <VideoApiConfirmDialog onCancel={() => setConfirmOpen(false)} onConfirm={confirmApiCall} /> : null}
     </>
@@ -140,21 +132,25 @@ export function VideoToSequenceEditor({
   sequence,
   currentTask,
   params,
+  error,
   canWrite,
   isTaskProcessing,
   onParamsChange,
   onCreateSequence,
   onOpenSequence,
+  uploadAction,
 }: {
   video: AssetResponse | null;
   sequence: SequenceResponse | null;
   currentTask: VideoJobResponse | null;
   params: VideoToSequenceParameters;
+  error: string;
   canWrite: boolean;
   isTaskProcessing: boolean;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoToSequenceParameters>>;
   onCreateSequence: () => void | Promise<void>;
   onOpenSequence: () => void;
+  uploadAction: React.ReactNode;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoDuration, setVideoDuration] = useState(0);
@@ -198,18 +194,6 @@ export function VideoToSequenceEditor({
   return (
     <>
       <section className="preview-stage sequence-stage">
-        <div className="stage-toolbar sequence-toolbar">
-          <div className="stage-title">
-            <h2>视频转帧</h2>
-            <p>{readVideoToSequenceMessage(video, currentTask, generatedSequence)}</p>
-          </div>
-          <div className="toolbar-actions sequence-toolbar-actions">
-            <button className="primary compact sequence-clean-button" type="button" disabled={!canCreateSequence || !canWrite} onClick={() => void onCreateSequence()}>
-              {frameTaskRunning ? "处理中" : "转成序列帧"}
-            </button>
-          </div>
-        </div>
-
         <WorkbenchPreview key={`video-to-sequence-${video?.id ?? "empty"}`}>
           {!video ? (
             <EmptyCanvas />
@@ -232,7 +216,6 @@ export function VideoToSequenceEditor({
                 <div className="video-tool-working">
                   <Sparkles size={22} />
                   <strong>正在抽帧和抠图</strong>
-                  <span>会复用现有序列帧清洗流程生成透明 PNG。</span>
                 </div>
               ) : null}
             </div>
@@ -250,23 +233,10 @@ export function VideoToSequenceEditor({
             onSeekClipStart={seekClipStart}
           />
         ) : (
-          <>
-            <h2>转帧参数</h2>
-            <div className="hint-box">
-              <strong>本地处理</strong>
-              <p>先从顶部导入 MP4 / WebM / MOV，再裁切片段并生成透明序列帧。</p>
-            </div>
-          </>
+          <h2>转帧参数</h2>
         )}
-        <div className="export-stack">
-          <button className="ghost" type="button" disabled={!canOpenSequence} onClick={onOpenSequence}>
-            打开序列帧工作台
-          </button>
-        </div>
-      </aside>
-
-      {generatedSequence ? (
-        <section className="workspace-result-panel sequence-result-panel video-tool-result">
+        {generatedSequence ? (
+          <div className="sequence-inline-result">
           <div className="diagnostics-heading">
             <div>
               <strong>生成结果</strong>
@@ -287,8 +257,20 @@ export function VideoToSequenceEditor({
               </button>
             ))}
           </div>
-        </section>
-      ) : null}
+          </div>
+        ) : null}
+        {error ? <p className="error-text">{error}</p> : null}
+      </aside>
+
+      <WorkbenchActionBar>
+        {uploadAction}
+        <button className="primary" type="button" disabled={!canCreateSequence || !canWrite} onClick={() => void onCreateSequence()}>
+          {frameTaskRunning ? "处理中" : "转成序列帧"}
+        </button>
+        <button className="ghost" type="button" disabled={!canOpenSequence} onClick={onOpenSequence}>
+          打开序列帧
+        </button>
+      </WorkbenchActionBar>
     </>
   );
 }
@@ -467,20 +449,4 @@ function VideoApiConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; 
 function GeneratedFrameThumb({ frameUrl, alt }: { frameUrl: string; alt: string }) {
   const url = useObjectUrl(frameUrl);
   return url ? <img src={url} alt={alt} /> : <em />;
-}
-
-function readVideoGenerateMessage(upload: AssetResponse | null, task: VideoJobResponse | null, hasVideo: boolean) {
-  if (!upload) return "上传角色图后，可以调用外部 API 生成动作视频。";
-  if (task?.type === "sequence_generate_video" && task.status === "running") return "外部视频 API 正在生成视频。";
-  if (task?.type === "sequence_generate_video" && task.status === "failed") return task.error_message ?? "视频生成失败。";
-  if (hasVideo) return "视频已生成，可以预览、下载或发送到本地视频转帧。";
-  return "图片已就绪，调用 API 前会再次确认。";
-}
-
-function readVideoToSequenceMessage(video: AssetResponse | null, task: VideoJobResponse | null, sequence: SequenceResponse | null) {
-  if (!video) return "导入已有视频后，可以本地抽帧、抠图并生成序列帧项目。";
-  if (task?.type === "sequence_video_to_frames" && task.status === "running") return "正在按裁切片段抽帧、抠图和对齐。";
-  if (task?.type === "sequence_video_to_frames" && task.status === "failed") return task.error_message ?? "视频转序列帧失败。";
-  if (sequence) return "视频序列帧已生成，可以打开序列帧工作台继续调整。";
-  return "视频已就绪，设置裁切区间后可以转成序列帧。";
 }

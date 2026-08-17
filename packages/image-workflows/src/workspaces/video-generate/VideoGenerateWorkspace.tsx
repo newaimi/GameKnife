@@ -2,8 +2,8 @@ import { useState } from "react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, OutputAssetRef, VideoSequenceGenerateParameters } from "@gameknife/shared-types";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { ImageUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { ImageUploadAction } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
@@ -78,28 +78,22 @@ export function VideoGenerateWorkspace() {
 
   return (
     <>
-      <ImageUploadStrip
-        title={asset ? "已导入角色图" : "上传角色图"}
-        description="支持 PNG / JPG / WebP，调用外部 API 生成动作视频"
-        disabled={!canWrite}
-        onFile={upload}
-      />
       <ToolWorkspaceLayout activeToolId="video-generate">
         <VideoGenerateEditor
           upload={asset}
-          currentTask={job}
           videoTask={job}
           params={params}
+          error={error}
           canWrite={canWrite}
           isTaskProcessing={busy}
           onParamsChange={setParams}
           onStartProcess={run}
           onUseGeneratedVideo={useGeneratedVideo}
           onManualEdit={openManualEdit}
+          uploadAction={<ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />}
         />
       </ToolWorkspaceLayout>
-      {error ? <p className="error-text">{error}</p> : null}
-      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

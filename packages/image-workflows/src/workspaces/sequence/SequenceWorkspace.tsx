@@ -3,12 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { ImageSequenceUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { ImageSequenceUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
+import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
-import { JOB_POLLING_PRESETS } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 import { SequenceEditor } from "./SequenceEditor";
 
@@ -33,6 +34,7 @@ export function SequenceWorkspace() {
   const canWrite = useWorkflowWritePermission("sequence");
   const busy = operationBusy || jobBusy;
   const requestedSequenceId = searchParams.get("sequence") ?? "";
+  const exportAsset = job && ["sequence_export_frames", "sequence_export_spine"].includes(job.type) ? readFirstJobOutputAsset(job) : undefined;
 
   useEffect(() => {
     void refreshSequences(requestedSequenceId || undefined);
@@ -185,34 +187,47 @@ export function SequenceWorkspace() {
 
   return (
     <>
-      <ImageSequenceUploadStrip
-        title={sequence ? "已导入序列帧" : "导入序列帧"}
-        description="支持多选或文件夹选择后的 PNG / JPG / WebP 序列帧"
-        disabled={busy || !canWrite}
-        onFiles={importFrames}
-      />
-
       <ToolWorkspaceLayout activeToolId="sequence">
         <SequenceEditor
           sequence={sequence}
           sequences={sequences}
           params={params}
-          currentTask={job}
+          error={error}
           canWrite={canWrite}
           onSelect={selectSequence}
           onSaveSettings={saveSettings}
           onSaveFrames={saveFrames}
           onParamsChange={setParams}
-          onClean={clean}
-          onExportFrames={exportFrames}
-          onExportSpine={exportSpine}
           onDelete={deleteSequence}
           onManualEdit={openManualEdit}
         />
+        <WorkbenchActionBar>
+          <ImageSequenceUploadAction label={sequence ? "更换序列" : "上传序列"} disabled={busy || !canWrite} onFiles={importFrames} />
+          <button className="primary" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void clean()}>
+            {jobBusy ? "处理中" : "清洗"}
+          </button>
+          <button className="ghost" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void exportFrames()}>
+            导出 PNG
+          </button>
+          <button className="ghost" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void exportSpine()}>
+            导出 Spine
+          </button>
+          <button
+            className="ghost"
+            type="button"
+            disabled={!exportAsset}
+            onClick={() =>
+              exportAsset
+                ? void downloadOutputAsset(exportAsset, job?.type === "sequence_export_spine" ? `${sequence?.name ?? "sequence"}_spine.zip` : `${sequence?.name ?? "sequence"}_frames.zip`)
+                : undefined
+            }
+          >
+            下载
+          </button>
+        </WorkbenchActionBar>
       </ToolWorkspaceLayout>
 
-      {error ? <p className="error-text">{error}</p> : null}
-      <WorkflowResultFooter refreshKey={job?.id ?? sequence?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play, RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { AssetBoardParameters, ComponentCandidate, JobResponse } from "@gameknife/shared-types";
@@ -7,14 +7,13 @@ import { AssetBoardPreview, cloneComponent } from "../../components/AssetBoardPr
 import { EmptyCanvas } from "../../components/ImageComparePreview";
 import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { ImageUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { ImageUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
-import { formatImageSize } from "../../utils/formatters";
 import { JOB_POLLING_PRESETS, readFirstJobOutputAsset, readString, readTupleNumber } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
@@ -28,10 +27,6 @@ const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
   export_padding: 8,
 };
 
-type AssetBoardRunOptions = {
-  automatic?: boolean;
-};
-
 export function AssetBoardWorkspace() {
   const [params, setParams] = useState<AssetBoardParameters>(DEFAULT_ASSET_BOARD_PARAMS);
   const [components, setComponents] = useState<ComponentCandidate[]>([]);
@@ -40,7 +35,6 @@ export function AssetBoardWorkspace() {
   const [cutoutAssetId, setCutoutAssetId] = useState("");
   const [cutoutUrl, setCutoutUrl] = useState("");
   const [compare, setCompare] = useState(50);
-  const [automaticAction, setAutomaticAction] = useState<"detect" | "refine" | "">("");
   const lastAutomaticRegionSignature = useRef("");
   const { job, busy: jobBusy, error: jobError, setError, failureDialog, setFailureDialog, runJob: runWorkflowJob, resetJob } = useWorkflowJob();
   const ensureModelReady = useModelRequirement();
@@ -54,40 +48,12 @@ export function AssetBoardWorkspace() {
       setCutoutAssetId("");
       setCutoutUrl("");
       setCompare(50);
-      setAutomaticAction("");
     },
   });
   const busy = uploading || jobBusy;
   const error = uploadError || jobError;
   const selectedCount = selectedComponents.size;
   const exportAsset = job?.type === "asset_board_export" ? readFirstJobOutputAsset(job) : undefined;
-  const taskLabel = useMemo(() => {
-    if (automaticAction === "detect") {
-      return "图片已上传，正在自动识别素材。";
-    }
-    if (automaticAction === "refine") {
-      return "区域参数已更新，正在刷新素材框。";
-    }
-    if (!job) {
-      return asset ? `${asset.filename} · ${formatImageSize(imageSize)}` : "上传素材板后先识别区域。";
-    }
-    if (job.status === "failed") {
-      return job.error_message ?? "处理失败。";
-    }
-    if (job.type === "asset_board_region_detect") {
-      return `素材区域识别完成，共 ${components.length} 个框。`;
-    }
-    if (job.type === "asset_board_cutout") {
-      return "抠图完成，可以刷新框后导出组件。";
-    }
-    if (job.type === "asset_board_region_refine") {
-      return `素材框已刷新，共 ${components.length} 个框。`;
-    }
-    if (job.type === "asset_board_export") {
-      return `导出完成，已选择 ${selectedCount} 个组件。`;
-    }
-    return "等待处理。";
-  }, [asset, automaticAction, components.length, imageSize, job, selectedCount]);
 
   useEffect(() => {
     if (!asset || busy || !canWrite) {
@@ -102,29 +68,22 @@ export function AssetBoardWorkspace() {
     const timer = window.setTimeout(() => {
       lastAutomaticRegionSignature.current = regionSignature;
       if (cutoutAssetId) {
-        void refine({ automatic: true });
+        void refine();
         return;
       }
-      void detectRegions({ automatic: true });
+      void detectRegions();
     }, 300);
 
     return () => window.clearTimeout(timer);
   }, [asset, busy, canWrite, cutoutAssetId, params.alpha_threshold, params.min_component_area]);
 
-  async function detectRegions(options: AssetBoardRunOptions = {}) {
+  async function detectRegions() {
     if (!asset || !canWrite) {
       return;
     }
-    setAutomaticAction(options.automatic ? "detect" : "");
-    try {
-      // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
-      // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
-      await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, readRegionParameters()), applyComponentJobResult);
-    } finally {
-      if (options.automatic) {
-        setAutomaticAction("");
-      }
-    }
+    // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
+    // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
+    await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, readRegionParameters()), applyComponentJobResult);
   }
 
   async function cutout() {
@@ -140,7 +99,7 @@ export function AssetBoardWorkspace() {
     }, applyCutoutJobResult);
   }
 
-  async function refine(options: AssetBoardRunOptions = {}) {
+  async function refine() {
     if (!canWrite) {
       return;
     }
@@ -148,14 +107,7 @@ export function AssetBoardWorkspace() {
       setError("请先完成素材板抠图。");
       return;
     }
-    setAutomaticAction(options.automatic ? "refine" : "");
-    try {
-      await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, readRegionParameters()), applyComponentJobResult);
-    } finally {
-      if (options.automatic) {
-        setAutomaticAction("");
-      }
-    }
+    await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, readRegionParameters()), applyComponentJobResult);
   }
 
   async function exportSelected() {
@@ -241,37 +193,8 @@ export function AssetBoardWorkspace() {
 
   return (
     <>
-      <ImageUploadStrip
-        title={asset ? "已上传图片" : "上传图片"}
-        description="支持 JPG / PNG / WebP，最大 50MB"
-        disabled={!canWrite}
-        onFile={upload}
-      />
-
       <ToolWorkspaceLayout activeToolId="asset-board">
         <section className="preview-stage">
-          <div className="stage-toolbar">
-            <div>
-              <h2>素材板拆分</h2>
-              <p>{taskLabel}</p>
-            </div>
-            <div className="toolbar-actions">
-              {exportAsset ? (
-                <button className="ghost" type="button" onClick={() => void downloadOutputAsset(exportAsset, `${asset?.filename ?? "asset-board"}_components.zip`)}>
-                  下载 ZIP
-                </button>
-              ) : null}
-              <button className="primary" disabled={!asset || busy || !canWrite} onClick={() => void detectRegions()} type="button">
-                <RefreshCw size={17} strokeWidth={2.4} />
-                识别区域
-              </button>
-              <button className="ghost" disabled={!asset || busy || !canWrite} onClick={() => void cutout()} type="button">
-                <Play size={17} strokeWidth={2.4} />
-                抠图
-              </button>
-            </div>
-          </div>
-
           <WorkbenchPreview key={`asset-board-${asset?.id ?? "empty"}-${cutoutAssetId || "source"}`}>
             {!asset ? (
               <EmptyCanvas />
@@ -307,19 +230,37 @@ export function AssetBoardWorkspace() {
           <NumberField label="边缘柔化" value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
           <NumberField label="去边色" value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
           <NumberField label="导出留边" value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
-          <div className="toolbar-actions stacked">
-            <button className="ghost" disabled={!cutoutAssetId || busy || !canWrite} onClick={() => void refine()} type="button">
-              刷新框
-            </button>
-            <button className="primary" disabled={!cutoutAssetId || busy || selectedCount === 0 || !canWrite} onClick={() => void exportSelected()} type="button">
-              导出选中 {selectedCount}
-            </button>
-          </div>
           <StatusLine error={error} job={job} />
         </aside>
+
+        <WorkbenchActionBar>
+          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <button className="primary" disabled={!asset || busy || !canWrite} onClick={() => void detectRegions()} type="button">
+            <RefreshCw size={17} strokeWidth={2.4} />
+            识别区域
+          </button>
+          <button className="ghost" disabled={!asset || busy || !canWrite} onClick={() => void cutout()} type="button">
+            <Play size={17} strokeWidth={2.4} />
+            抠图
+          </button>
+          <button className="ghost" disabled={!cutoutAssetId || busy || !canWrite} onClick={() => void refine()} type="button">
+            刷新框
+          </button>
+          <button className="ghost" disabled={!cutoutAssetId || busy || selectedCount === 0 || !canWrite} onClick={() => void exportSelected()} type="button">
+            导出选中 {selectedCount}
+          </button>
+          <button
+            className="ghost"
+            disabled={!exportAsset}
+            type="button"
+            onClick={() => (exportAsset ? void downloadOutputAsset(exportAsset, `${asset?.filename ?? "asset-board"}_components.zip`) : undefined)}
+          >
+            下载 ZIP
+          </button>
+        </WorkbenchActionBar>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

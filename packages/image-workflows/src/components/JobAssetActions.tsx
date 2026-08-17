@@ -20,7 +20,7 @@ export function JobAssetActions({
   onDelete: (job: JobResponse) => void | Promise<void>;
 }) {
   return (
-    <div className="recent-actions">
+    <div className="job-asset-actions">
       <IconButton
         label={outputAsset ? "下载结果" : "当前任务没有可下载文件"}
         disabled={!outputAsset || downloading}

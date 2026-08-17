@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Pause, Play } from "lucide-react";
-import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
+import type { SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import type { ManualEditSource } from "../../types/manualEdit";
 import { useObjectUrl } from "../../utils/objectUrl";
@@ -11,30 +11,24 @@ export function SequenceEditor({
   sequence,
   sequences,
   params,
-  currentTask,
+  error,
   canWrite,
   onSelect,
   onSaveSettings,
   onSaveFrames,
   onParamsChange,
-  onClean,
-  onExportFrames,
-  onExportSpine,
   onDelete,
   onManualEdit,
 }: {
   sequence: SequenceResponse | null;
   sequences: SequenceResponse[];
   params: SequenceCleanParameters;
-  currentTask: JobResponse | null;
+  error: string;
   canWrite: boolean;
   onSelect: (sequenceId: string) => void | Promise<void>;
   onSaveSettings: (sequence: SequenceResponse, params?: SequenceCleanParameters) => void | Promise<void>;
   onSaveFrames: (frames: SequenceFrameResponse[]) => void | Promise<void>;
   onParamsChange: React.Dispatch<React.SetStateAction<SequenceCleanParameters>>;
-  onClean: () => void | Promise<void>;
-  onExportFrames: () => void | Promise<void>;
-  onExportSpine: () => void | Promise<void>;
   onDelete: (sequenceId: string) => void | Promise<void>;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
 }) {
@@ -60,7 +54,6 @@ export function SequenceEditor({
   const nextUrl = useObjectUrl(nextFrame?.preview_url ?? "");
   const differenceMap = useFrameDifferenceMap(referenceUrl, activeUrl, showDifferenceMap && Boolean(referenceFrame && activeFrame && referenceFrame.id !== activeFrame.id));
   const diagnostics = readSequenceDiagnostics(frames, referenceFrame, activeFrame, differenceMap);
-  const sequenceTaskRunning = currentTask?.type.startsWith("sequence_") && ["pending", "running"].includes(currentTask.status);
 
   useEffect(() => {
     setDraftSequence(sequence);
@@ -123,19 +116,13 @@ export function SequenceEditor({
     return (
       <>
         <section className="preview-stage sequence-stage">
-          <div className="stage-toolbar">
-            <div>
-              <h2>序列帧工作台</h2>
-              <p>从顶部导入序列帧后，可以播放、清洗、对齐并导出为游戏可用资源。</p>
-            </div>
-          </div>
           <WorkbenchPreview key="sequence-empty">
             <EmptyCanvas />
           </WorkbenchPreview>
         </section>
         <aside className="settings-panel">
           <h2>序列帧</h2>
-          <p className="plain-text">当前还没有导入序列。</p>
+          {error ? <p className="error-text">{error}</p> : null}
         </aside>
       </>
     );
@@ -144,64 +131,6 @@ export function SequenceEditor({
   return (
     <>
       <section className="preview-stage sequence-stage">
-        <div className="stage-toolbar sequence-toolbar">
-          <div className="stage-title">
-            <h2>序列帧工作台</h2>
-            <p>
-              {draftSequence.enabled_frame_count} / {draftSequence.frame_count} 帧 · {draftSequence.fps} FPS · {draftSequence.canvas_width || "-"}×
-              {draftSequence.canvas_height || "-"}
-            </p>
-          </div>
-          <div className="toolbar-actions sequence-toolbar-actions">
-            <div className="sequence-toggle-group" aria-label="序列帧预览控制">
-              <button className="ghost compact" type="button" onClick={() => setPlaying((current) => !current)}>
-                {playing ? <Pause size={16} /> : <Play size={16} />}
-                {playing ? "暂停" : "播放"}
-              </button>
-              <button
-                className={`ghost compact ${showOnionSkin ? "active-soft" : ""}`}
-                type="button"
-                aria-pressed={showOnionSkin}
-                onClick={() => setShowOnionSkin((current) => !current)}
-              >
-                洋葱皮
-              </button>
-              <button className="ghost compact" type="button" disabled={!activeFrame} onClick={lockReferenceFrame}>
-                锁参考
-              </button>
-              <button
-                className={`ghost compact ${showDifferenceMap ? "active-soft" : ""}`}
-                type="button"
-                disabled={!referenceFrame || !activeFrame}
-                aria-pressed={showDifferenceMap}
-                onClick={() => setShowDifferenceMap((current) => !current)}
-              >
-                差异图
-              </button>
-            </div>
-            <button
-              className="ghost compact sequence-clean-button"
-              type="button"
-              disabled={!activeFrame || !activeUrl || !canWrite}
-              onClick={() =>
-                activeFrame && activeUrl
-                  ? void onManualEdit({
-                      name: activeFrame.original_name,
-                      url: activeUrl,
-                      sourceFileId: activeFrame.processed_asset_id ?? activeFrame.source_asset_id,
-                      sourceContext: "sequence_frame",
-                    })
-                  : undefined
-              }
-            >
-              编辑帧
-            </button>
-            <button className="primary compact sequence-clean-button" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onClean()}>
-              {sequenceTaskRunning ? "处理中" : "清洗"}
-            </button>
-          </div>
-        </div>
-
         <WorkbenchPreview
           key={`sequence-${sequence.id}`}
           toolbarControls={
@@ -228,6 +157,49 @@ export function SequenceEditor({
 
       <aside className="settings-panel sequence-settings">
         <h2>序列设置</h2>
+        <div className="sequence-toggle-group" aria-label="序列帧预览控制">
+          <button className="ghost compact" type="button" onClick={() => setPlaying((current) => !current)}>
+            {playing ? <Pause size={16} /> : <Play size={16} />}
+            {playing ? "暂停" : "播放"}
+          </button>
+          <button
+            className={`ghost compact ${showOnionSkin ? "active-soft" : ""}`}
+            type="button"
+            aria-pressed={showOnionSkin}
+            onClick={() => setShowOnionSkin((current) => !current)}
+          >
+            洋葱皮
+          </button>
+          <button className="ghost compact" type="button" disabled={!activeFrame} onClick={lockReferenceFrame}>
+            锁参考
+          </button>
+          <button
+            className={`ghost compact ${showDifferenceMap ? "active-soft" : ""}`}
+            type="button"
+            disabled={!referenceFrame || !activeFrame}
+            aria-pressed={showDifferenceMap}
+            onClick={() => setShowDifferenceMap((current) => !current)}
+          >
+            差异图
+          </button>
+        </div>
+        <button
+          className="ghost install-button"
+          type="button"
+          disabled={!activeFrame || !activeUrl || !canWrite}
+          onClick={() =>
+            activeFrame && activeUrl
+              ? void onManualEdit({
+                  name: activeFrame.original_name,
+                  url: activeUrl,
+                  sourceFileId: activeFrame.processed_asset_id ?? activeFrame.source_asset_id,
+                  sourceContext: "sequence_frame",
+                })
+              : undefined
+          }
+        >
+          编辑帧
+        </button>
         <label className="number-field">
           <span>当前序列</span>
           <select value={sequence.id} title={sequence.name} onChange={(event) => void onSelect(event.target.value)}>
@@ -299,19 +271,11 @@ export function SequenceEditor({
           保存设置
         </button>
         <div className="export-stack">
-          <button className="ghost" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onExportFrames()}>
-            导出 PNG 序列
-          </button>
-          <button className="ghost" type="button" disabled={sequenceTaskRunning || !canWrite} onClick={() => void onExportSpine()}>
-            导出 Spine
-          </button>
           <button className="ghost danger-text" type="button" disabled={!canWrite} onClick={() => void onDelete(sequence.id)}>
             删除序列
           </button>
         </div>
-      </aside>
 
-      <section className="workspace-result-panel sequence-result-panel">
         <SequenceDiagnosticsPanel diagnostics={diagnostics} referenceFrame={referenceFrame} differenceMap={differenceMap} />
 
         <div className="timeline-strip">
@@ -353,7 +317,8 @@ export function SequenceEditor({
             </button>
           </div>
         ) : null}
-      </section>
+        {error ? <p className="error-text">{error}</p> : null}
+      </aside>
     </>
   );
 }
@@ -570,4 +535,3 @@ function readRange(values: number[]) {
   if (!values.length) return 0;
   return Math.max(...values) - Math.min(...values);
 }
-

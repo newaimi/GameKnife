@@ -6,7 +6,8 @@ import { NumberField } from "@gameknife/ui-kit";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { WorkbenchActionBar } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
@@ -28,11 +29,6 @@ export function SoundEffectWorkspace() {
   const canWrite = useWorkflowWritePermission("sound-effect");
   const outputAsset = job?.type === "sound_effect_generate" ? readFirstJobOutputAsset(job) : undefined;
   const audioUrl = useObjectUrl(outputAsset?.url ?? "");
-  const title = job?.type === "sound_effect_generate" && job.status === "success" ? "声效已生成" : "文字生成声效";
-  const summary =
-    job?.type === "sound_effect_generate" && job.status === "success"
-      ? `${job.result.duration_seconds ?? params.duration_seconds}s · ${job.result.sample_rate ?? "-"} Hz · ${job.result.gpu_device || job.device || "Stable Audio"}`
-      : "输入游戏声效提示词后生成 WAV 文件。";
 
   async function run() {
     if (!canWrite) {
@@ -58,25 +54,6 @@ export function SoundEffectWorkspace() {
     <>
       <ToolWorkspaceLayout activeToolId="sound-effect">
         <section className="preview-stage sound-effect-stage">
-          <div className="stage-toolbar">
-            <div>
-              <h2>{title}</h2>
-              <p>{summary}</p>
-            </div>
-            <div className="toolbar-actions">
-              {outputAsset ? (
-                <button className="ghost" type="button" onClick={() => void downloadOutputAsset(outputAsset, "sound-effect.wav")}>
-                  <Download size={17} strokeWidth={2.4} />
-                  下载
-                </button>
-              ) : null}
-              <button className="primary" type="button" disabled={!params.prompt.trim() || busy || !canWrite} onClick={() => void run()}>
-                <Wand2 size={17} strokeWidth={2.4} />
-                {busy ? "生成中" : "生成声效"}
-              </button>
-            </div>
-          </div>
-
           <div className="sound-preview-area">
             <div className={`sound-wave ${audioUrl ? "ready" : ""}`} aria-hidden="true">
               {Array.from({ length: 32 }, (_, index) => (
@@ -89,7 +66,6 @@ export function SoundEffectWorkspace() {
               <div className="sound-empty">
                 <RadioTower size={42} strokeWidth={2.2} />
                 <strong>{busy ? "声效正在队列中处理" : "等待生成 WAV"}</strong>
-                <span>{busy ? "完成后会在这里显示播放器。" : "默认输出可直接用于游戏素材整理。"}</span>
               </div>
             )}
           </div>
@@ -139,15 +115,22 @@ export function SoundEffectWorkspace() {
               onChange={(event) => setParams((current) => ({ ...current, seed: event.target.value === "" ? null : Number(event.target.value) }))}
             />
           </label>
-          <div className="hint-box">
-            <strong>提示词建议</strong>
-            <p>用英文描述声源、动作、距离、空间和尾音，结尾加 no music、no voice，短音效建议把时长控制在 1 到 2 秒。</p>
-          </div>
           <StatusLine error={error} job={job} />
         </aside>
+
+        <WorkbenchActionBar>
+          <button className="primary" type="button" disabled={!params.prompt.trim() || busy || !canWrite} onClick={() => void run()}>
+            <Wand2 size={17} strokeWidth={2.4} />
+            {busy ? "生成中" : "生成声效"}
+          </button>
+          <button className="ghost" type="button" disabled={!outputAsset} onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, "sound-effect.wav") : undefined)}>
+            <Download size={17} strokeWidth={2.4} />
+            下载
+          </button>
+        </WorkbenchActionBar>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter refreshKey={job?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

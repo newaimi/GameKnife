@@ -24,7 +24,7 @@ export function CommunityShell({
   const themeToggleTooltip = `${themeToggleLabel} T`;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${toolActive ? "editor-shell" : ""}`}>
       <header className="top-nav">
         <NavLink className="brand" to="/" onClick={onMobileMenuClose}>
           <img className="brand-mark" src="/gameknife-logo.png" alt="" aria-hidden="true" />

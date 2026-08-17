@@ -61,12 +61,6 @@
   --gk-material-filter: blur(22px) saturate(150%);
   --gk-material-border-highlight: rgb(255 255 255 / 0.07);
 
-  --gk-body-background:
-    linear-gradient(color-mix(in srgb, var(--gk-color-border) 22%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--gk-color-border) 22%, transparent) 1px, transparent 1px),
-    var(--gk-color-canvas);
-  --gk-body-grid-size: 48px 48px;
-
   /* 旧工作流仍在逐步迁移，别名让令牌收敛期间保持已有页面的视觉与业务行为。 */
   --blue: var(--gk-color-accent);
   --primary: var(--gk-color-accent);
@@ -87,7 +81,6 @@
   --hint-text: color-mix(in oklch, var(--gk-color-text) 78%, var(--gk-color-accent));
   --soft: var(--gk-color-surface-muted);
   --nav-panel: var(--gk-material-chrome);
-  --body-bg: var(--gk-body-background);
   --shadow: var(--gk-shadow-floating);
   --panel-shadow: var(--gk-shadow-panel);
   --soft-shadow: var(--gk-shadow-floating);
@@ -119,10 +112,6 @@
   --gk-material-panel: color-mix(in srgb, var(--gk-color-surface) 90%, transparent);
   --gk-material-floating: color-mix(in srgb, var(--gk-color-surface-elevated) 88%, transparent);
   --gk-material-border-highlight: rgb(255 255 255 / 0.76);
-  --gk-body-background:
-    linear-gradient(color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--gk-color-border) 26%, transparent) 1px, transparent 1px),
-    var(--gk-color-canvas);
 }
 
 .gk-button {
@@ -421,7 +410,6 @@
     --gk-material-panel: var(--gk-color-surface);
     --gk-material-floating: var(--gk-color-surface-elevated);
     --gk-material-filter: none;
-    --gk-body-background: var(--gk-color-canvas);
   }
 }
 

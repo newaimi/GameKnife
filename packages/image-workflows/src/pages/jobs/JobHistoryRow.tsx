@@ -25,7 +25,7 @@ export function JobHistoryRow({
 
   return (
     <article className="task-row">
-      <div className="recent-thumb task-row-thumb">
+      <div className="job-thumb task-row-thumb">
         {thumbnailUrl ? <img src={thumbnailUrl} alt={readJobDisplayName(job)} /> : <span>{readJobInitial(job)}</span>}
       </div>
       <div className="task-row-main">

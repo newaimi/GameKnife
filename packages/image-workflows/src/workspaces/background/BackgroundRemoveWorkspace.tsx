@@ -5,8 +5,8 @@ import { Button, NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { ComparePreview, EmptyCanvas } from "../../components/ImageComparePreview";
 import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { ImageUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { ImageUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
@@ -48,32 +48,8 @@ export function BackgroundRemoveWorkspace() {
 
   return (
     <>
-      <ImageUploadStrip
-        title={asset ? "已上传图片" : "上传图片"}
-        description="支持 JPG / PNG / WebP，最大 50MB"
-        disabled={!canWrite}
-        onFile={upload}
-      />
-
       <ToolWorkspaceLayout activeToolId="background-remove">
         <section className="preview-stage">
-          <div className="stage-toolbar">
-            <div>
-              <h2>AI 去背景</h2>
-              <p>{asset ? `${asset.filename} · ${job?.status === "success" ? "处理完成" : "等待处理"}` : "上传图片后生成透明 PNG。"}</p>
-            </div>
-            <div className="toolbar-actions">
-              {outputAsset ? (
-                <Button variant="secondary" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`)}>
-                  下载
-                </Button>
-              ) : null}
-              <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
-                {busy ? "处理中" : "开始处理"}
-              </Button>
-            </div>
-          </div>
-
           <WorkbenchPreview key={`background-${asset?.id ?? "empty"}-${outputAsset?.id ?? "none"}`}>
             {!asset ? (
               <EmptyCanvas />
@@ -99,15 +75,25 @@ export function BackgroundRemoveWorkspace() {
             max={10}
             onChange={(alpha_smoothing) => setParams((current) => ({ ...current, alpha_smoothing }))}
           />
-          <div className="hint-box">
-            <strong>导出说明</strong>
-            <p>去背景只负责生成透明 PNG。需要换背景色时，进入手动编辑后在导出设置里合成。</p>
-          </div>
           <StatusLine error={error} job={job} />
         </aside>
+
+        <WorkbenchActionBar>
+          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
+            {busy ? "处理中" : "开始处理"}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={!outputAsset}
+            onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`) : undefined)}
+          >
+            下载
+          </Button>
+        </WorkbenchActionBar>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }

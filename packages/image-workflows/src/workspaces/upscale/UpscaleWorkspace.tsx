@@ -5,15 +5,14 @@ import { Button, NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { ComparePreview, EmptyCanvas } from "../../components/ImageComparePreview";
 import { StatusLine } from "../../components/StatusLine";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
-import { ImageUploadStrip } from "../../components/UploadStrip";
-import { WorkflowResultFooter } from "../../components/WorkflowResultFooter";
+import { ImageUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
+import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
 import { useWorkflowJob } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
-import { formatImageSize } from "../../utils/formatters";
-import { JOB_POLLING_PRESETS, readFirstJobOutputAsset, readTupleNumber } from "../../utils/jobs";
+import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
 const UPSCALE_STYLE_OPTIONS: Array<{ value: UpscaleParameters["style"]; label: string; note: string }> = [
@@ -45,8 +44,6 @@ export function UpscaleWorkspace() {
   const busy = uploading || jobBusy;
   const error = uploadError || jobError;
   const outputAsset = job?.type === "image_upscale" ? readFirstJobOutputAsset(job) : undefined;
-  const selectedStyle = UPSCALE_STYLE_OPTIONS.find((option) => option.value === params.style) ?? UPSCALE_STYLE_OPTIONS[0];
-  const outputSize = readTupleNumber(job?.result.output_size);
   const warnings = Array.isArray(job?.result.warnings) ? job.result.warnings.map(String) : [];
 
   async function run() {
@@ -66,48 +63,8 @@ export function UpscaleWorkspace() {
 
   return (
     <>
-      <ImageUploadStrip
-        title={asset ? "已导入待放大图片" : "导入待放大图片"}
-        description="支持 PNG / JPG / WebP，输出默认保留透明通道"
-        disabled={!canWrite}
-        onFile={upload}
-      />
-
       <ToolWorkspaceLayout activeToolId="upscale">
         <section className="preview-stage upscale-stage">
-          <div className="stage-toolbar">
-            <div>
-              <h2>图片放大</h2>
-              <p>{asset ? `${selectedStyle.label} · ${params.scale}x · ${formatImageSize(outputSize)}` : "导入图片后按素材风格选择放大方式。"}</p>
-            </div>
-            <div className="toolbar-actions">
-              {outputAsset ? (
-                <Button variant="secondary" onClick={() => void downloadOutputAsset(outputAsset, `${asset?.filename ?? "upscale"}_upscale.png`)}>
-                  下载
-                </Button>
-              ) : null}
-              {outputAsset ? (
-                <Button
-                  variant="secondary"
-                  disabled={!canWrite}
-                  onClick={() =>
-                    void openManualEdit({
-                      name: `${asset?.filename ?? "upscale"}_upscale.png`,
-                      url: outputAsset.url,
-                      sourceFileId: outputAsset.id,
-                      sourceContext: "image_upscale",
-                    })
-                  }
-                >
-                  手动编辑
-                </Button>
-              ) : null}
-              <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
-                {busy ? "处理中" : "开始放大"}
-              </Button>
-            </div>
-          </div>
-
           <WorkbenchPreview key={`upscale-${asset?.id ?? "empty"}-${outputAsset?.id ?? "none"}`}>
             {!asset ? (
               <EmptyCanvas />
@@ -165,21 +122,49 @@ export function UpscaleWorkspace() {
             </select>
           </label>
           <NumberField label="Tile Size" value={params.tile_size} min={128} max={1024} onChange={(tile_size) => setParams((current) => ({ ...current, tile_size }))} />
-          <div className="hint-box">
-            <strong>处理策略</strong>
-            <p>像素风直接最近邻放大。其他风格需要先在设置页安装 Real-ESRGAN 模型文件。</p>
-          </div>
           {warnings.length ? (
             <div className="hint-box warning">
               <strong>注意</strong>
               <p>{warnings.join(" ")}</p>
             </div>
           ) : null}
+          <div className="export-stack">
+            <Button
+              variant="secondary"
+              disabled={!outputAsset || !canWrite}
+              onClick={() =>
+                outputAsset
+                  ? void openManualEdit({
+                      name: `${asset?.filename ?? "upscale"}_upscale.png`,
+                      url: outputAsset.url,
+                      sourceFileId: outputAsset.id,
+                      sourceContext: "image_upscale",
+                    })
+                  : undefined
+              }
+            >
+              手动编辑
+            </Button>
+          </div>
           <StatusLine error={error} job={job} />
         </aside>
+
+        <WorkbenchActionBar>
+          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
+            {busy ? "处理中" : "开始放大"}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={!outputAsset}
+            onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, `${asset?.filename ?? "upscale"}_upscale.png`) : undefined)}
+          >
+            下载
+          </Button>
+        </WorkbenchActionBar>
       </ToolWorkspaceLayout>
 
-      <WorkflowResultFooter refreshKey={job?.id ?? asset?.id ?? ""} failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
+      <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />
     </>
   );
 }
