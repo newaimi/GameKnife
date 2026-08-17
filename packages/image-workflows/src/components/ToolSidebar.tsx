@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useGameKnifePermissions } from "@gameknife/app-context";
 import { IconButton } from "@gameknife/ui-kit";
 import { communityToolEntries, toolIconById } from "../tools/toolEntries";
+import { readToolLinkProps } from "./toolLinkProps";
 
 export function ToolSidebar({
   activeToolId,
@@ -25,6 +26,7 @@ export function ToolSidebar({
       </div>
       {communityToolEntries.map((tool) => {
         const allowed = permissions.can(tool.permission, { tool_id: tool.id });
+        const linkProps = readToolLinkProps(tool.openInNewTab);
         if (!allowed) {
           return (
             <span
@@ -45,6 +47,8 @@ export function ToolSidebar({
           <NavLink
             className={`tool-button ${tool.id === activeToolId ? "active" : ""}`}
             to={tool.route}
+            target={linkProps.target}
+            rel={linkProps.rel}
             aria-label={collapsed ? tool.label : undefined}
             title={collapsed ? tool.label : undefined}
             key={tool.id}
