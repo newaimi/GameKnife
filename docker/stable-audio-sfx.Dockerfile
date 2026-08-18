@@ -15,8 +15,8 @@ RUN apt-get update \
 
 ARG STABLE_AUDIO_TORCH_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu126
 
-# Stable Audio Open 当前依赖链对 Python 和音频系统库比较敏感。
-# 声效服务单独使用 Python 3.10，可以避免把这些约束传递到 Community API 主进程。
+# Stable Audio Open has strict Python and system audio library requirements.
+# Keeping the service on Python 3.10 prevents those constraints from affecting the Community API process.
 RUN python -m pip install --upgrade pip \
     && python -m pip install --extra-index-url "${STABLE_AUDIO_TORCH_EXTRA_INDEX_URL}" \
         "fastapi" \

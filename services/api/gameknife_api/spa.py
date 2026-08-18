@@ -31,7 +31,7 @@ def mount_spa(app: FastAPI, web_dist: Path | None, *, assets_name: str) -> None:
     def spa_fallback(path: str) -> FileResponse:
         # Public API routes use the /api prefix. Missing endpoints must retain their 404 instead of falling back to index.html.
         if path == "api" or path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="接口不存在。")
+            raise HTTPException(status_code=404, detail="API endpoint not found.")
 
         requested_file = (web_dist_root / path).resolve()
         # Vite copies public files into the dist root. Validate the boundary before reading to block paths outside dist.

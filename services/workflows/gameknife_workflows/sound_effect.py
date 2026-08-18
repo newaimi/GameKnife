@@ -30,13 +30,13 @@ def create_sound_effect_workflow(
 ) -> tuple[JobRecord, Callable[[], None]]:
     prompt = str(parameters.get("prompt") or "").strip()
     if not prompt:
-        raise WorkflowValidationError("请输入声效提示词。")
+        raise WorkflowValidationError("Enter an SFX prompt.")
 
     install_status = service.install_status()
     if install_status.get("status") in {"unconfigured", "unavailable"}:
-        raise WorkflowServiceUnavailableError(str(install_status.get("message") or "Stable Audio 声效服务不可用。"))
+        raise WorkflowServiceUnavailableError(str(install_status.get("message") or "The Stable Audio SFX service is unavailable."))
     if not install_status.get("installed"):
-        raise WorkflowModelNotInstalledError("Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
+        raise WorkflowModelNotInstalledError("Stable Audio Open is not installed. Install the model files from Settings first.")
 
     prompt_asset = _create_prompt_asset(repository, context, prompt)
     try:
@@ -71,7 +71,7 @@ def run_sound_effect_workflow(
         return
     prompt_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if prompt_asset is None:
-        mark_failed(repository, context, job_id, "声效提示词不存在。")
+        mark_failed(repository, context, job_id, "SFX prompt not found.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
@@ -79,7 +79,7 @@ def run_sound_effect_workflow(
         prompt_path = context.storage.resolve_asset_path(prompt_asset.path)
         prompt = prompt_path.read_text(encoding="utf-8").strip()
         if not prompt:
-            raise RuntimeError("声效提示词不能为空。")
+            raise RuntimeError("The SFX prompt cannot be empty.")
         parameters = json.loads(job.parameters_json)
         target_path = output_path(context, job.id, "sound_effect.wav")
         metadata = service.generate_sound_effect(prompt, target_path, parameters)

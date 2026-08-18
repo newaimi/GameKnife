@@ -45,7 +45,7 @@ def test_sequence_spine_export_workflow_creates_spine_zip(tmp_path: Path) -> Non
     output_asset = repository.get_asset_for_workspace(result["output_assets"][0]["id"], context.workspace.id)
     assert stored.status == "success"
     assert stored.job_type == "sequence_export_spine"
-    assert result["warnings"] == ["Spine 导出为逐帧切换附件，不包含骨骼绑定和蒙皮权重。"]
+    assert result["warnings"] == ["The Spine export switches frame attachments and contains no bone bindings or skin weights."]
     assert output_asset is not None
     assert output_asset.kind == "sequence_spine"
     with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
@@ -101,8 +101,8 @@ def _make_repository_context_and_sequence(tmp_path: Path) -> tuple[SQLiteGameKni
         created_at="2026-01-01T00:00:00+00:00",
     )
     context = RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=frozenset({"sequence"})),
         storage=storage,

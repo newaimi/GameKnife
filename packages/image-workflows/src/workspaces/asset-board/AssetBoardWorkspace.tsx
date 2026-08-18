@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Play, RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { AssetBoardParameters, ComponentCandidate, JobResponse } from "@gameknife/shared-types";
@@ -28,6 +29,8 @@ const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
 };
 
 export function AssetBoardWorkspace() {
+  const { t } = useTranslation("workflows");
+  const { t: tWorkbench } = useTranslation("workbench");
   const [params, setParams] = useState<AssetBoardParameters>(DEFAULT_ASSET_BOARD_PARAMS);
   const [components, setComponents] = useState<ComponentCandidate[]>([]);
   const [selectedComponents, setSelectedComponents] = useState<Set<number>>(new Set());
@@ -81,8 +84,8 @@ export function AssetBoardWorkspace() {
     if (!asset || !canWrite) {
       return;
     }
-    // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
-    // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
+    // Region detection is a lightweight CPU step and refreshes after upload or region parameter changes.
+    // Only threshold and minimum area trigger it so edge cleanup cannot create model jobs implicitly.
     await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, readRegionParameters()), applyComponentJobResult);
   }
 
@@ -104,7 +107,7 @@ export function AssetBoardWorkspace() {
       return;
     }
     if (!cutoutAssetId) {
-      setError("请先完成素材板抠图。");
+      setError(t("assetBoard.cutoutRequired"));
       return;
     }
     await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, readRegionParameters()), applyComponentJobResult);
@@ -115,7 +118,7 @@ export function AssetBoardWorkspace() {
       return;
     }
     if (!cutoutAssetId) {
-      setError("请先完成素材板抠图。");
+      setError(t("assetBoard.cutoutRequired"));
       return;
     }
     await runJob(() =>
@@ -131,8 +134,8 @@ export function AssetBoardWorkspace() {
   async function runJob(createJob: () => Promise<JobResponse>, onSuccess?: (finished: JobResponse) => void) {
     await runWorkflowJob({
       createJob,
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建素材板任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("assetBoard.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,
       onSuccess,
     });
@@ -222,32 +225,32 @@ export function AssetBoardWorkspace() {
         </section>
 
         <aside className="settings-panel">
-          <h2>当前参数</h2>
-          <NumberField label="Alpha 阈值" value={params.alpha_threshold} min={0} max={255} onChange={(alpha_threshold) => setParams((current) => ({ ...current, alpha_threshold }))} />
-          <NumberField label="最小组件面积" value={params.min_component_area} min={1} max={100000} onChange={(min_component_area) => setParams((current) => ({ ...current, min_component_area }))} />
-          <NumberField label="Alpha 平滑" value={params.alpha_smoothing} min={0} max={10} onChange={(alpha_smoothing) => setParams((current) => ({ ...current, alpha_smoothing }))} />
-          <NumberField label="边缘内缩" value={params.alpha_contract} min={0} max={8} onChange={(alpha_contract) => setParams((current) => ({ ...current, alpha_contract }))} />
-          <NumberField label="边缘柔化" value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
-          <NumberField label="去边色" value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
-          <NumberField label="导出留边" value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
+          <h2>{tWorkbench("parameters")}</h2>
+          <NumberField label={t("assetBoard.alphaThreshold")} value={params.alpha_threshold} min={0} max={255} onChange={(alpha_threshold) => setParams((current) => ({ ...current, alpha_threshold }))} />
+          <NumberField label={t("assetBoard.minimumArea")} value={params.min_component_area} min={1} max={100000} onChange={(min_component_area) => setParams((current) => ({ ...current, min_component_area }))} />
+          <NumberField label={t("assetBoard.alphaSmoothing")} value={params.alpha_smoothing} min={0} max={10} onChange={(alpha_smoothing) => setParams((current) => ({ ...current, alpha_smoothing }))} />
+          <NumberField label={t("assetBoard.alphaContract")} value={params.alpha_contract} min={0} max={8} onChange={(alpha_contract) => setParams((current) => ({ ...current, alpha_contract }))} />
+          <NumberField label={t("assetBoard.alphaFeather")} value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
+          <NumberField label={t("assetBoard.alphaDefringe")} value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
+          <NumberField label={t("assetBoard.exportPadding")} value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
           <StatusLine error={error} job={job} />
         </aside>
 
         <WorkbenchActionBar>
-          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <ImageUploadAction label={asset ? t("common.replaceImage") : t("common.uploadImage")} disabled={!canWrite} onFile={upload} />
           <button className="primary" disabled={!asset || busy || !canWrite} onClick={() => void detectRegions()} type="button">
             <RefreshCw size={17} strokeWidth={2.4} />
-            识别区域
+            {t("assetBoard.detect")}
           </button>
           <button className="ghost" disabled={!asset || busy || !canWrite} onClick={() => void cutout()} type="button">
             <Play size={17} strokeWidth={2.4} />
-            抠图
+            {t("assetBoard.cutout")}
           </button>
           <button className="ghost" disabled={!cutoutAssetId || busy || !canWrite} onClick={() => void refine()} type="button">
-            刷新框
+            {t("assetBoard.refreshRegions")}
           </button>
           <button className="ghost" disabled={!cutoutAssetId || busy || selectedCount === 0 || !canWrite} onClick={() => void exportSelected()} type="button">
-            导出选中 {selectedCount}
+            {t("assetBoard.exportSelected", { count: selectedCount })}
           </button>
           <button
             className="ghost"
@@ -255,7 +258,7 @@ export function AssetBoardWorkspace() {
             type="button"
             onClick={() => (exportAsset ? void downloadOutputAsset(exportAsset, `${asset?.filename ?? "asset-board"}_components.zip`) : undefined)}
           >
-            下载 ZIP
+            {t("assetBoard.downloadZip")}
           </button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>

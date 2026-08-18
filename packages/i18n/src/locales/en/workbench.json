@@ -1,0 +1,30 @@
+{
+  "actionsLabel": "Workbench actions",
+  "zoomLabel": "Image zoom controls",
+  "fit": "Fit",
+  "parameters": "Parameters",
+  "resizeToolPanel": "Resize tool panel",
+  "resizeParameterPanel": "Resize parameter panel",
+  "expandParameterPanel": "Expand parameter panel",
+  "collapseParameterPanel": "Collapse parameter panel",
+  "emptyPreview": "Empty preview",
+  "loadingOriginal": "Loading original image...",
+  "originalImage": "Original image",
+  "processedImage": "Processed image",
+  "compareHandle": "Drag to compare before and after processing",
+  "resultTitle": "Processing result",
+  "resultDescription": "Double-click to open the processed image.",
+  "resultFileName": "processing-result.png",
+  "previewLabel": "{{title}} preview",
+  "manualEdit": "Manual edit",
+  "close": "Close",
+  "failure": {
+    "label": "Processing failed",
+    "close": "Close",
+    "unknownBackendError": "The backend did not return an error message.",
+    "jobTitle": "{{title}} failed",
+    "jobMessage": "The job did not finish. The backend response is shown below.",
+    "jobDetail": "Job ID: {{id}}\nError: {{detail}}",
+    "request": "Request failed."
+  }
+}

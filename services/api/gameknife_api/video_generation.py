@@ -104,9 +104,9 @@ class VideoGenerationClient:
         provider = str((patch or {}).get("provider") or current.get("provider"))
         config = self._normalize_config({**current, **self._provider_defaults(provider), **(patch or {})})
         self._ensure_configured(config)
-        # 测试配置只检查字段完整性。真实视频 API 通常按调用扣费，
-        # 不能因为管理员在设置页测试配置就直接发起外部生成请求。
-        return {"ok": True, "message": "视频生成 API 配置字段完整。"}
+        # Configuration tests only validate required fields. Video providers commonly charge per request,
+        # so testing settings must not start an external generation request.
+        return {"ok": True, "message": "The video generation API configuration is complete."}
 
     def ensure_configured(self) -> None:
         self._ensure_configured(self.read_config(include_secret=True))
@@ -120,12 +120,12 @@ class VideoGenerationClient:
         submit_response = self._request_json("POST", self._join_url(config["base_url"], config["submit_path"]), config, submit_body)
         external_task_id = str(self._read_json_path(submit_response, str(config["task_id_path"])) or "")
         if not external_task_id:
-            raise RuntimeError("视频生成接口没有返回任务 ID。")
+            raise RuntimeError("The video generation API did not return a task ID.")
 
         final_response = self._poll_result(config, external_task_id)
         video_url = str(self._read_json_path(final_response, str(config["video_url_path"])) or "")
         if not video_url:
-            raise RuntimeError("视频生成成功，但接口没有返回视频地址。")
+            raise RuntimeError("Video generation succeeded, but the API did not return a video URL.")
 
         self._download_video(video_url, output_path)
         return VideoGenerationResult(
@@ -151,12 +151,12 @@ class VideoGenerationClient:
             if status == success_status:
                 return payload
             if status == failed_status:
-                message = self._read_json_path(payload, "output.message") or self._read_json_path(payload, "message") or "视频生成失败。"
+                message = self._read_json_path(payload, "output.message") or self._read_json_path(payload, "message") or "Video generation failed."
                 raise RuntimeError(str(message))
             if status and status not in pending_statuses:
-                raise RuntimeError(f"视频生成接口返回未知状态：{status}。")
+                raise RuntimeError(f"The video generation API returned an unknown status: {status}.")
             if time.monotonic() - started > timeout_seconds:
-                raise RuntimeError("视频生成超时，请稍后在任务记录中重试。")
+                raise RuntimeError("Video generation timed out. Retry later from the job history.")
             time.sleep(poll_interval)
 
     def _build_submit_body(self, config: dict[str, Any], image_data_url: str, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -183,7 +183,7 @@ class VideoGenerationClient:
 
         input_payload: dict[str, Any] = {
             "prompt": values["prompt"],
-            # 外部视频 API 读取首帧图片。这里传 data URL，避免把本地受保护文件地址暴露给外部服务。
+            # The external video API reads the first frame from a data URL so protected local asset URLs are never exposed.
             "media": [{"type": "first_frame", "url": image_data_url}],
         }
         if values["negative_prompt"]:
@@ -218,11 +218,11 @@ class VideoGenerationClient:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"视频生成接口请求失败：HTTP {exc.code} {detail}") from exc
+            raise RuntimeError(f"The video generation API request failed: HTTP {exc.code} {detail}") from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"视频生成接口连接失败：{exc.reason}") from exc
+            raise RuntimeError(f"Could not connect to the video generation API: {exc.reason}") from exc
         if not isinstance(payload, dict):
-            raise RuntimeError("视频生成接口返回内容不是 JSON 对象。")
+            raise RuntimeError("The video generation API response is not a JSON object.")
         return payload
 
     def _download_video(self, video_url: str, output_path: Path) -> None:
@@ -233,9 +233,9 @@ class VideoGenerationClient:
                 while chunk := response.read(1024 * 1024):
                     output.write(chunk)
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"生成视频下载失败：{exc.reason}") from exc
+            raise RuntimeError(f"Failed to download the generated video: {exc.reason}") from exc
         if output_path.stat().st_size <= 0:
-            raise RuntimeError("生成视频下载后为空文件。")
+            raise RuntimeError("The downloaded video file is empty.")
 
     def _build_headers(self, config: dict[str, Any]) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -258,8 +258,8 @@ class VideoGenerationClient:
                 scale = 240 / max(1, min_edge)
                 background = background.resize((round(width * scale), round(height * scale)), Image.Resampling.LANCZOS)
             elif max_edge > 1600:
-                # 外部视频模型会接收 base64 图片。限制最长边可以降低请求体大小，
-                # 也减少过大原图导致供应商接口拒绝的概率，游戏序列帧生成不需要原图级像素。
+                # External video models receive a base64 image. Limiting the longest edge reduces the request size
+                # and avoids provider rejection without affecting the resolution needed for game sequence generation.
                 scale = 1600 / max_edge
                 background = background.resize((round(width * scale), round(height * scale)), Image.Resampling.LANCZOS)
 
@@ -269,22 +269,22 @@ class VideoGenerationClient:
 
     def _ensure_configured(self, config: dict[str, Any]) -> None:
         if not str(config.get("base_url") or "").strip():
-            raise RuntimeError("视频生成 API 缺少 Base URL。")
+            raise RuntimeError("The video generation API Base URL is missing.")
         if not str(config.get("api_key") or "").strip():
-            raise RuntimeError("视频生成 API 缺少 API Key。")
+            raise RuntimeError("The video generation API key is missing.")
         if not str(config.get("model") or "").strip():
-            raise RuntimeError("视频生成 API 缺少模型名称。")
+            raise RuntimeError("The video generation API model name is missing.")
         for key in ("submit_path", "query_path", "task_id_path", "status_path", "video_url_path"):
             if not str(config.get(key) or "").strip():
-                raise RuntimeError(f"视频生成 API 缺少 {key} 配置。")
+                raise RuntimeError(f"The video generation API {key} setting is missing.")
 
     def _normalize_config(self, config: dict[str, Any]) -> dict[str, Any]:
         provider = str(config.get("provider") or DEFAULT_VIDEO_GENERATION_CONFIG["provider"])
         if provider not in PROVIDER_DEFAULTS:
             provider = "aliyun_dashscope"
 
-        # 设置页只暴露供应商、Base URL 和密钥。其他字段来自供应商默认值，
-        # 这样管理员不用理解各家接口的任务字段，同时避免旧配置残留影响请求格式。
+        # Settings exposes only the provider, Base URL, and key. Provider defaults supply the remaining fields
+        # so operators do not need provider-specific task schemas and stale settings cannot alter the request format.
         normalized = {**DEFAULT_VIDEO_GENERATION_CONFIG, **self._provider_defaults(provider)}
         normalized["provider"] = provider
         normalized["base_url"] = str(config.get("base_url") or normalized["base_url"]).rstrip("/")

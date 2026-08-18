@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { BackgroundRemoveParameters } from "@gameknife/shared-types";
 import { Button, NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
@@ -16,6 +17,8 @@ import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
 export function BackgroundRemoveWorkspace() {
+  const { t } = useTranslation("workflows");
+  const { t: tWorkbench } = useTranslation("workbench");
   const [params, setParams] = useState<BackgroundRemoveParameters>({ alpha_smoothing: 0 });
   const [compare, setCompare] = useState(50);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
@@ -40,8 +43,8 @@ export function BackgroundRemoveWorkspace() {
     }
     await runJob({
       createJob: () => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, params),
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建去背景任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("background.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,
     });
   }
@@ -67,9 +70,9 @@ export function BackgroundRemoveWorkspace() {
         </section>
 
         <aside className="settings-panel">
-          <h2>当前参数</h2>
+          <h2>{tWorkbench("parameters")}</h2>
           <NumberField
-            label="Alpha 平滑"
+            label={t("background.alphaSmoothing")}
             value={params.alpha_smoothing}
             min={0}
             max={10}
@@ -79,16 +82,16 @@ export function BackgroundRemoveWorkspace() {
         </aside>
 
         <WorkbenchActionBar>
-          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <ImageUploadAction label={asset ? t("common.replaceImage") : t("common.uploadImage")} disabled={!canWrite} onFile={upload} />
           <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
-            {busy ? "处理中" : "开始处理"}
+            {busy ? t("common.processing") : t("common.process")}
           </Button>
           <Button
             variant="secondary"
             disabled={!outputAsset}
             onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, `${asset?.filename ?? "background"}_cutout.png`) : undefined)}
           >
-            下载
+            {t("common.download")}
           </Button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>

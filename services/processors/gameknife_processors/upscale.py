@@ -54,7 +54,7 @@ class UpscaleProcessor:
             warnings: list[str] = []
         elif model_service is None or not model_service.is_installed():
             # AI upscaling runs only after explicit installation in Settings; job execution reads local weights and never downloads implicitly.
-            raise RuntimeError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+            raise RuntimeError("Upscale models are not installed. Install the model files from Settings first.")
         else:
             output, model_name, device, warnings = model_service.upscale_image(
                 image,
@@ -108,4 +108,4 @@ def _ensure_output_size_allowed(width: int, height: int, scale: int) -> None:
     output_pixels = width * height * scale * scale
     if output_pixels <= MAX_OUTPUT_PIXELS:
         return
-    raise RuntimeError("放大后的图片超过 67MP 上限，请降低倍率或先裁切图片。")
+    raise RuntimeError("The upscaled image exceeds the 67 MP limit. Reduce the scale or crop the image first.")

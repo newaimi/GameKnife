@@ -71,7 +71,7 @@ def create_job_record(
     repository.create_job(job)
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
     if stored is None:
-        raise RuntimeError("任务创建失败。")
+        raise RuntimeError("Job creation failed.")
     return stored
 
 
@@ -90,7 +90,7 @@ def run_image_output_job(
         return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
-        mark_failed(repository, context, job_id, "输入素材不存在。")
+        mark_failed(repository, context, job_id, "Input asset not found.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())

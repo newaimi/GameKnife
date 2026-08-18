@@ -1,11 +1,12 @@
 import { Button } from "@gameknife/ui-kit";
+import { useTranslation } from "react-i18next";
 import { ImageUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
 import { readManualEditorActionState } from "./manualEditorActionState";
 import type { EditorStatus } from "./types";
 
 /**
- * 手动编辑页的主操作入口。导入、历史命令、保存和下载统一放在工作台顶部中央，
- * 具体命令仍通过编辑器句柄和页面保存链路执行，布局组件不推断编辑状态。
+ * Places document import, history commands, save, and export in the centered workbench toolbar.
+ * The editor handle and page save flow execute commands; this component only renders explicit action state.
  */
 export function ManualEditorActionBar({
   hasSource,
@@ -28,6 +29,7 @@ export function ManualEditorActionBar({
   onSave: () => void;
   onExport: () => void;
 }) {
+  const { t } = useTranslation("manualEditor");
   const actionState = readManualEditorActionState({
     hasSource,
     canWrite,
@@ -38,18 +40,18 @@ export function ManualEditorActionBar({
 
   return (
     <WorkbenchActionBar>
-      <ImageUploadAction label={actionState.uploadLabel} disabled={actionState.uploadDisabled} onFile={onUpload} />
+      <ImageUploadAction label={hasSource ? t("actions.replaceImage") : t("actions.importImage")} disabled={actionState.uploadDisabled} onFile={onUpload} />
       <Button disabled={actionState.undoDisabled} onClick={onUndo}>
-        撤销
+        {t("actions.undo")}
       </Button>
       <Button disabled={actionState.redoDisabled} onClick={onRedo}>
-        重做
+        {t("actions.redo")}
       </Button>
       <Button variant="primary" disabled={actionState.saveDisabled} onClick={onSave}>
-        {actionState.saveLabel}
+        {saving ? t("actions.saving") : t("actions.save")}
       </Button>
       <Button disabled={actionState.exportDisabled} onClick={onExport}>
-        导出
+        {t("actions.export")}
       </Button>
     </WorkbenchActionBar>
   );

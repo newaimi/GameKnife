@@ -37,10 +37,10 @@ function createDocument(width, height) {
   const originalImageData = new ImageData(width, height);
   const imageData = new ImageData(width, height);
   return {
-    name: "测试图片",
+    name: "Test image",
     width,
     height,
-    layers: [{ id: "layer-1", name: "原图", visible: true, opacity: 100, imageData }],
+    layers: [{ id: "layer-1", name: "Original", visible: true, opacity: 100, imageData }],
     activeLayerId: "layer-1",
     originalImageData,
     selection: null,
@@ -49,10 +49,10 @@ function createDocument(width, height) {
   };
 }
 
-test("结构快照共享只读原图并隔离可编辑图层", () => {
+test("structural snapshots share the read-only source and isolate editable layers", () => {
   const doc = createDocument(8, 8);
   doc.layers[0].imageData.data[0] = 20;
-  const snapshot = cloneEditorSnapshot(doc, "结构操作前");
+  const snapshot = cloneEditorSnapshot(doc, "Before structural operation");
 
   assert.equal(snapshot.originalImageData, doc.originalImageData);
   assert.notEqual(snapshot.layers[0].imageData, doc.layers[0].imageData);
@@ -60,7 +60,7 @@ test("结构快照共享只读原图并隔离可编辑图层", () => {
   assert.equal(snapshot.layers[0].imageData.data[0], 20);
 });
 
-test("大图选区历史不持有图层和原图像素", () => {
+test("large-image selection history does not retain layer or source pixels", () => {
   const doc = createDocument(2048, 2048);
   const before = captureEditorSelectionHistoryState(doc);
   doc.selection = {
@@ -71,7 +71,7 @@ test("大图选区历史不持有图层和原图像素", () => {
   const after = captureEditorSelectionHistoryState(doc);
   const entry = {
     id: "history-selection",
-    title: "矩形选区",
+    title: "Rectangle selection",
     createdAt: 1,
     redrawBitmap: false,
     layout: false,
@@ -85,7 +85,7 @@ test("大图选区历史不持有图层和原图像素", () => {
   assert.equal("layers" in before, false);
 });
 
-test("大图笔画只保存实际修改区域并可独立撤销重做", () => {
+test("large-image strokes retain only changed regions and support isolated undo and redo", () => {
   const doc = createDocument(2048, 2048);
   const beforeSelection = captureEditorSelectionHistoryState(doc);
   const recorder = createEditorPixelRecorder("layer-1", doc.width, doc.height);
@@ -105,7 +105,7 @@ test("大图笔画只保存实际修改区域并可独立撤销重做", () => {
 
   const entry = {
     id: "history-1",
-    title: "画笔",
+    title: "Brush",
     createdAt: 1,
     redrawBitmap: true,
     layout: false,
@@ -120,7 +120,7 @@ test("大图笔画只保存实际修改区域并可独立撤销重做", () => {
   assert.equal(doc.layers[0].imageData.data[(1024 * doc.width + 1024) * 4], 255);
 });
 
-test("未改变像素的笔画不创建历史状态", () => {
+test("strokes without pixel changes do not create history state", () => {
   const doc = createDocument(16, 16);
   const beforeSelection = captureEditorSelectionHistoryState(doc);
   const recorder = createEditorPixelRecorder("layer-1", doc.width, doc.height);
@@ -135,7 +135,7 @@ test("未改变像素的笔画不创建历史状态", () => {
   assert.equal(buildEditorStrokeHistoryStates(doc, recorder, beforeSelection), null);
 });
 
-test("移动选区用起点和终点联合脏区完成撤销重做", () => {
+test("moving a selection uses the union of source and target regions for undo and redo", () => {
   const doc = createDocument(6, 2);
   const sourceIndex = (0 * doc.width + 1) * 4;
   const targetIndex = (0 * doc.width + 4) * 4;
@@ -159,7 +159,7 @@ test("移动选区用起点和终点联合脏区完成撤销重做", () => {
   assert.ok(after);
   const entry = {
     id: "history-move",
-    title: "移动选区",
+    title: "Move selection",
     createdAt: 1,
     redrawBitmap: true,
     layout: false,
@@ -181,7 +181,7 @@ test("移动选区用起点和终点联合脏区完成撤销重做", () => {
   assert.equal(doc.selection, null);
 });
 
-test("局部合成结果与整图合成对应区域一致", () => {
+test("regional composition matches the corresponding full-document region", () => {
   const doc = createDocument(5, 4);
   doc.layers[0].imageData.data.fill(0);
   for (let index = 0; index < doc.layers[0].imageData.data.length; index += 4) {
@@ -190,10 +190,10 @@ test("局部合成结果与整图合成对应区域一致", () => {
   }
   const upper = new ImageData(5, 4);
   upper.data.set([200, 50, 10, 128], (1 * 5 + 2) * 4);
-  doc.layers.push({ id: "layer-2", name: "上层", visible: true, opacity: 80, imageData: upper });
+  doc.layers.push({ id: "layer-2", name: "Upper layer", visible: true, opacity: 80, imageData: upper });
   const floating = new ImageData(2, 1);
   floating.data.set([20, 220, 40, 255, 20, 220, 40, 255]);
-  doc.floatingSelection = { name: "浮动", imageData: floating, bounds: { x: 3, y: 2, width: 2, height: 1 } };
+  doc.floatingSelection = { name: "Floating selection", imageData: floating, bounds: { x: 3, y: 2, width: 2, height: 1 } };
 
   const bounds = { x: 1, y: 1, width: 4, height: 2 };
   const full = compositeEditorDocument(doc);

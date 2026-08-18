@@ -1,0 +1,83 @@
+{
+  "eyebrow": "任务历史",
+  "title": "可下载结果",
+  "description": "这里只展示已经生成可下载文件的任务，不包含中间操作。",
+  "refresh": "刷新",
+  "filterLabel": "按任务类型筛选",
+  "startTime": "开始时间",
+  "endTime": "结束时间",
+  "clearTime": "清空时间",
+  "loading": "正在加载...",
+  "resultCount": "共 {{count}} 个可下载结果",
+  "resultCount_other": "共 {{count}} 个可下载结果",
+  "page": "第 {{current}} / {{total}} 页",
+  "loadingJobs": "正在加载任务...",
+  "empty": "没有符合条件的任务",
+  "emptyHint": "可以更换任务类型或时间范围再试。",
+  "previousPage": "上一页",
+  "nextPage": "下一页",
+  "deleteConfirm": "删除后会移除这条任务记录和对应生成文件，是否继续？",
+  "categories": {
+    "all": { "label": "全部", "note": "所有可下载结果" },
+    "background": { "label": "去背景", "note": "AI 去背景结果" },
+    "upscale": { "label": "图片放大", "note": "超分和像素放大" },
+    "sound": { "label": "声效生成", "note": "文字生成 WAV" },
+    "assetBoard": { "label": "UI拆分", "note": "区域抠图和导出" },
+    "sequence": { "label": "序列帧", "note": "PNG 序列和 Spine 工程" }
+  },
+  "calendar": {
+    "chooseDate": "选择日期",
+    "calendar": "日历",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
+    "clear": "清空",
+    "today": "今天",
+    "weekdays": ["一", "二", "三", "四", "五", "六", "日"]
+  },
+  "actions": {
+    "download": "下载结果",
+    "noDownload": "当前任务没有可下载文件",
+    "delete": "删除任务",
+    "deleteWhileRunning": "任务处理中，完成后才能删除"
+  },
+  "status": {
+    "queued": "等待中",
+    "running": "处理中",
+    "succeeded": "已完成",
+    "failed": "失败"
+  },
+  "presentation": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前",
+    "outputFile": "输出文件",
+    "job": "任务",
+    "image": "图片",
+    "unknownSize": "未知大小",
+    "statusLabel": "任务状态：{{status}}"
+  },
+  "types": {
+    "backgroundRemove": "AI 去背景",
+    "imageUpscale": "图片放大",
+    "assetBoardRegionDetect": "UI拆分区域识别",
+    "assetBoardCutout": "UI拆分抠图",
+    "assetBoardRegionRefine": "UI拆分区域调整",
+    "assetBoardExport": "UI拆分导出",
+    "sequenceClean": "序列帧清洗",
+    "sequenceGenerateVideo": "视频生成",
+    "sequenceVideoToFrames": "视频转序列帧",
+    "sequenceExportFrames": "PNG 序列导出",
+    "sequenceExportSpine": "Spine 导出",
+    "soundEffectGenerate": "声效生成",
+    "componentExport": "组件导出"
+  },
+  "initials": {
+    "sound": "声",
+    "video": "视",
+    "frame": "帧",
+    "upscale": "放",
+    "board": "板",
+    "image": "图"
+  }
+}

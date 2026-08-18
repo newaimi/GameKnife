@@ -1,5 +1,6 @@
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { EditorBrushSettings, EditorExportBackgroundMode, EditorExportOptions, EditorTool, EditorZoomPreviewMode } from "@gameknife/editor-core";
 import type { FailureDialogState, ManualEditSource } from "../../types/manualEdit";
 import { buildImageDownloadName, downloadBlob } from "../../utils/downloads";
@@ -11,8 +12,8 @@ import { ManualEditorToolRail } from "./ManualEditorToolRail";
 import type { EditorStatus, ManualEditorHandle } from "./types";
 
 /**
- * 手动编辑页面负责跨面板状态、资源导入和保存链路。工具导航、画布、检查器、图层与历史
- * 已拆到各自组件，避免局部输入状态和编辑器命令继续堆积在页面控制器中。
+ * Owns cross-panel state, asset import, and save operations for manual editing. Tool navigation, canvas,
+ * inspector, layers, and history stay in focused components so local input state does not accumulate here.
  */
 export function ManualEditPage({
   source,
@@ -29,6 +30,7 @@ export function ManualEditPage({
   onUpload: (file: File) => void;
   onFailure: React.Dispatch<React.SetStateAction<FailureDialogState | null>>;
 }) {
+  const { t } = useTranslation("manualEditor");
   const editorRef = useRef<ManualEditorHandle | null>(null);
   const [tool, setTool] = useState<EditorTool>("brush");
   const [brush, setBrush] = useState<EditorBrushSettings>(EDITOR_DEFAULT_BRUSH);
@@ -79,9 +81,9 @@ export function ManualEditPage({
       downloadBlob(blob, buildImageDownloadName(source.name || "manual-edit", blob));
     } catch (error) {
       onFailure({
-        title: "图片下载失败",
-        message: "手动编辑结果无法导出为 PNG。",
-        detail: error instanceof Error ? error.message : "下载失败。",
+        title: t("errors.downloadTitle"),
+        message: t("errors.downloadMessage"),
+        detail: error instanceof Error ? error.message : t("errors.downloadDetail"),
       });
     }
   }
@@ -96,12 +98,12 @@ export function ManualEditPage({
       const file = new File([blob], filename, { type: "image/png" });
       const saved = await gameKnifeApiClient.saveManualEditAsset(file, filename, source.sourceFileId, source.sourceContext);
       editorRef.current?.markSaved();
-      setSaveMessage(`已保存：${saved.filename}`);
+      setSaveMessage(t("status.saved", { filename: saved.filename }));
     } catch (error) {
       onFailure({
-        title: "图片保存失败",
-        message: "手动编辑结果没有写入资源库。",
-        detail: error instanceof Error ? error.message : "保存失败。",
+        title: t("errors.saveTitle"),
+        message: t("errors.saveMessage"),
+        detail: error instanceof Error ? error.message : t("errors.saveDetail"),
       });
     } finally {
       setSaving(false);

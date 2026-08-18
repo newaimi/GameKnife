@@ -26,7 +26,7 @@ class StableAudioService:
             return {
                 "status": "unconfigured",
                 "installed": False,
-                "message": "Stable Audio 声效服务未配置。",
+                "message": "The Stable Audio SFX service is not configured.",
                 "error": None,
             }
         try:
@@ -35,18 +35,18 @@ class StableAudioService:
             return {
                 "status": "unavailable",
                 "installed": False,
-                "message": "Stable Audio 声效服务不可用。",
+                "message": "The Stable Audio SFX service is unavailable.",
                 "error": str(exc),
             }
 
     def start_install(self) -> dict[str, Any]:
         if not self.is_configured:
-            raise RuntimeError("Stable Audio 声效服务未配置。")
+            raise RuntimeError("The Stable Audio SFX service is not configured.")
         return self._request_json("POST", "/models/install")
 
     def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, Any]) -> dict[str, Any]:
         if not self.is_configured:
-            raise RuntimeError("Stable Audio 声效服务未配置。")
+            raise RuntimeError("The Stable Audio SFX service is not configured.")
 
         payload = {
             "prompt": prompt,
@@ -73,9 +73,9 @@ class StableAudioService:
         try:
             data = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("声效服务返回了无法解析的响应。") from exc
+            raise RuntimeError("The SFX service returned an unreadable response.") from exc
         if not isinstance(data, dict):
-            raise RuntimeError("声效服务返回格式不正确。")
+            raise RuntimeError("The SFX service returned an invalid response format.")
         return data
 
     def _request_bytes(self, method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[bytes, Any]:
@@ -94,13 +94,13 @@ class StableAudioService:
         except HTTPError as exc:
             raise RuntimeError(_read_error_detail(exc)) from exc
         except URLError as exc:
-            raise RuntimeError(f"无法连接 Stable Audio 声效服务：{exc.reason}") from exc
+            raise RuntimeError(f"Could not connect to the Stable Audio SFX service: {exc.reason}") from exc
         except TimeoutError as exc:
-            raise RuntimeError("Stable Audio 声效服务请求超时。") from exc
+            raise RuntimeError("The Stable Audio SFX service request timed out.") from exc
 
 
 def _read_error_detail(exc: HTTPError) -> str:
-    fallback = f"Stable Audio 声效服务请求失败，状态码 {exc.code}。"
+    fallback = f"The Stable Audio SFX service request failed with status {exc.code}."
     try:
         body = exc.read().decode("utf-8")
         data = json.loads(body)

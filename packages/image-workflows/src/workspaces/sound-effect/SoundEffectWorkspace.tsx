@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Download, RadioTower, Wand2 } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { SoundEffectParameters } from "@gameknife/shared-types";
@@ -23,6 +24,7 @@ const DEFAULT_SOUND_EFFECT_PARAMS: SoundEffectParameters = {
 };
 
 export function SoundEffectWorkspace() {
+  const { t } = useTranslation("workflows");
   const [params, setParams] = useState<SoundEffectParameters>(DEFAULT_SOUND_EFFECT_PARAMS);
   const { job, busy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
   const ensureModelReady = useModelRequirement();
@@ -36,7 +38,7 @@ export function SoundEffectWorkspace() {
     }
     const prompt = params.prompt.trim();
     if (!prompt) {
-      setError("请输入声效提示词。");
+      setError(t("sound.promptRequired"));
       return;
     }
     if (!(await ensureModelReady("stable-audio"))) {
@@ -44,8 +46,8 @@ export function SoundEffectWorkspace() {
     }
     await runJob({
       createJob: () => gameKnifeApiClient.createSoundEffectJob({ ...params, prompt }),
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建声效生成任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("sound.workflow") }),
       polling: JOB_POLLING_PRESETS.long,
     });
   }
@@ -65,25 +67,25 @@ export function SoundEffectWorkspace() {
             ) : (
               <div className="sound-empty">
                 <RadioTower size={42} strokeWidth={2.2} />
-                <strong>{busy ? "声效正在队列中处理" : "等待生成 WAV"}</strong>
+                <strong>{busy ? t("sound.queued") : t("sound.waiting")}</strong>
               </div>
             )}
           </div>
         </section>
 
         <aside className="settings-panel sound-effect-settings">
-          <h2>声效参数</h2>
+          <h2>{t("sound.parameters")}</h2>
           <label className="number-field">
-            <span>提示词</span>
+            <span>{t("sound.prompt")}</span>
             <textarea
               value={params.prompt}
               maxLength={1500}
-              placeholder="例如：short pixel sword slash, crisp impact, no music"
+              placeholder={t("sound.placeholder")}
               onChange={(event) => setParams((current) => ({ ...current, prompt: event.target.value }))}
             />
           </label>
           <label className="number-field">
-            <span>时长</span>
+            <span>{t("sound.duration")}</span>
             <input
               type="number"
               min={0.5}
@@ -93,9 +95,9 @@ export function SoundEffectWorkspace() {
               onChange={(event) => setParams((current) => ({ ...current, duration_seconds: Number(event.target.value) }))}
             />
           </label>
-          <NumberField label="推理步数" value={params.steps} min={10} max={250} onChange={(steps) => setParams((current) => ({ ...current, steps }))} />
+          <NumberField label={t("sound.steps")} value={params.steps} min={10} max={250} onChange={(steps) => setParams((current) => ({ ...current, steps }))} />
           <label className="number-field">
-            <span>引导强度</span>
+            <span>{t("sound.guidance")}</span>
             <input
               type="number"
               min={1}
@@ -106,12 +108,12 @@ export function SoundEffectWorkspace() {
             />
           </label>
           <label className="number-field">
-            <span>Seed</span>
+            <span>{t("sound.seed")}</span>
             <input
               type="number"
               min={-1}
               value={params.seed ?? ""}
-              placeholder="随机"
+              placeholder={t("sound.random")}
               onChange={(event) => setParams((current) => ({ ...current, seed: event.target.value === "" ? null : Number(event.target.value) }))}
             />
           </label>
@@ -121,11 +123,11 @@ export function SoundEffectWorkspace() {
         <WorkbenchActionBar>
           <button className="primary" type="button" disabled={!params.prompt.trim() || busy || !canWrite} onClick={() => void run()}>
             <Wand2 size={17} strokeWidth={2.4} />
-            {busy ? "生成中" : "生成声效"}
+            {busy ? t("sound.generating") : t("sound.generate")}
           </button>
           <button className="ghost" type="button" disabled={!outputAsset} onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, "sound-effect.wav") : undefined)}>
             <Download size={17} strokeWidth={2.4} />
-            下载
+            {t("common.download")}
           </button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>

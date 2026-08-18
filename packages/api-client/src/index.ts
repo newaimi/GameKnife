@@ -366,7 +366,7 @@ function jsonHeaders(): HeadersInit {
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  const fallback = `请求失败，状态码 ${response.status}`;
+  const fallback = `Request failed with status ${response.status}`;
   try {
     const data = (await response.json()) as { detail?: string };
     return data.detail || fallback;

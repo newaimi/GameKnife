@@ -13,8 +13,8 @@ export const EDITOR_DEFAULT_BRUSH: EditorBrushSettings = {
 };
 
 export const EDITOR_BRUSH_PRESETS: EditorBrushPreset[] = [
-  { id: "detail", name: "细节", settings: { size: 6, hardness: 92, opacity: 100, color: "#1f6fff", hardEraser: false } },
-  { id: "paint", name: "上色", settings: { size: 18, hardness: 70, opacity: 100, color: "#1f6fff", hardEraser: false } },
-  { id: "soft", name: "柔边", settings: { size: 34, hardness: 28, opacity: 65, color: "#1f6fff", hardEraser: false } },
-  { id: "pixel", name: "像素", settings: { size: 1, hardness: 100, opacity: 100, color: "#1f6fff", hardEraser: true } },
+  { id: "detail", name: "Detail", settings: { size: 6, hardness: 92, opacity: 100, color: "#1f6fff", hardEraser: false } },
+  { id: "paint", name: "Paint", settings: { size: 18, hardness: 70, opacity: 100, color: "#1f6fff", hardEraser: false } },
+  { id: "soft", name: "Soft edge", settings: { size: 34, hardness: 28, opacity: 65, color: "#1f6fff", hardEraser: false } },
+  { id: "pixel", name: "Pixel", settings: { size: 1, hardness: 100, opacity: 100, color: "#1f6fff", hardEraser: true } },
 ];

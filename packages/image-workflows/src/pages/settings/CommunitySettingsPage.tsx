@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { RefreshCw, Save } from "lucide-react";
 import { useGameKnifePermissions } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
+import type { TFunction } from "@gameknife/i18n";
 import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import type {
   BiRefNetInstallStatus,
@@ -18,8 +20,8 @@ const VIDEO_PROVIDER_BASE_URL: Record<VideoGenerationConfig["provider"], string>
   seedance: "https://ark.cn-beijing.volces.com",
 };
 
-function formatAvailable(value: boolean) {
-  return value ? "可用" : "不可用";
+function formatAvailable(value: boolean, t: TFunction) {
+  return value ? t("values.available") : t("values.unavailable");
 }
 
 function formatGitSha(value?: string) {
@@ -27,33 +29,38 @@ function formatGitSha(value?: string) {
   return value.length > 12 ? value.slice(0, 12) : value;
 }
 
-function formatGpuSummary(runtimeInfo: RuntimeSettings["runtime"]) {
+function formatGpuSummary(runtimeInfo: RuntimeSettings["runtime"], t: TFunction) {
   if (!runtimeInfo.cuda_available) {
-    return "未检测到 CUDA GPU";
+    return t("values.noCudaGpu");
   }
-
-  const currentGpu = runtimeInfo.current_gpu_name ? `，当前：${runtimeInfo.current_gpu_name}` : "";
-  return `${runtimeInfo.gpu_count} 张${currentGpu}`;
+  return runtimeInfo.current_gpu_name
+    ? t("values.gpuSummary", { count: runtimeInfo.gpu_count, current: runtimeInfo.current_gpu_name })
+    : t("values.gpuCount", { count: runtimeInfo.gpu_count });
 }
 
-function formatGpuDetail(gpu: RuntimeSettings["runtime"]["gpus"][number]) {
-  const memory = gpu.total_memory_mb ? `${gpu.total_memory_mb} MB` : "显存未知";
-  const capability = gpu.capability ? `计算能力 ${gpu.capability}` : "计算能力未知";
+function formatGpuDetail(gpu: RuntimeSettings["runtime"]["gpus"][number], t: TFunction) {
+  const memory = gpu.total_memory_mb ? `${gpu.total_memory_mb} MB` : t("values.unknownMemory");
+  const capability = gpu.capability ? t("values.computeCapability", { value: gpu.capability }) : t("values.unknownComputeCapability");
   return `#${gpu.index} ${gpu.name} / ${memory} / ${capability}`;
 }
 
-function formatStableAudioDevice(status: StableAudioInstallStatus | null, baseUrlConfigured?: boolean) {
-  if (!baseUrlConfigured) return "未配置";
+function formatStableAudioDevice(status: StableAudioInstallStatus | null, baseUrlConfigured: boolean | undefined, t: TFunction) {
+  if (!baseUrlConfigured) return t("values.notConfigured");
 
   const workers = status?.workers ?? [];
-  if (!workers.length) return "未知";
+  if (!workers.length) return t("values.unknown");
 
-  // Stable Audio 服务会返回 cuda:0、cuda:1 这类 worker 细节。
-  // 设置页只展示 CPU/CUDA，具体卡号留在服务日志里排查。
+  // Stable Audio returns worker details such as cuda:0 and cuda:1.
+  // Settings shows only CPU/CUDA; exact device indexes remain available in service logs.
   const devices = workers.map((worker) => `${worker.runtime_device ?? worker.device}`.toLowerCase());
   if (devices.some((device) => device.startsWith("cuda"))) return "CUDA";
   if (devices.some((device) => device.startsWith("cpu"))) return "CPU";
-  return "未知";
+  return t("values.unknown");
+}
+
+function formatModelDevice(device: string | undefined, t: TFunction) {
+  if (!device || device.toLowerCase() === "unknown") return t("values.unknown");
+  return device;
 }
 
 function KeyValue({ label, value }: { label: string; value: string }) {
@@ -77,6 +84,7 @@ function buildVideoGenerationPayload(config: VideoGenerationConfig, apiKeyDirty:
 }
 
 export function CommunitySettingsPage() {
+  const { t } = useTranslation("settings");
   const permissions = useGameKnifePermissions();
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [installStatus, setInstallStatus] = useState<BiRefNetInstallStatus | null>(null);
@@ -93,27 +101,29 @@ export function CommunitySettingsPage() {
   const runtimeInfo = settings?.runtime;
   const upscaleModels = settings?.upscale_models.models ?? [];
   const readUpscaleModel = (key: "general" | "anime" | "noisy") => upscaleModels.find((model) => model.key === key)?.name ?? "-";
-  const stableAudioDevice = formatStableAudioDevice(visibleStableAudioInstallStatus, settings?.stable_audio.base_url_configured);
+  const stableAudioDevice = formatStableAudioDevice(visibleStableAudioInstallStatus, settings?.stable_audio.base_url_configured, t);
   const pytorchValue = runtimeInfo
     ? runtimeInfo.pytorch_available
-      ? runtimeInfo.pytorch_version ?? "已安装"
-      : `不可用${runtimeInfo.error ? `：${runtimeInfo.error}` : ""}`
+      ? runtimeInfo.pytorch_version ?? t("values.installed")
+      : runtimeInfo.error
+        ? t("values.unavailableWithError", { error: runtimeInfo.error })
+        : t("values.unavailable")
     : "-";
-  const gpuSummary = runtimeInfo ? formatGpuSummary(runtimeInfo) : "-";
-  const gpuDetails = runtimeInfo?.gpus.length ? runtimeInfo.gpus.map(formatGpuDetail).join("；") : "-";
+  const gpuSummary = runtimeInfo ? formatGpuSummary(runtimeInfo, t) : "-";
+  const gpuDetails = runtimeInfo?.gpus.length ? runtimeInfo.gpus.map((gpu) => formatGpuDetail(gpu, t)).join("; ") : "-";
   const canManageSettings = permissions.can("settings.manage");
 
   useEffect(() => {
-    const modelMessage = window.sessionStorage.getItem("gameknife-model-settings-message");
-    if (modelMessage) {
-      window.sessionStorage.removeItem("gameknife-model-settings-message");
+    const requiredModel = window.sessionStorage.getItem("gameknife-required-model");
+    if (requiredModel) {
+      window.sessionStorage.removeItem("gameknife-required-model");
     }
     void refreshSettings().then(() => {
-      if (modelMessage) {
-        setError(modelMessage);
+      if (requiredModel) {
+        setError(t("models.required", { model: t(`models.names.${requiredModel}`) }));
       }
     });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const config = settings?.video_generation ?? null;
@@ -142,14 +152,14 @@ export function CommunitySettingsPage() {
 
   async function saveVideoGenerationConfig() {
     if (!draftVideoConfig) return;
-    setVideoMessage("正在保存视频 API 配置...");
+    setVideoMessage(t("video.saving"));
     try {
       const saved = await gameKnifeApiClient.updateVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
       setDraftVideoConfig(saved);
       setVideoApiKey("");
       setVideoApiKeyDirty(false);
       await refreshSettings();
-      setVideoMessage("视频 API 配置已保存。");
+      setVideoMessage(t("video.saved"));
     } catch (exc) {
       setVideoMessage(readMessage(exc));
     }
@@ -157,10 +167,10 @@ export function CommunitySettingsPage() {
 
   async function testVideoGenerationConfig() {
     if (!draftVideoConfig) return;
-    setVideoMessage("正在检查视频 API 配置...");
+    setVideoMessage(t("video.testing"));
     try {
-      const result = await gameKnifeApiClient.testVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
-      setVideoMessage(typeof result.message === "string" ? result.message : "视频 API 配置可用。");
+      await gameKnifeApiClient.testVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
+      setVideoMessage(t("video.available"));
     } catch (exc) {
       setVideoMessage(readMessage(exc));
     }
@@ -197,13 +207,13 @@ export function CommunitySettingsPage() {
     <section className="settings-page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">本地部署设置</p>
-          <h1>系统设置</h1>
-          <p>这里展示后端当前实际运行配置。涉及模型尺寸、上传上限、存储目录的配置通过环境变量修改后重启服务。</p>
+          <p className="eyebrow">{t("eyebrow")}</p>
+          <h1>{t("title")}</h1>
+          <p>{t("description")}</p>
         </div>
         <Button onClick={() => void refreshSettings()}>
           <RefreshCw size={18} />
-          刷新状态
+          {t("refreshStatus")}
         </Button>
       </div>
 
@@ -212,36 +222,36 @@ export function CommunitySettingsPage() {
       <div className="settings-grid">
         <section className="config-card wide">
           <div className="config-card-title">
-            <h2>系统</h2>
+            <h2>{t("system")}</h2>
             <span>FastAPI</span>
           </div>
-          <KeyValue label="版本" value={settings?.system.app_version ?? "-"} />
-          <KeyValue label="构建号" value={settings?.system.build_number ?? "-"} />
-          <KeyValue label="提交" value={formatGitSha(settings?.system.git_sha)} />
-          <KeyValue label="构建时间" value={settings?.system.build_time ?? "-"} />
-          <KeyValue label="上传上限" value={`${settings?.system.max_upload_mb ?? "-"} MB`} />
-          <KeyValue label="存储目录" value={settings?.system.storage_root ?? "-"} />
-          <KeyValue label="数据库" value={settings?.system.database_path ?? "-"} />
-          <KeyValue label="允许来源" value={settings?.system.cors_origins.join("，") || "-"} />
+          <KeyValue label={t("labels.version")} value={settings?.system.app_version ?? "-"} />
+          <KeyValue label={t("labels.buildNumber")} value={settings?.system.build_number ?? "-"} />
+          <KeyValue label={t("labels.commit")} value={formatGitSha(settings?.system.git_sha)} />
+          <KeyValue label={t("labels.buildTime")} value={settings?.system.build_time ?? "-"} />
+          <KeyValue label={t("labels.uploadLimit")} value={`${settings?.system.max_upload_mb ?? "-"} MB`} />
+          <KeyValue label={t("labels.storageDirectory")} value={settings?.system.storage_root ?? "-"} />
+          <KeyValue label={t("labels.database")} value={settings?.system.database_path ?? "-"} />
+          <KeyValue label={t("labels.allowedOrigins")} value={settings?.system.cors_origins.join(", ") || "-"} />
           <KeyValue label="Python" value={runtimeInfo?.python_version ?? "-"} />
-          <KeyValue label="运行平台" value={runtimeInfo?.platform ?? "-"} />
+          <KeyValue label={t("labels.platform")} value={runtimeInfo?.platform ?? "-"} />
           <KeyValue label="PyTorch" value={pytorchValue} />
-          <KeyValue label="CUDA" value={runtimeInfo ? formatAvailable(runtimeInfo.cuda_available) : "-"} />
-          <KeyValue label="CUDA 版本" value={runtimeInfo?.cuda_version ?? "-"} />
+          <KeyValue label="CUDA" value={runtimeInfo ? formatAvailable(runtimeInfo.cuda_available, t) : "-"} />
+          <KeyValue label={t("labels.cudaVersion")} value={runtimeInfo?.cuda_version ?? "-"} />
           <KeyValue label="cuDNN" value={runtimeInfo?.cudnn_version ?? "-"} />
-          <KeyValue label="MPS" value={runtimeInfo ? formatAvailable(runtimeInfo.mps_available) : "-"} />
+          <KeyValue label="MPS" value={runtimeInfo ? formatAvailable(runtimeInfo.mps_available, t) : "-"} />
           <KeyValue label="GPU" value={gpuSummary} />
-          <KeyValue label="GPU 明细" value={gpuDetails} />
+          <KeyValue label={t("labels.gpuDetails")} value={gpuDetails} />
         </section>
 
         {draftVideoConfig ? (
           <section className="config-card wide">
             <div className="config-card-title">
-              <h2>视频生成 API</h2>
-              <span>{draftVideoConfig.api_key_configured ? "已配置密钥" : "未配置密钥"}</span>
+              <h2>{t("video.title")}</h2>
+              <span>{draftVideoConfig.api_key_configured ? t("video.configuredKey") : t("video.unconfiguredKey")}</span>
             </div>
             <label className="number-field">
-              <span>供应商</span>
+              <span>{t("labels.provider")}</span>
               <select
                 value={draftVideoConfig.provider}
                 disabled={!canManageSettings}
@@ -250,21 +260,21 @@ export function CommunitySettingsPage() {
                   setDraftVideoConfig((current) => (current ? { ...current, provider, base_url: VIDEO_PROVIDER_BASE_URL[provider] } : current));
                 }}
               >
-                <option value="aliyun_dashscope">阿里云百炼 / HappyHorse</option>
-                <option value="seedance">火山引擎 / Seedance</option>
+                <option value="aliyun_dashscope">{t("video.aliyun")}</option>
+                <option value="seedance">{t("video.seedance")}</option>
               </select>
             </label>
             <label className="number-field">
-              <span>Base URL</span>
+              <span>{t("labels.baseUrl")}</span>
               <input disabled={!canManageSettings} value={draftVideoConfig.base_url} onChange={(event) => setDraftVideoConfig((current) => (current ? { ...current, base_url: event.target.value } : current))} />
             </label>
             <label className="number-field">
-              <span>API Key</span>
+              <span>{t("labels.apiKey")}</span>
               <input
                 type="password"
                 value={videoApiKey}
                 disabled={!canManageSettings}
-                placeholder={draftVideoConfig.masked_api_key ?? "未配置"}
+                placeholder={draftVideoConfig.masked_api_key ?? t("values.notConfigured")}
                 onChange={(event) => {
                   setVideoApiKey(event.target.value);
                   setVideoApiKeyDirty(true);
@@ -280,18 +290,18 @@ export function CommunitySettingsPage() {
                   setVideoApiKeyDirty(true);
                 }}
               >
-                清空密钥
+                {t("video.clearKey")}
               </Button>
-              <span>不填写会保留当前密钥。</span>
+              <span>{t("video.keyHint")}</span>
             </div>
             <div className="settings-actions">
               <Button variant="primary" disabled={!canManageSettings} onClick={() => void saveVideoGenerationConfig()}>
                 <Save size={18} />
-                保存视频 API
+                {t("video.save")}
               </Button>
               <Button disabled={!canManageSettings} onClick={() => void testVideoGenerationConfig()}>
                 <RefreshCw size={18} />
-                检查配置
+                {t("video.test")}
               </Button>
             </div>
             {videoMessage ? <p className="settings-message">{videoMessage}</p> : null}
@@ -301,25 +311,25 @@ export function CommunitySettingsPage() {
         <section className="config-card">
           <div className="config-card-title">
             <h2>BiRefNet</h2>
-            <span>{settings?.birefnet.device ?? "未知"}</span>
+            <span>{formatModelDevice(settings?.birefnet.device, t)}</span>
           </div>
-          <KeyValue label="模型" value={settings?.birefnet.model_id ?? "-"} />
-          <KeyValue label="输入尺寸" value={`${settings?.birefnet.model_input_size ?? "-"} px`} />
-          <KeyValue label="GPU 并发" value={`${settings?.birefnet.gpu_concurrency ?? 1}`} />
-          <KeyValue label="加载方式" value={settings?.birefnet.lazy_load ? "设置页手动安装后使用" : "启动时加载"} />
+          <KeyValue label={t("labels.model")} value={settings?.birefnet.model_id ?? "-"} />
+          <KeyValue label={t("labels.inputSize")} value={`${settings?.birefnet.model_input_size ?? "-"} px`} />
+          <KeyValue label={t("labels.gpuConcurrency")} value={`${settings?.birefnet.gpu_concurrency ?? 1}`} />
+          <KeyValue label={t("labels.loadingMode")} value={settings?.birefnet.lazy_load ? t("values.manualInstallFromSettings") : t("values.loadAtStartup")} />
           <ModelInstallStatusPanel label="BiRefNet" status={visibleInstallStatus} installDisabled={!canManageSettings} onInstall={startBiRefNetInstall} />
         </section>
 
         <section className="config-card">
           <div className="config-card-title">
-            <h2>图片放大模型</h2>
-            <span>{settings?.upscale_models.device ?? "未知"}</span>
+            <h2>{t("models.upscale")}</h2>
+            <span>{formatModelDevice(settings?.upscale_models.device, t)}</span>
           </div>
-          <KeyValue label="通用素材" value={readUpscaleModel("general")} />
-          <KeyValue label="动漫插画" value={readUpscaleModel("anime")} />
-          <KeyValue label="噪点压缩" value={readUpscaleModel("noisy")} />
-          <KeyValue label="加载方式" value={settings?.upscale_models.lazy_load ? "手动安装后使用" : "启动时加载"} />
-          <ModelInstallStatusPanel label="图片放大模型" status={visibleUpscaleInstallStatus} installDisabled={!canManageSettings} onInstall={startUpscaleInstall} />
+          <KeyValue label={t("labels.generalAssets")} value={readUpscaleModel("general")} />
+          <KeyValue label={t("labels.animeIllustration")} value={readUpscaleModel("anime")} />
+          <KeyValue label={t("labels.noiseReduction")} value={readUpscaleModel("noisy")} />
+          <KeyValue label={t("labels.loadingMode")} value={settings?.upscale_models.lazy_load ? t("values.manualInstall") : t("values.loadAtStartup")} />
+          <ModelInstallStatusPanel label={t("models.upscale")} status={visibleUpscaleInstallStatus} installDisabled={!canManageSettings} onInstall={startUpscaleInstall} />
         </section>
 
         <section className="config-card">
@@ -327,12 +337,12 @@ export function CommunitySettingsPage() {
             <h2>Stable Audio</h2>
             <span>{stableAudioDevice}</span>
           </div>
-          <KeyValue label="模型" value={settings?.stable_audio.model_id ?? "-"} />
-          <KeyValue label="服务" value={settings?.stable_audio.device ?? "-"} />
-          <KeyValue label="Worker" value={stableAudioDevice} />
-          <KeyValue label="队列" value={`${visibleStableAudioInstallStatus?.queued ?? 0} / ${visibleStableAudioInstallStatus?.queue_size ?? "-"}`} />
-          <KeyValue label="加载方式" value={settings?.stable_audio.lazy_load ? "手动安装后使用" : "启动时加载"} />
-          <KeyValue label="权重许可" value="Hugging Face 许可确认后安装" />
+          <KeyValue label={t("labels.model")} value={settings?.stable_audio.model_id ?? "-"} />
+          <KeyValue label={t("labels.service")} value={settings?.stable_audio.device ? t("values.standaloneSfxService") : "-"} />
+          <KeyValue label={t("labels.worker")} value={stableAudioDevice} />
+          <KeyValue label={t("labels.queue")} value={`${visibleStableAudioInstallStatus?.queued ?? 0} / ${visibleStableAudioInstallStatus?.queue_size ?? "-"}`} />
+          <KeyValue label={t("labels.loadingMode")} value={settings?.stable_audio.lazy_load ? t("values.manualInstall") : t("values.loadAtStartup")} />
+          <KeyValue label={t("labels.weightsLicense")} value={t("values.licenseConfirmation")} />
           <ModelInstallStatusPanel
             label="Stable Audio"
             status={visibleStableAudioInstallStatus}

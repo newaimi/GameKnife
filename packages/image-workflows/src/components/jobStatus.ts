@@ -1,16 +1,17 @@
 import type { JobStatus } from "@gameknife/shared-types";
 import type { StatusTone } from "@gameknife/ui-kit";
+import type { TFunction } from "@gameknife/i18n";
 
-export function readJobStatusPresentation(status: JobStatus): { label: string; tone: StatusTone; busy: boolean } {
+export function readJobStatusPresentation(status: JobStatus, t: TFunction): { label: string; tone: StatusTone; busy: boolean } {
   switch (status) {
     case "running":
-      return { label: "处理中", tone: "info", busy: true };
+      return { label: t("status.running"), tone: "info", busy: true };
     case "success":
-      return { label: "已完成", tone: "success", busy: false };
+      return { label: t("status.succeeded"), tone: "success", busy: false };
     case "failed":
-      return { label: "失败", tone: "danger", busy: false };
+      return { label: t("status.failed"), tone: "danger", busy: false };
     case "pending":
     default:
-      return { label: "等待中", tone: "warning", busy: true };
+      return { label: t("status.queued"), tone: "warning", busy: true };
   }
 }

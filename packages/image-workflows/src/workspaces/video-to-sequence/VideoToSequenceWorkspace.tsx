@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceResponse, VideoToSequenceParameters } from "@gameknife/shared-types";
@@ -31,6 +32,7 @@ type VideoJobResponse = JobResponse & {
 };
 
 export function VideoToSequenceWorkspace() {
+  const { t } = useTranslation("workflows");
   const navigate = useNavigate();
   const [sequence, setSequence] = useState<SequenceResponse | null>(null);
   const [params, setParams] = useState<VideoToSequenceParameters>(DEFAULT_VIDEO_TO_SEQUENCE_PARAMS);
@@ -61,9 +63,9 @@ export function VideoToSequenceWorkspace() {
         setParams((current) => ({ ...current, action: transfer.action }));
       }
     } catch {
-      setError("读取生成视频失败。");
+      setError(t("video.readFailed"));
     }
-  }, []);
+  }, [t]);
 
   async function createSequence() {
     if (!video || !canWrite) {
@@ -91,8 +93,8 @@ export function VideoToSequenceWorkspace() {
             stabilize: params.stabilize,
           },
         }),
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建视频转帧任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("video.framesWorkflow") }),
       polling: JOB_POLLING_PRESETS.long,
       mapJob: toVideoJob,
     });
@@ -118,7 +120,7 @@ export function VideoToSequenceWorkspace() {
           onOpenSequence={() => {
             navigate(sequence ? `/tools/sequence?sequence=${encodeURIComponent(sequence.id)}` : "/tools/sequence");
           }}
-          uploadAction={<VideoUploadAction label={video ? "更换视频" : "上传视频"} disabled={!canWrite} onFile={upload} />}
+          uploadAction={<VideoUploadAction label={video ? t("common.replaceVideo") : t("common.uploadVideo")} disabled={!canWrite} onFile={upload} />}
         />
       </ToolWorkspaceLayout>
       <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />

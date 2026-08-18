@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, OutputAssetRef, VideoSequenceGenerateParameters } from "@gameknife/shared-types";
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
@@ -29,6 +30,7 @@ type VideoJobResponse = JobResponse & {
 };
 
 export function VideoGenerateWorkspace() {
+  const { t } = useTranslation("workflows");
   const [params, setParams] = useState<VideoSequenceGenerateParameters>(DEFAULT_VIDEO_PARAMS);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob<VideoJobResponse>();
   const canWrite = useWorkflowWritePermission("video-generate");
@@ -51,8 +53,8 @@ export function VideoGenerateWorkspace() {
           resolution: params.resolution,
           confirmed_external_api: true,
         }),
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建视频生成任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("video.generationWorkflow") }),
       polling: JOB_POLLING_PRESETS.long,
       mapJob: toVideoJob,
     });
@@ -90,7 +92,7 @@ export function VideoGenerateWorkspace() {
           onStartProcess={run}
           onUseGeneratedVideo={useGeneratedVideo}
           onManualEdit={openManualEdit}
-          uploadAction={<ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />}
+          uploadAction={<ImageUploadAction label={asset ? t("common.replaceImage") : t("common.uploadImage")} disabled={!canWrite} onFile={upload} />}
         />
       </ToolWorkspaceLayout>
       <WorkflowFailureDialog failureDialog={failureDialog} onCloseFailure={() => setFailureDialog(null)} />

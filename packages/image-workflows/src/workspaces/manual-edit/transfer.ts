@@ -7,7 +7,7 @@ const MANUAL_EDIT_TRANSFER_MAX_RECORDS = 6;
 
 export async function saveManualEditTransfer(source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) {
   const response = await fetch(source.url);
-  if (!response.ok) throw new Error("图片读取失败。");
+  if (!response.ok) throw new Error("Could not read image.");
   const blob = await response.blob();
   const database = await openManualEditTransferDatabase();
   try {
@@ -15,16 +15,15 @@ export async function saveManualEditTransfer(source: Pick<ManualEditSource, "nam
     const id = crypto.randomUUID();
     const record: ManualEditTransferRecord = {
       id,
-      name: source.name || "手动编辑图片",
+      name: source.name || "Manual edit image",
       blob,
       sourceFileId: source.sourceFileId,
       sourceContext: source.sourceContext,
       createdAt: Date.now(),
     };
 
-    // 处理后的图片可能是几 MB 甚至更大，不能塞进 URL 或 localStorage。
-    // IndexedDB 可以跨同源标签页保存 Blob，新开的手动编辑页才能稳定读到这份临时图片。
-    // 写入前会先清理旧记录，避免连续打开大图时把浏览器本地配额撑满。
+    // Processed images can be several megabytes and do not belong in a URL or localStorage. IndexedDB keeps
+    // the Blob available to a same-origin tab, and stale records are removed before each write.
     await writeManualEditTransfer(database, record);
     return id;
   } finally {
@@ -57,7 +56,7 @@ function openManualEditTransferDatabase(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("本地图片缓存打开失败。"));
+    request.onerror = () => reject(request.error ?? new Error("Could not open the local image cache."));
   });
 }
 
@@ -67,7 +66,7 @@ function writeManualEditTransfer(database: IDBDatabase, record: ManualEditTransf
     const store = transaction.objectStore(MANUAL_EDIT_TRANSFER_STORE);
     store.put(record);
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("图片写入本地缓存失败。"));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Could not write the image to the local cache."));
   });
 }
 
@@ -77,17 +76,17 @@ function consumeManualEditTransfer(database: IDBDatabase, id: string) {
     const store = transaction.objectStore(MANUAL_EDIT_TRANSFER_STORE);
     let transferRecord: ManualEditTransferRecord | null = null;
     const request = store.get(id);
-    request.onerror = () => reject(request.error ?? new Error("图片读取本地缓存失败。"));
+    request.onerror = () => reject(request.error ?? new Error("Could not read the image from the local cache."));
     request.onsuccess = () => {
       transferRecord = (request.result as ManualEditTransferRecord | undefined) ?? null;
       if (transferRecord) {
-        // 这个 IndexedDB 记录只用于“从结果预览交给新标签页”这一跳。
-        // 新标签页拿到 Blob 后立即删除，可以防止用户连续编辑大图时留下大量临时副本。
+        // A transfer record exists for one handoff from result preview to a new tab. Delete it after the Blob is
+        // consumed so repeated large-image edits do not accumulate temporary copies.
         store.delete(id);
       }
     };
     transaction.oncomplete = () => resolve(transferRecord);
-    transaction.onerror = () => reject(transaction.error ?? new Error("图片读取本地缓存失败。"));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Could not read the image from the local cache."));
   });
 }
 
@@ -96,7 +95,7 @@ function cleanupManualEditTransfers(database: IDBDatabase, now: number, maxRecor
     const transaction = database.transaction(MANUAL_EDIT_TRANSFER_STORE, "readwrite");
     const store = transaction.objectStore(MANUAL_EDIT_TRANSFER_STORE);
     const request = store.getAll();
-    request.onerror = () => reject(request.error ?? new Error("图片缓存清理失败。"));
+    request.onerror = () => reject(request.error ?? new Error("Could not clean the image cache."));
     request.onsuccess = () => {
       const records = ((request.result as ManualEditTransferRecord[] | undefined) ?? []).sort((first, second) => second.createdAt - first.createdAt);
       const recordsToKeep = Math.max(0, maxRecords);
@@ -107,7 +106,6 @@ function cleanupManualEditTransfers(database: IDBDatabase, now: number, maxRecor
       });
     };
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("图片缓存清理失败。"));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Could not clean the image cache."));
   });
 }
-

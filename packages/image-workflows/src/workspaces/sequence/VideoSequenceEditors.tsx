@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { Play, Sparkles } from "lucide-react";
 import type { AssetResponse, JobResponse, SequenceResponse, VideoSequenceGenerateParameters, VideoToSequenceParameters } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
@@ -16,15 +17,7 @@ type VideoJobResponse = JobResponse & {
   };
 };
 
-const ACTION_OPTIONS = [
-  { value: "idle", label: "待机" },
-  { value: "walk_down", label: "向下走" },
-  { value: "walk_up", label: "向上走" },
-  { value: "walk_left", label: "向左走" },
-  { value: "walk_right", label: "向右走" },
-  { value: "hurt", label: "受击" },
-  { value: "death", label: "死亡" },
-];
+const ACTION_OPTIONS = ["idle", "walk_down", "walk_up", "walk_left", "walk_right", "hurt", "death"];
 
 export function VideoGenerateEditor({
   upload,
@@ -51,6 +44,7 @@ export function VideoGenerateEditor({
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
   uploadAction: React.ReactNode;
 }) {
+  const { t } = useTranslation("workflows");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const sourceUrl = useObjectUrl(upload?.url ?? "");
   const videoUrl = useObjectUrl(videoTask?.type === "sequence_generate_video" ? videoTask.result.video_url ?? "" : "");
@@ -78,12 +72,12 @@ export function VideoGenerateEditor({
               ) : sourceUrl ? (
                 <img className="video-tool-source" src={sourceUrl} alt={upload.filename} />
               ) : (
-                <span>正在加载图片...</span>
+                <span>{t("sequence.video.loadingImage")}</span>
               )}
               {videoTaskRunning ? (
                 <div className="video-tool-working">
                   <Sparkles size={22} />
-                  <strong>正在调用外部视频 API</strong>
+                  <strong>{t("sequence.video.callingApi")}</strong>
                 </div>
               ) : null}
             </div>
@@ -95,7 +89,7 @@ export function VideoGenerateEditor({
         <VideoGenerationPanel params={params} onParamsChange={onParamsChange} />
         <div className="export-stack">
           <button className="ghost" type="button" disabled={!sourceUrl || !upload || !canWrite} onClick={() => upload && sourceUrl ? void onManualEdit({ name: upload.filename, url: sourceUrl, sourceFileId: upload.id, sourceContext: "upload" }) : undefined}>
-            编辑原图
+            {t("sequence.video.editSource")}
           </button>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
@@ -104,7 +98,7 @@ export function VideoGenerateEditor({
       <WorkbenchActionBar>
         {uploadAction}
         <button className="primary" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
-          {videoTaskRunning ? "生成中" : "生成视频"}
+          {videoTaskRunning ? t("sequence.video.generating") : t("sequence.video.generate")}
         </button>
         <a
           className={`ghost ${videoReady ? "" : "disabled"}`}
@@ -115,10 +109,10 @@ export function VideoGenerateEditor({
             if (!videoReady) event.preventDefault();
           }}
         >
-          下载
+          {t("sequence.video.download")}
         </a>
         <button className="ghost" type="button" disabled={!videoReady || !canWrite} onClick={onUseGeneratedVideo}>
-          发送到视频转帧
+          {t("sequence.video.sendToFrames")}
         </button>
       </WorkbenchActionBar>
 
@@ -152,6 +146,7 @@ export function VideoToSequenceEditor({
   onOpenSequence: () => void;
   uploadAction: React.ReactNode;
 }) {
+  const { t } = useTranslation("workflows");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoDuration, setVideoDuration] = useState(0);
   const videoUrl = useObjectUrl(video?.url ?? "");
@@ -210,12 +205,12 @@ export function VideoToSequenceEditor({
                   onTimeUpdate={keepPreviewInsideClip}
                 />
               ) : (
-                <span>正在加载视频...</span>
+                <span>{t("sequence.video.loadingVideo")}</span>
               )}
               {frameTaskRunning ? (
                 <div className="video-tool-working">
                   <Sparkles size={22} />
-                  <strong>正在抽帧和抠图</strong>
+                  <strong>{t("sequence.video.extracting")}</strong>
                 </div>
               ) : null}
             </div>
@@ -233,20 +228,18 @@ export function VideoToSequenceEditor({
             onSeekClipStart={seekClipStart}
           />
         ) : (
-          <h2>转帧参数</h2>
+          <h2>{t("sequence.video.framesParameters")}</h2>
         )}
         {generatedSequence ? (
           <div className="sequence-inline-result">
           <div className="diagnostics-heading">
             <div>
-              <strong>生成结果</strong>
-              <span>
-                {generatedSequence.frame_count} 帧 · {generatedSequence.fps} FPS · {generatedSequence.canvas_width}×{generatedSequence.canvas_height}
-              </span>
+              <strong>{t("sequence.video.result")}</strong>
+              <span>{t("sequence.video.resultMeta", { count: generatedSequence.frame_count, fps: generatedSequence.fps, width: generatedSequence.canvas_width, height: generatedSequence.canvas_height })}</span>
             </div>
             <button className="ghost compact" type="button" onClick={onOpenSequence}>
               <Play size={15} />
-              继续调整
+              {t("sequence.video.continueEditing")}
             </button>
           </div>
           <div className="timeline-strip">
@@ -265,10 +258,10 @@ export function VideoToSequenceEditor({
       <WorkbenchActionBar>
         {uploadAction}
         <button className="primary" type="button" disabled={!canCreateSequence || !canWrite} onClick={() => void onCreateSequence()}>
-          {frameTaskRunning ? "处理中" : "转成序列帧"}
+          {frameTaskRunning ? t("sequence.video.processing") : t("sequence.video.createSequence")}
         </button>
         <button className="ghost" type="button" disabled={!canOpenSequence} onClick={onOpenSequence}>
-          打开序列帧
+          {t("sequence.video.openSequence")}
         </button>
       </WorkbenchActionBar>
     </>
@@ -282,22 +275,23 @@ function VideoGenerationPanel({
   params: VideoSequenceGenerateParameters;
   onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
 }) {
+  const { t } = useTranslation("workflows");
   return (
     <>
-      <h2>视频参数</h2>
+      <h2>{t("sequence.video.parameters")}</h2>
       <label className="number-field">
-        <span>动作</span>
+        <span>{t("sequence.video.action")}</span>
         <select value={params.action} onChange={(event) => onParamsChange((current) => ({ ...current, action: event.target.value }))}>
           {ACTION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
+            <option key={option} value={option}>
+              {t(`sequence.actions.${option}`)}
             </option>
           ))}
         </select>
       </label>
-      <NumberField label="视频时长" value={params.duration} min={2} max={15} onChange={(value) => onParamsChange((current) => ({ ...current, duration: value }))} />
+      <NumberField label={t("sequence.video.duration")} value={params.duration} min={2} max={15} onChange={(value) => onParamsChange((current) => ({ ...current, duration: value }))} />
       <label className="number-field">
-        <span>分辨率</span>
+        <span>{t("sequence.video.resolution")}</span>
         <select value={params.resolution} onChange={(event) => onParamsChange((current) => ({ ...current, resolution: event.target.value }))}>
           <option value="480P">480P</option>
           <option value="720P">720P</option>
@@ -305,13 +299,13 @@ function VideoGenerationPanel({
         </select>
       </label>
       <label className="number-field">
-        <span>动作描述</span>
-        <textarea rows={4} value={params.prompt} placeholder="留空会使用当前动作的游戏角色动画提示词。" onChange={(event) => onParamsChange((current) => ({ ...current, prompt: event.target.value }))} />
+        <span>{t("sequence.video.prompt")}</span>
+        <textarea rows={4} value={params.prompt} placeholder={t("sequence.video.promptPlaceholder")} onChange={(event) => onParamsChange((current) => ({ ...current, prompt: event.target.value }))} />
       </label>
       <details className="advanced-settings">
-        <summary>高级参数</summary>
+        <summary>{t("sequence.video.advanced")}</summary>
         <label className="number-field">
-          <span>负向描述</span>
+          <span>{t("sequence.video.negativePrompt")}</span>
           <textarea rows={3} value={params.negative_prompt} onChange={(event) => onParamsChange((current) => ({ ...current, negative_prompt: event.target.value }))} />
         </label>
       </details>
@@ -332,28 +326,29 @@ function VideoClipPanel({
   onParamsChange: React.Dispatch<React.SetStateAction<VideoToSequenceParameters>>;
   onSeekClipStart: () => void;
 }) {
+  const { t } = useTranslation("workflows");
   const maxDuration = Math.max(duration, params.clip_end_seconds, 1);
   const startMax = Math.max(0, params.clip_end_seconds - 0.1);
   const endMin = Math.min(maxDuration, params.clip_start_seconds + 0.1);
   return (
     <>
-      <h2>裁切与抽帧</h2>
+      <h2>{t("sequence.video.clipParameters")}</h2>
       <div className="video-clip-summary">
-        <strong>{duration ? `视频 ${duration.toFixed(1)} 秒` : "正在读取视频"}</strong>
-        <span>预计导出 {estimatedFrames} 帧</span>
+        <strong>{duration ? t("sequence.video.durationValue", { duration: duration.toFixed(1) }) : t("sequence.video.reading")}</strong>
+        <span>{t("sequence.video.estimatedFrames", { count: estimatedFrames })}</span>
       </div>
       <label className="number-field">
-        <span>动作</span>
+        <span>{t("sequence.video.action")}</span>
         <select value={params.action} onChange={(event) => onParamsChange((current) => ({ ...current, action: event.target.value }))}>
           {ACTION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
+            <option key={option} value={option}>
+              {t(`sequence.actions.${option}`)}
             </option>
           ))}
         </select>
       </label>
       <label className="number-field">
-        <span>开始时间</span>
+        <span>{t("sequence.video.startTime")}</span>
         <input
           type="range"
           min={0}
@@ -366,7 +361,7 @@ function VideoClipPanel({
         />
       </label>
       <label className="number-field">
-        <span>开始秒</span>
+        <span>{t("sequence.video.startSeconds")}</span>
         <input
           type="number"
           min={0}
@@ -377,7 +372,7 @@ function VideoClipPanel({
         />
       </label>
       <label className="number-field">
-        <span>结束时间</span>
+        <span>{t("sequence.video.endTime")}</span>
         <input
           type="range"
           min={0}
@@ -390,7 +385,7 @@ function VideoClipPanel({
         />
       </label>
       <label className="number-field">
-        <span>结束秒</span>
+        <span>{t("sequence.video.endSeconds")}</span>
         <input
           type="number"
           min={endMin}
@@ -400,18 +395,18 @@ function VideoClipPanel({
           onChange={(event) => onParamsChange((current) => ({ ...current, clip_end_seconds: Math.max(Number(event.target.value), endMin) }))}
         />
       </label>
-      <NumberField label="目标 FPS" value={params.fps} min={1} max={60} onChange={(value) => onParamsChange((current) => ({ ...current, fps: value }))} />
-      <NumberField label="输出尺寸" value={params.output_size} min={64} max={1024} onChange={(value) => onParamsChange((current) => ({ ...current, output_size: value }))} />
+      <NumberField label={t("sequence.video.targetFps")} value={params.fps} min={1} max={60} onChange={(value) => onParamsChange((current) => ({ ...current, fps: value }))} />
+      <NumberField label={t("sequence.video.outputSize")} value={params.output_size} min={64} max={1024} onChange={(value) => onParamsChange((current) => ({ ...current, output_size: value }))} />
       <label className="setting-check">
         <input type="checkbox" checked={params.loop} onChange={(event) => onParamsChange((current) => ({ ...current, loop: event.target.checked }))} />
-        循环动画
+        {t("sequence.video.loop")}
       </label>
       <details className="advanced-settings">
-        <summary>高级参数</summary>
-        <NumberField label="Alpha 平滑" value={params.alpha_smoothing} min={0} max={10} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_smoothing: value }))} />
+        <summary>{t("sequence.video.advanced")}</summary>
+        <NumberField label={t("sequence.video.alphaSmoothing")} value={params.alpha_smoothing} min={0} max={10} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_smoothing: value }))} />
         <label className="setting-check">
           <input type="checkbox" checked={params.stabilize} onChange={(event) => onParamsChange((current) => ({ ...current, stabilize: event.target.checked }))} />
-          稳定脚底基线
+          {t("sequence.video.stabilize")}
         </label>
       </details>
     </>
@@ -419,25 +414,26 @@ function VideoClipPanel({
 }
 
 function VideoApiConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const { t } = useTranslation("workflows");
   const modal = (
     <div className="failure-dialog-backdrop" role="presentation" onClick={onCancel}>
       <section className="api-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="video-api-confirm-title" onClick={(event) => event.stopPropagation()}>
         <div className="failure-dialog-title">
           <div>
-            <span>外部 API</span>
-            <strong id="video-api-confirm-title">确认调用视频生成 API？</strong>
+            <span>{t("sequence.video.externalApi")}</span>
+            <strong id="video-api-confirm-title">{t("sequence.video.confirmTitle")}</strong>
           </div>
           <button className="ghost compact" type="button" onClick={onCancel}>
-            取消
+            {t("sequence.video.cancel")}
           </button>
         </div>
-        <p>这次操作将调用外部视频 API，可能产生费用。确认后才会提交生成任务。</p>
+        <p>{t("sequence.video.confirmDescription")}</p>
         <div className="api-confirm-actions">
           <button className="ghost" type="button" onClick={onCancel}>
-            暂不调用
+            {t("sequence.video.decline")}
           </button>
           <button className="primary" type="button" onClick={onConfirm}>
-            确认调用 API
+            {t("sequence.video.confirm")}
           </button>
         </div>
       </section>

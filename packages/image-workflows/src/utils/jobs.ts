@@ -15,8 +15,8 @@ export async function waitForJob(jobId: string, options: JobPollingOptions = JOB
   const maxTries = Math.max(1, Math.floor(options.maxTries ?? JOB_POLLING_PRESETS.standard.maxTries));
   const intervalMs = Math.max(300, Math.floor(options.intervalMs ?? JOB_POLLING_PRESETS.standard.intervalMs));
 
-  // 模型推理、外部 API 和独立声效服务的耗时会受队列、模型冷启动和设备状态影响。
-  // 默认轮询不能停在几秒内，否则后端已经写入 output_assets 后，前端仍会停留在运行中状态。
+  // Model inference, external APIs, and the audio service vary with queues, cold starts, and device state.
+  // Polling must outlive short UI waits so completed output assets cannot remain displayed as running.
   for (let index = 0; index < maxTries; index += 1) {
     const job = await gameKnifeApiClient.getJob(jobId);
     if (job.status === "success" || job.status === "failed") {

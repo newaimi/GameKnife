@@ -1,0 +1,16 @@
+{
+  "panel": "Asset tools",
+  "expandPanel": "Expand tool panel",
+  "collapsePanel": "Collapse tool panel",
+  "permissionDenied": "This workspace cannot use this tool",
+  "items": {
+    "background-remove": "Background removal",
+    "upscale": "Image upscaling",
+    "asset-board": "UI Splitting",
+    "sequence": "Sequence",
+    "video-generate": "AI video generation",
+    "video-to-sequence": "Video to frames",
+    "sound-effect": "Sound generation",
+    "manual-edit": "Manual editing"
+  }
+}

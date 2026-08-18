@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm --workspace @gameknife/i18n run build",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
@@ -21,11 +22,13 @@
     "@gameknife/api-client": "file:../api-client",
     "@gameknife/editor-core": "file:../editor-core",
     "@gameknife/feature-registry": "file:../feature-registry",
+    "@gameknife/i18n": "file:../i18n",
     "@gameknife/shared-types": "file:../shared-types",
     "@gameknife/ui-kit": "file:../ui-kit",
     "lucide-react": "^1.16.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-i18next": "^16.0.0",
     "react-router-dom": "^7.15.1"
   },
   "devDependencies": {

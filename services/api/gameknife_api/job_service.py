@@ -56,7 +56,7 @@ def create_job(
     repository.create_job(job)
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
     if stored is None:
-        raise RuntimeError("任务创建失败。")
+        raise RuntimeError("Job creation failed.")
     return stored
 
 
@@ -78,12 +78,12 @@ def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestCont
     if job is None:
         return
     if sequence is None:
-        _mark_failed(repository, context, job_id, "序列帧不存在。")
+        _mark_failed(repository, context, job_id, "Sequence not found.")
         return
 
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
-        _mark_failed(repository, context, job_id, "序列帧没有可用帧。")
+        _mark_failed(repository, context, job_id, "The sequence has no usable frames.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
@@ -128,7 +128,7 @@ def run_sequence_from_video_job(repository: GameKnifeRepository, context: Reques
         return
     video_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if video_asset is None:
-        _mark_failed(repository, context, job_id, "视频素材不存在。")
+        _mark_failed(repository, context, job_id, "Video asset not found.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
@@ -228,7 +228,7 @@ def run_sequence_generate_video_job(repository: GameKnifeRepository, context: Re
         return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
-        _mark_failed(repository, context, job_id, "输入素材不存在。")
+        _mark_failed(repository, context, job_id, "Input asset not found.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
@@ -249,7 +249,7 @@ def run_sequence_generate_video_job(repository: GameKnifeRepository, context: Re
                 "remote_video_url": generated.video_url,
             },
             duration_ms=round((datetime.now(UTC) - started).total_seconds() * 1000),
-            device="外部API",
+            device="External API",
         )
         output_assets = _register_output_assets(repository, context, result.output_paths, "sequence_video", "video/mp4")
         video_asset = output_assets[0]
@@ -269,7 +269,7 @@ def delete_job(repository: GameKnifeRepository, context: RequestContext, job_id:
     if job is None:
         return False
     if job.status in {"pending", "running"}:
-        raise ValueError("任务正在处理中，完成后再删除。")
+        raise ValueError("The job is still processing. Delete it after it finishes.")
 
     result = json.loads(job.result_json)
     asset_ids = _collect_result_asset_ids(result)
@@ -296,7 +296,7 @@ def _run_image_output_job(
         return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
-        _mark_failed(repository, context, job_id, "输入素材不存在。")
+        _mark_failed(repository, context, job_id, "Input asset not found.")
         return
 
     repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())

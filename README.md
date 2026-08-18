@@ -9,7 +9,7 @@ Community Web, Community API, shared tool pages, the editor core, processors, an
 | Module | Capability |
 | --- | --- |
 | Background removal | Upload JPG, PNG, or WebP files and generate transparent PNG output with BiRefNet. |
-| Asset board | Detect regions, extract local cutouts, refine bounds, and export assets as ZIP. |
+| UI Splitting | Detect regions, extract local cutouts, refine bounds, and export assets as ZIP. |
 | Image upscaling | Use nearest-neighbor scaling for pixel art or Real-ESRGAN for AI super-resolution. |
 | Sequences | Import, clean, compare, and export PNG or Spine packages. |
 | AI video generation | Call an external video API after explicit user confirmation. |

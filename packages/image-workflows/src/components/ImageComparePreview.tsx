@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { ManualEditSource } from "../types/manualEdit";
 import { clamp } from "../utils/math";
 import { useObjectUrl } from "../utils/objectUrl";
@@ -7,16 +8,17 @@ import { useObjectUrl } from "../utils/objectUrl";
 const PREVIEW_FIT_PADDING = 48;
 
 export function EmptyCanvas() {
-  return <div className="empty-canvas" aria-label="空预览区" />;
+  const { t } = useTranslation("workbench");
+  return <div className="empty-canvas" aria-label={t("emptyPreview")} />;
 }
 
 export function ComparePreview({
   original,
   result,
   compare,
-  previewTitle = "去背景结果",
-  previewDescription = "双击打开的处理后图片。",
-  manualEditName = "去背景结果.png",
+  previewTitle,
+  previewDescription,
+  manualEditName,
   manualEditContext = "background_remove",
   manualEditDisabled = false,
   onCompare,
@@ -33,6 +35,10 @@ export function ComparePreview({
   onCompare: (value: number) => void;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
 }) {
+  const { t } = useTranslation("workbench");
+  const resolvedPreviewTitle = previewTitle ?? t("resultTitle");
+  const resolvedPreviewDescription = previewDescription ?? t("resultDescription");
+  const resolvedManualEditName = manualEditName ?? t("resultFileName");
   const originalUrl = useObjectUrl(original);
   const resultUrl = useObjectUrl(result);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -54,12 +60,12 @@ export function ComparePreview({
           <img
             className="compare-image"
             src={originalUrl}
-            alt="原图"
+            alt={t("originalImage")}
             style={resultUrl ? { clipPath: `inset(0 ${100 - compare}% 0 0)` } : undefined}
           />
           {resultUrl ? (
             <div className="result-layer" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}>
-              <ResultImage src={resultUrl} alt="处理后" />
+              <ResultImage src={resultUrl} alt={t("processedImage")} />
             </div>
           ) : null}
           {resultUrl ? (
@@ -70,15 +76,15 @@ export function ComparePreview({
           ) : null}
         </div>
       ) : (
-        <span className="canvas-note">正在加载原图...</span>
+        <span className="canvas-note">{t("loadingOriginal")}</span>
       )}
       {previewOpen && resultUrl ? (
         <ImagePreviewModal
-          title={previewTitle}
+          title={resolvedPreviewTitle}
           imageUrl={resultUrl}
-          description={previewDescription}
+          description={resolvedPreviewDescription}
           manualEditDisabled={manualEditDisabled}
-          onManualEdit={() => onManualEdit({ name: manualEditName, url: resultUrl, sourceContext: manualEditContext })}
+          onManualEdit={() => onManualEdit({ name: resolvedManualEditName, url: resultUrl, sourceContext: manualEditContext })}
           onClose={() => setPreviewOpen(false)}
         />
       ) : null}
@@ -95,9 +101,8 @@ export function useContainedImageBox(containerRef: React.RefObject<HTMLElement |
     if (!container) return;
 
     const syncSize = () => {
-      // 这里不能用 getBoundingClientRect()。
-      // 预览区位于 react-zoom-pan-pinch 的 transform 层内，getBoundingClientRect 会返回缩放后的视觉尺寸；
-      // 如果拿这个值再计算图片适屏尺寸，就会出现“缩放改变容器尺寸，容器尺寸又改变缩放内容”的反馈循环。
+      // Do not use getBoundingClientRect here. The preview lives inside the transform layer and that method
+      // returns the scaled visual size, which would feed zoom back into the fitted content dimensions.
       const nextSize = { width: container.clientWidth, height: container.clientHeight };
       setContainerSize((current) =>
         current?.width === nextSize.width && current.height === nextSize.height ? current : nextSize,
@@ -131,9 +136,8 @@ export function useContainedImageBox(containerRef: React.RefObject<HTMLElement |
     if (!containerSize || !naturalSize) return null;
     if (!containerSize.width || !containerSize.height || !naturalSize.width || !naturalSize.height) return null;
 
-    // 预览层必须跟图片实际显示区域一致，不能按整块画布计算。
-    // 原图用了 contain 缩放后，画布里会有留白；滑动对比和素材框如果铺满画布，
-    // 透明棋盘会画到留白上，素材框也会跟原图错位。
+    // Match overlays to the rendered image instead of the entire canvas. Contain sizing leaves empty space,
+    // and using the canvas bounds would misalign the compare handle and asset regions.
     const availableWidth = Math.max(1, containerSize.width - PREVIEW_FIT_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.height - PREVIEW_FIT_PADDING * 2);
     const scale = Math.min(availableWidth / naturalSize.width, availableHeight / naturalSize.height);
@@ -157,6 +161,7 @@ export function CompareDragHandle({
   frameRef: React.RefObject<HTMLElement | null>;
   onChange: (value: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -181,13 +186,12 @@ export function CompareDragHandle({
       className={`split-handle no-pan ${dragging ? "dragging" : ""}`}
       type="button"
       style={{ left: `${value}%` }}
-      aria-label="拖动查看处理前后"
-      title="拖动查看处理前后"
+      aria-label={t("compareHandle")}
+      title={t("compareHandle")}
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        // 只有圆形手柄负责滑动对比，不能再铺一层透明控件盖住整张图。
-        // 素材框也需要拖拽和缩放，整图命中会抢走它的鼠标事件。
+        // Only the circular handle owns comparison dragging. A full-image hit target would intercept region editing.
         updateCompareFromPointer(event.nativeEvent, frameRef, onChange);
         setDragging(true);
       }}
@@ -246,9 +250,10 @@ function ImagePreviewModal({
   onManualEdit: () => void | Promise<void>;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("workbench");
   const modal = (
     <div className="component-preview-backdrop no-pan" role="presentation" onClick={onClose}>
-      <section className="component-preview-modal" role="dialog" aria-modal="true" aria-label={`${title}预览`} onClick={(event) => event.stopPropagation()}>
+      <section className="component-preview-modal" role="dialog" aria-modal="true" aria-label={t("previewLabel", { title })} onClick={(event) => event.stopPropagation()}>
         <div className="component-preview-title">
           <div>
             <strong>{title}</strong>
@@ -256,10 +261,10 @@ function ImagePreviewModal({
           </div>
           <div className="component-preview-actions">
             <button className="primary compact" type="button" disabled={manualEditDisabled} onClick={() => void onManualEdit()}>
-              手动编辑
+              {t("manualEdit")}
             </button>
             <button className="ghost compact" type="button" onClick={onClose}>
-              关闭
+              {t("close")}
             </button>
           </div>
         </div>
@@ -270,6 +275,6 @@ function ImagePreviewModal({
     </div>
   );
 
-  // 预览弹窗不放在画布内部，避免用户当前缩放倍率影响弹窗尺寸。
+  // Keep preview dialogs outside the canvas so the current zoom does not affect modal dimensions.
   return createPortal(modal, document.body);
 }

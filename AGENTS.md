@@ -13,6 +13,9 @@ GameKnife Community is a local, no-login toolbox for game art asset processing. 
 - Avoid broad refactors unless they are required to complete the request safely.
 - Add comments only where they explain why a boundary, safety check, coordinate conversion, model-loading rule, or cleanup path exists.
 - Use English for all developer-facing repository content, including code comments, docstrings, test names, documentation, and maintenance scripts.
+- English is the default product language and the source language for new user-facing copy.
+- Put visible frontend copy in the shared i18n resources. Add or update both `en` and `zh-CN` entries in the same change, and treat the English entry as the canonical meaning.
+- Keep Chinese source text inside `packages/i18n/src/locales/zh-CN` and focused locale tests. Do not place Chinese defaults in components, services, scripts, or configuration files.
 - User-facing UI copy should stay short and clear.
 - Do not add visible UI text that explains implementation details, architecture, shortcuts, or internal behavior.
 - Do not write local absolute paths, personal environment names, private tokens, or machine-specific commands into documentation or scripts.
@@ -83,12 +86,12 @@ Public packages and services must depend only on the request-context, repository
 - File deletion keeps the existing policy: delete database records first, then clean disk files as a best-effort operation.
 - Upload endpoints must validate actual file contents, not only MIME headers.
 - Job responses should use Asset and Job terminology.
-- Keep Chinese error messages for end users.
+- Backend and integration error messages use English as their stable default representation. Translate errors at the frontend boundary when a localized message is required.
 - Background removal, Real-ESRGAN, character rig model workflows, and Stable Audio generation must check installation status before job creation.
 - Inference code must load from local model caches during task execution.
 - Do not add implicit model downloads in processors or workflow execution.
 - If a required model is installed and inference fails, the job should fail explicitly.
-- Asset board region detection should stay a fast local image-analysis step. It should not call BiRefNet.
+- UI splitting region detection should stay a fast local image-analysis step. It should not call BiRefNet.
 - BiRefNet and Real-ESRGAN inference should remain serialized in-process.
 - Stable Audio generation should stay in the standalone service queue.
 
@@ -111,6 +114,7 @@ Public packages and services must depend only on the request-context, repository
 ## Documentation Rules
 
 - Write README files, architecture documents, contribution guides, and other developer-facing documentation in English.
+- Write code comments, docstrings, test descriptions, test fixtures, script output, and operational messages in English.
 - README and docs should describe the open source Community edition from the developer's point of view.
 - Do not include private local paths, personal environment names, or local-only commands.
 - Mention downstream extension points only when needed to explain a public interface or dependency boundary.

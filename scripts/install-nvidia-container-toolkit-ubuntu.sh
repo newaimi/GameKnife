@@ -2,22 +2,22 @@
 set -euo pipefail
 
 if [ -x /usr/lib/wsl/lib/nvidia-smi ]; then
-  # WSL 会把 Windows 驱动提供的 nvidia-smi 放在这个目录。
-  # 用户直接运行时通常能从 PATH 找到它，但 sudo 的 secure_path 可能会漏掉该目录。
+  # WSL exposes the Windows driver's nvidia-smi binary from this directory.
+  # An interactive PATH often includes it while sudo's secure_path may not.
   export PATH="/usr/lib/wsl/lib:${PATH}"
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "未检测到 Docker，请先安装 Docker Engine。"
+  echo "Docker was not detected. Install Docker Engine before continuing."
   exit 1
 fi
 
 docker_server_os="$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || true)"
 if echo "$docker_server_os" | grep -qi "docker desktop"; then
   cat <<'TEXT'
-当前 docker CLI 连接的是 Docker Desktop daemon。
-这个脚本无法修改 Docker Desktop 内部 runtime，请先确认 Docker Desktop、Windows NVIDIA 驱动和 WSL 集成均已更新。
-随后用下面命令验证 Docker Desktop 是否已经暴露 GPU：
+The Docker CLI is connected to the Docker Desktop daemon.
+This script cannot modify Docker Desktop's internal runtime. Update Docker Desktop, the Windows NVIDIA driver, and WSL integration first.
+Then verify that Docker Desktop exposes the GPU with:
 
 docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 TEXT
@@ -26,8 +26,8 @@ fi
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
   cat <<'TEXT'
-当前 WSL 环境未检测到 nvidia-smi。
-请先在 Windows 安装支持 WSL 的 NVIDIA 驱动，并确认 WSL 内可以直接运行 nvidia-smi。
+The current WSL environment cannot find nvidia-smi.
+Install an NVIDIA driver with WSL support on Windows and confirm that nvidia-smi runs inside WSL.
 TEXT
   exit 1
 fi
@@ -46,8 +46,8 @@ curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-contai
 sudo apt-get update
 sudo apt-get install -y nvidia-container-toolkit
 
-# 这里只配置 Docker 调用 NVIDIA runtime，显卡驱动仍必须由 Windows/宿主机提供。
-# Compose 里的 gpus: all 最终也依赖这一步写入 Docker daemon 配置。
+# This only configures Docker to use the NVIDIA runtime; the host must still provide the GPU driver.
+# The Compose `gpus: all` setting also depends on this Docker daemon configuration.
 sudo nvidia-ctk runtime configure --runtime=docker
 
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active docker >/dev/null 2>&1; then

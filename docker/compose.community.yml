@@ -4,8 +4,8 @@ services:
     build:
       context: ..
       dockerfile: docker/community.Dockerfile
-      # WSL 开发机常把 HTTP_PROXY 指向 127.0.0.1:7890。
-      # build 阶段使用 host 网络，apt/npm/pip 才能访问宿主机上的本地代理端口。
+      # WSL development environments often point HTTP_PROXY at 127.0.0.1:7890.
+      # Host networking lets apt, npm, and pip reach that host proxy during the build.
       network: host
       args:
         TORCH_VERSION: ${TORCH_VERSION:-2.5.1}
@@ -54,8 +54,8 @@ services:
     volumes:
       - ./gameknife-storage:/data/storage
       - ./gameknife-huggingface:/data/huggingface
-    # GPU 能力由宿主机驱动和 NVIDIA Container Toolkit 提供。
-    # 容器只安装 CUDA/PyTorch 运行时，不能替代宿主机驱动。
+    # The host driver and NVIDIA Container Toolkit provide GPU access.
+    # The container's CUDA and PyTorch runtimes do not replace the host driver.
     gpus: all
     depends_on:
       - gameknife-stable-audio-sfx
@@ -65,7 +65,7 @@ services:
     build:
       context: ..
       dockerfile: docker/stable-audio-sfx.Dockerfile
-      # 声效服务构建同样需要 pip 访问网络，和主服务保持一致的 build 网络。
+      # The SFX build also needs pip network access, so it uses the same build network as the main service.
       network: host
       args:
         STABLE_AUDIO_TORCH_EXTRA_INDEX_URL: ${STABLE_AUDIO_TORCH_EXTRA_INDEX_URL:-https://download.pytorch.org/whl/cu126}
@@ -101,5 +101,5 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./gameknife-stable-audio-cache:/data/huggingface
-    # 声效服务有独立 worker 池，GPU 列表通过 GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS 控制。
+    # The SFX service has its own worker pool; GAMEKNIFE_STABLE_AUDIO_VISIBLE_GPUS controls its GPU list.
     gpus: all

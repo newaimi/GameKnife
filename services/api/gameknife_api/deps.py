@@ -122,8 +122,8 @@ def get_community_settings(request: Request) -> CommunitySettings:
 def get_request_context(request: Request) -> RequestContext:
     storage = request.app.state.storage
     return RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=COMMUNITY_FEATURES),
         storage=storage,

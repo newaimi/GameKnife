@@ -1,0 +1,83 @@
+{
+  "eyebrow": "Job history",
+  "title": "Downloadable results",
+  "description": "Only jobs that produced downloadable files are shown here. Intermediate operations are excluded.",
+  "refresh": "Refresh",
+  "filterLabel": "Filter by job type",
+  "startTime": "Start time",
+  "endTime": "End time",
+  "clearTime": "Clear dates",
+  "loading": "Loading...",
+  "resultCount": "{{count}} downloadable result",
+  "resultCount_other": "{{count}} downloadable results",
+  "page": "Page {{current}} of {{total}}",
+  "loadingJobs": "Loading jobs...",
+  "empty": "No matching jobs",
+  "emptyHint": "Try another job type or date range.",
+  "previousPage": "Previous",
+  "nextPage": "Next",
+  "deleteConfirm": "Deleting this job also removes its generated files. Continue?",
+  "categories": {
+    "all": { "label": "All", "note": "All downloadable results" },
+    "background": { "label": "Background removal", "note": "AI background removal results" },
+    "upscale": { "label": "Image upscaling", "note": "Super-resolution and pixel upscaling" },
+    "sound": { "label": "Sound generation", "note": "Text-generated WAV files" },
+    "assetBoard": { "label": "UI Splitting", "note": "Region cutouts and exports" },
+    "sequence": { "label": "Sequences", "note": "PNG sequences and Spine projects" }
+  },
+  "calendar": {
+    "chooseDate": "Choose date",
+    "calendar": "Calendar",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "clear": "Clear",
+    "today": "Today",
+    "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  },
+  "actions": {
+    "download": "Download result",
+    "noDownload": "This job has no downloadable file",
+    "delete": "Delete job",
+    "deleteWhileRunning": "A running job cannot be deleted"
+  },
+  "status": {
+    "queued": "Queued",
+    "running": "Processing",
+    "succeeded": "Completed",
+    "failed": "Failed"
+  },
+  "presentation": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hr ago",
+    "daysAgo": "{{count}} d ago",
+    "outputFile": "Output file",
+    "job": "Job",
+    "image": "Image",
+    "unknownSize": "Unknown size",
+    "statusLabel": "Job status: {{status}}"
+  },
+  "types": {
+    "backgroundRemove": "AI background removal",
+    "imageUpscale": "Image upscaling",
+    "assetBoardRegionDetect": "UI splitting region detection",
+    "assetBoardCutout": "UI splitting cutout",
+    "assetBoardRegionRefine": "UI splitting region refinement",
+    "assetBoardExport": "UI splitting export",
+    "sequenceClean": "Sequence cleanup",
+    "sequenceGenerateVideo": "Video generation",
+    "sequenceVideoToFrames": "Video to frames",
+    "sequenceExportFrames": "PNG sequence export",
+    "sequenceExportSpine": "Spine export",
+    "soundEffectGenerate": "Sound generation",
+    "componentExport": "Component export"
+  },
+  "initials": {
+    "sound": "S",
+    "video": "V",
+    "frame": "F",
+    "upscale": "U",
+    "board": "B",
+    "image": "I"
+  }
+}

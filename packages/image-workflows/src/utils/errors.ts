@@ -1,3 +1,3 @@
 export function readMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "请求失败。";
+  return value instanceof Error ? value.message : "Request failed.";
 }

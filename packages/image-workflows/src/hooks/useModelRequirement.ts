@@ -4,12 +4,6 @@ import type { ModelInstallStatus } from "@gameknife/shared-types";
 
 export type RequiredModel = "birefnet" | "upscale" | "stable-audio";
 
-const MODEL_LABEL: Record<RequiredModel, string> = {
-  birefnet: "BiRefNet",
-  upscale: "图片放大",
-  "stable-audio": "Stable Audio",
-};
-
 export function useModelRequirement() {
   return useCallback(async (model: RequiredModel) => {
     try {
@@ -20,7 +14,8 @@ export function useModelRequirement() {
       openSettingsForModel(model);
       return false;
     } catch {
-      // 状态接口失败时继续让创建任务请求给出最终错误，避免网络抖动把本可执行的本地任务直接拦住。
+      // Let the job request provide the final error if the status endpoint fails. A transient status request must
+      // not block a model that may already be usable.
       return true;
     }
   }, []);
@@ -43,6 +38,6 @@ function readInstallStatus(model: RequiredModel): Promise<ModelInstallStatus> {
 }
 
 function openSettingsForModel(model: RequiredModel) {
-  window.sessionStorage.setItem("gameknife-model-settings-message", `需要先下载安装 ${MODEL_LABEL[model]} 模型文件。`);
+  window.sessionStorage.setItem("gameknife-required-model", model);
   window.location.href = "/settings";
 }

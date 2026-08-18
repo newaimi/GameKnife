@@ -1,0 +1,9 @@
+{
+  "eyebrow": "User guide",
+  "title": "Game asset workflows",
+  "description": "Tools for recurring image, sequence, video, and audio tasks in game asset production.",
+  "workflow": {
+    "title": "Processing workflow",
+    "description": "Choose a tool, import an asset, adjust its parameters, and run the task. GPU-backed model tasks are queued by the backend to keep local processing stable."
+  }
+}

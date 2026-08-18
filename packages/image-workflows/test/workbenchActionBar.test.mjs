@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
+import { createGameKnifeI18n } from "@gameknife/i18n";
 import {
   ImageSequenceUploadAction,
   ImageUploadAction,
@@ -10,21 +12,26 @@ import {
 } from "../dist/components/WorkbenchActionBar.js";
 import { readManualEditorActionState } from "../dist/workspaces/manual-edit/manualEditorActionState.js";
 
-test("WorkbenchActionBar exposes one toolbar for primary workflow actions", () => {
+test("WorkbenchActionBar exposes one translated toolbar for primary workflow actions", async () => {
+  const i18n = await createGameKnifeI18n({ initialLanguage: "en", detectLanguage: false });
   const markup = renderToStaticMarkup(
-    createElement(WorkbenchActionBar, null, createElement("button", { type: "button" }, "开始处理")),
+    createElement(
+      I18nextProvider,
+      { i18n },
+      createElement(WorkbenchActionBar, null, createElement("button", { type: "button" }, "Process")),
+    ),
   );
 
   assert.match(markup, /class="workbench-action-bar no-pan"/);
   assert.match(markup, /role="toolbar"/);
-  assert.match(markup, /aria-label="工作台操作"/);
-  assert.match(markup, />开始处理</);
+  assert.match(markup, /aria-label="Workbench actions"/);
+  assert.match(markup, />Process</);
 });
 
 test("upload actions keep file scopes and disabled state explicit", () => {
-  const imageMarkup = renderToStaticMarkup(createElement(ImageUploadAction, { label: "上传图片", disabled: true, onFile() {} }));
-  const sequenceMarkup = renderToStaticMarkup(createElement(ImageSequenceUploadAction, { label: "上传序列", onFiles() {} }));
-  const videoMarkup = renderToStaticMarkup(createElement(VideoUploadAction, { label: "上传视频", onFile() {} }));
+  const imageMarkup = renderToStaticMarkup(createElement(ImageUploadAction, { label: "Upload image", disabled: true, onFile() {} }));
+  const sequenceMarkup = renderToStaticMarkup(createElement(ImageSequenceUploadAction, { label: "Upload sequence", onFiles() {} }));
+  const videoMarkup = renderToStaticMarkup(createElement(VideoUploadAction, { label: "Upload video", onFile() {} }));
 
   assert.match(imageMarkup, /accept="image\/jpeg,image\/png,image\/webp"/);
   assert.match(imageMarkup, /aria-disabled="true"/);
@@ -37,11 +44,9 @@ test("manual editor action states keep each command dependency explicit", () => 
   assert.deepEqual(
     readManualEditorActionState({ hasSource: false, canWrite: true, saving: false, canUndo: false, canRedo: false }),
     {
-      uploadLabel: "导入图片",
       uploadDisabled: false,
       undoDisabled: true,
       redoDisabled: true,
-      saveLabel: "保存",
       saveDisabled: true,
       exportDisabled: true,
     },
@@ -50,11 +55,9 @@ test("manual editor action states keep each command dependency explicit", () => 
   assert.deepEqual(
     readManualEditorActionState({ hasSource: true, canWrite: false, saving: true, canUndo: true, canRedo: false }),
     {
-      uploadLabel: "更换图片",
       uploadDisabled: true,
       undoDisabled: false,
       redoDisabled: true,
-      saveLabel: "保存中",
       saveDisabled: true,
       exportDisabled: false,
     },

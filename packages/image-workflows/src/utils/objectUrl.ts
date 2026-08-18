@@ -21,8 +21,8 @@ export function useObjectUrl(url: string) {
         setObjectUrl(nextUrl);
       })
       .catch(() => {
-        // 用户切换工具或路由后，旧预览请求可能晚于组件卸载返回。
-        // 这里和成功分支使用同一份存活标记，避免把已过期的资源状态写回页面。
+        // A preview request can finish after navigation or unmount. The same liveness flag guards both success
+        // and failure so stale resource state never returns to the page.
         if (alive) {
           setObjectUrl("");
         }

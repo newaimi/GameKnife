@@ -1,0 +1,41 @@
+{
+  "brand": "GameKnife",
+  "navigation": {
+    "mainMenu": "Main menu",
+    "home": "Home",
+    "jobs": "Jobs",
+    "settings": "Settings",
+    "help": "Help",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
+  },
+  "theme": {
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
+  },
+  "language": {
+    "switcherLabel": "Interface language",
+    "english": "English",
+    "simplifiedChinese": "Simplified Chinese",
+    "switchToEnglish": "Switch to English",
+    "switchToSimplifiedChinese": "Switch to Simplified Chinese"
+  },
+  "actions": {
+    "upload": "Upload",
+    "process": "Process",
+    "download": "Download",
+    "refresh": "Refresh",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "retry": "Retry"
+  },
+  "status": {
+    "loading": "Loading",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "unknown": "Unknown",
+    "configured": "Configured",
+    "notConfigured": "Not configured"
+  }
+}

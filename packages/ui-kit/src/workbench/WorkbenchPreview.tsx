@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TransformComponent, TransformWrapper, useControls } from "react-zoom-pan-pinch";
 const ZOOM_MIN_SCALE = 0.01;
 const ZOOM_MAX_SCALE = 100;
@@ -120,10 +121,11 @@ function ZoomControls({
   scale: number;
   children?: React.ReactNode;
 }) {
+  const { t } = useTranslation("workbench");
   const { zoomIn, zoomOut, resetTransform, centerView } = useControls();
 
   return (
-    <div className="zoom-controls no-pan" aria-label="图片缩放控制">
+    <div className="zoom-controls no-pan" aria-label={t("zoomLabel")}>
       {children}
       <button onClick={() => zoomOut(ZOOM_BUTTON_STEP)}>-</button>
       <button className="zoom-value" onClick={() => resetTransform(180)}>
@@ -131,7 +133,7 @@ function ZoomControls({
       </button>
       <button onClick={() => zoomIn(ZOOM_BUTTON_STEP)}>+</button>
       <button className="zoom-fit" onClick={() => centerView(1, 180)}>
-        适屏
+        {t("fit")}
       </button>
     </div>
   );
