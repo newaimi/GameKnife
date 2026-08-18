@@ -9,8 +9,8 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 /**
- * GameKnife 各工作流共用的按钮入口。变体只表达操作层级，具体业务是否可执行仍由调用方决定，
- * 这样 Community 与 Commercial 可以共享交互反馈，同时保留各自的权限校验和业务状态。
+ * Shared button entry point for GameKnife workflows. Variants express only action hierarchy; callers pass
+ * permission results and business state through native button properties while the component standardizes feedback.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { className, variant = "secondary", size = "medium", type = "button", ...props },
@@ -26,8 +26,8 @@ export type IconButtonProps = Omit<ButtonProps, "aria-label" | "children"> & {
 };
 
 /**
- * 只显示图标的按钮必须提供可访问名称。统一入口可以避免工具栏在视觉上足够紧凑时，
- * 键盘和读屏用户却无法判断按钮用途。
+ * Icon-only buttons must expose an accessible name. A shared entry point keeps compact toolbars understandable
+ * to keyboard and screen-reader users.
  */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { className, label, variant = "quiet", size = "small", children, ...props },

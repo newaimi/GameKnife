@@ -638,8 +638,8 @@ def create_sequence_from_video_task(
     if not video_asset.mime_type.startswith("video/"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是视频。")
     if payload.remove_background:
-        # 视频抽帧可以单独在本地完成，去背景是显式的模型依赖。
-        # 创建阶段先拦截未安装状态，任务阶段只使用已注入的本地模型服务。
+        # Frame extraction can run locally by itself, while background removal has an explicit model dependency.
+        # Reject missing installations during creation so execution uses only the injected local model service.
         _ensure_birefnet_installed(birefnet)
 
     parameters = {
@@ -743,8 +743,8 @@ async def upload_image_asset(
     try:
         repository.create_asset(asset)
     except Exception:
-        # 上传时先写磁盘再写数据库，失败时清理刚生成的文件。
-        # 这样不会留下没有数据库记录的游离文件，后续资产列表也不会出现不可追踪数据。
+        # Uploads write the file before the database record and remove the new file if persistence fails.
+        # This prevents orphaned files and keeps every asset-list entry traceable to a database record.
         context.storage.remove_asset_file(relative_path)
         raise
 
@@ -848,8 +848,8 @@ async def save_manual_edit_asset(
     try:
         repository.create_asset(asset)
     except Exception:
-        # 手动编辑保存必须生成新 asset。数据库写入失败时清理刚写入的文件，
-        # 避免用户下次打开任务历史时遇到没有记录可追踪的编辑结果。
+        # Manual-edit saves create a new asset and remove its file if the database write fails.
+        # This prevents an edited result without a traceable record from appearing in later job-history flows.
         context.storage.remove_asset_file(relative_path)
         raise
     return _asset_response(asset)
@@ -882,15 +882,15 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
 
 
 def _require_project_workflow_write(context: RequestContext, operation: str, resource: dict[str, object] | None = None) -> None:
-    # v1 把项目内公共工具写操作统一归到 jobs.create。
-    # 原因是上传、导入、手动编辑保存和任务创建共同组成一次工具使用流程，
-    # 如果只拦任务创建，商用普通用户仍可能绕过前端向项目写入孤立资产。
+    # v1 groups workspace writes from public tools under jobs.create because uploads, imports, manual-edit saves,
+    # and job creation form one tool workflow. Restricting only job creation would still let a constrained caller
+    # bypass the frontend and write orphaned assets to the workspace.
     context.permissions.require(PROJECT_WORKFLOW_PERMISSION, {"operation": operation, **(resource or {})})
 
 
 def _require_settings_manage(context: RequestContext, operation: str) -> None:
-    # 模型安装和视频 API 配置会改变整个服务的运行环境。
-    # Community 本地管理员默认放行，Commercial 只能由 RBAC 授权用户执行。
+    # Model installation and video API configuration change the service-wide runtime environment.
+    # Community allows the operation by default; callers that enforce permissions decide through PermissionChecker.
     context.permissions.require(SETTINGS_MANAGE_PERMISSION, {"operation": operation})
 
 
@@ -1166,8 +1166,8 @@ def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
 
 
 def _read_runtime_info() -> dict[str, object]:
-    # 设置页读取的是当前 Web 进程真实运行环境，不能让前端根据设备标签推断。
-    # 同一份 Community 包会部署到 CPU、CUDA 或 macOS MPS 机器上，真实 PyTorch 后端才决定可用推理能力。
+    # Settings report the actual Web-process runtime instead of asking the frontend to infer it from a device label.
+    # The same Community package can run on CPU, CUDA, or macOS MPS; the active PyTorch backend determines inference support.
     info: dict[str, object] = {
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
@@ -1231,8 +1231,8 @@ def _read_runtime_info() -> dict[str, object]:
 
 
 def _runtime_device_label(runtime: dict[str, object]) -> str:
-    # 该接口保留原有单字段响应，调用方无需理解设置页的完整 PyTorch 环境结构。
-    # CUDA 优先返回当前显卡名称，MPS 使用稳定后端名，其余情况明确落到 CPU。
+    # This endpoint preserves the existing single-field response so callers need not parse the full settings runtime structure.
+    # CUDA returns the active GPU name, MPS uses a stable backend label, and every other environment reports CPU explicitly.
     if bool(runtime.get("cuda_available")):
         return str(runtime.get("current_gpu_name") or "CUDA")
     if bool(runtime.get("mps_available")):

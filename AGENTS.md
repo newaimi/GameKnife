@@ -12,7 +12,7 @@ GameKnife Community is a local, no-login toolbox for game art asset processing. 
 - Keep changes scoped to the requested behavior.
 - Avoid broad refactors unless they are required to complete the request safely.
 - Add comments only where they explain why a boundary, safety check, coordinate conversion, model-loading rule, or cleanup path exists.
-- Code comments should be written in Chinese when comments are needed.
+- Use English for all developer-facing repository content, including code comments, docstrings, test names, documentation, and maintenance scripts.
 - User-facing UI copy should stay short and clear.
 - Do not add visible UI text that explains implementation details, architecture, shortcuts, or internal behavior.
 - Do not write local absolute paths, personal environment names, private tokens, or machine-specific commands into documentation or scripts.
@@ -30,7 +30,7 @@ The Community edition must stay no-login:
 - Community data is stored in SQLite and local files by default.
 - Assets, jobs, sequences, rigs, and manual edits use `workspace_id = "local"` and `created_by = "anonymous"`.
 
-Public packages and services must not depend on real users, organizations, projects, billing, audit, or commercial storage.
+Public packages and services must depend only on the request-context, repository, permission, and storage interfaces defined here. They must not import account, organization, project, billing, audit, or external storage implementations.
 
 ## Directory Responsibilities
 
@@ -110,9 +110,10 @@ Public packages and services must not depend on real users, organizations, proje
 
 ## Documentation Rules
 
+- Write README files, architecture documents, contribution guides, and other developer-facing documentation in English.
 - README and docs should describe the open source Community edition from the developer's point of view.
 - Do not include private local paths, personal environment names, or local-only commands.
-- Mention external or commercial extension points only when needed to explain public boundaries.
+- Mention downstream extension points only when needed to explain a public interface or dependency boundary.
 - Keep product naming consistent: `GameKnife`, `gameknife`, and `GAMEKNIFE`.
 - Avoid legacy `ImageKnife` naming except in migration history documents.
 

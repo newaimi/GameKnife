@@ -48,8 +48,8 @@ def create_sound_effect_workflow(
             parameters={**parameters, "prompt": prompt},
         )
     except Exception:
-        # 提示词先落为 asset 是为了让任务历史有稳定输入；如果后续 job 创建失败，
-        # 必须同步清理文件和记录，避免余额不足或权限拒绝时留下无法触达的临时资产。
+        # Persisting the prompt as an asset gives job history a stable input. If subsequent job creation fails,
+        # remove both the file and record so credit or permission rejection cannot leave an unreachable temporary asset.
         repository.delete_assets_for_workspace([prompt_asset.id], context.workspace.id)
         context.storage.remove_asset_file(prompt_asset.path)
         raise
@@ -105,8 +105,8 @@ def run_sound_effect_workflow(
 
 
 def _create_prompt_asset(repository: WorkflowRepository, context: RequestContext, prompt: str) -> AssetRecord:
-    # 声效任务也走统一的 input_asset_id，原因是任务历史、删除清理和商用 repository 注入都依赖同一套资产关系。
-    # 提示词保存为文本 asset 后，后续审计和失败重试能从资产链路找到原始输入。
+    # Sound-effect jobs use the shared input_asset_id relationship required by job history, cleanup, and repository implementations.
+    # Saving the prompt as a text asset keeps the original input available to audit and retry flows.
     asset_id = uuid4().hex
     content = prompt.encode("utf-8")
     now = _now()

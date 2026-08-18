@@ -7,10 +7,11 @@ from gameknife_core import AssetRecord, JobRecord
 
 
 class GameKnifeRepository(Protocol):
-    """公共 API 依赖的持久化接口。
+    """Persistence interface used by the public API.
 
-    Community 和 Studio 使用不同数据库，公共 API 只能依赖这组稳定方法。
-    这样 SQLite 和 MySQL 都可以作为运行入口注入，公共处理链不会绑定到某一个数据库实现。
+    Each runtime entry point may inject its own database implementation, while the public API depends only on
+    these stable methods. SQLite and other compatible implementations can therefore connect without binding the
+    public processing path to one persistence strategy.
     """
 
     def create_asset(self, asset: AssetRecord) -> None:

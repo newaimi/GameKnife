@@ -224,8 +224,8 @@ export function getActiveEditorLayer(doc: EditorDocument) {
 }
 
 export function compositeEditorDocument(doc: EditorDocument) {
-  // 编辑器内部按图层保存像素，真正预览和导出时才合成。
-  // 这样图层显隐、透明度和顺序调整不会破坏原始图层数据，也方便撤销回退。
+  // The editor stores pixels per layer and composites them only for preview or export.
+  // Visibility, opacity, and order changes therefore preserve source layer data and remain easy to undo.
   const flattened = compositeEditorLayers(doc.width, doc.height, doc.layers);
   if (doc.floatingSelection) {
     pasteImageDataWithAlpha(flattened, doc.floatingSelection.imageData, doc.floatingSelection.bounds.x, doc.floatingSelection.bounds.y);
@@ -234,8 +234,8 @@ export function compositeEditorDocument(doc: EditorDocument) {
 }
 
 /**
- * 只合成需要刷新的文档区域。画笔和移动选区把该结果写回主 canvas 的对应位置，
- * 拖动过程中无需为未变化的像素创建和遍历全尺寸缓冲区。
+ * Composite only the document region that needs a refresh. Brushes and moved selections write this result to
+ * the matching main-canvas position without allocating or traversing a full-size buffer during a drag.
  */
 export function compositeEditorDocumentRegion(doc: EditorDocument, bounds: EditorSelection) {
   const safeBounds = normalizeEditorBounds(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height, doc.width, doc.height);
@@ -296,8 +296,8 @@ export function compositeEditorLayers(width: number, height: number, layers: Edi
 }
 
 export function blendImageDataOver(target: ImageData, source: ImageData, opacity: number, left: number, top: number) {
-  // 这里使用标准 source-over alpha 合成，而不是直接覆盖像素。
-  // 游戏素材大量依赖半透明边缘，直接覆盖会让图层透明度和毛边预览不可信。
+  // Use standard source-over alpha composition instead of replacing pixels directly.
+  // Game assets rely heavily on translucent edges, which direct replacement would render incorrectly with layer opacity.
   for (let y = 0; y < source.height; y += 1) {
     const targetY = top + y;
     if (targetY < 0 || targetY >= target.height) continue;
@@ -519,8 +519,8 @@ export function readEditorDocumentPixel(doc: EditorDocument, point: ImagePoint) 
     alpha = Math.round(nextAlpha * 255);
   };
 
-  // 状态栏只需要当前指针下的一个像素。单点合成能避开整张图的 ImageData 分配，
-  // 画笔移动时状态栏仍然准确，页面也不会因为取样频繁出现明显卡顿。
+  // The status bar needs only the pixel under the pointer. Single-pixel composition avoids allocating full-image
+  // ImageData while keeping samples accurate and responsive during brush movement.
   for (const layer of doc.layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
     blendPixelAt(layer.imageData, layer.opacity / 100);
@@ -548,16 +548,16 @@ export function buildRectSelectionMask(width: number, height: number, selection:
 export function appendLassoPoint(path: ImagePoint[], point: ImagePoint) {
   const last = path[path.length - 1];
   if (last && Math.hypot(last.x - point.x, last.y - point.y) < 1.5) return path;
-  // 套索拖动会产生大量点，复制整条路径会让长路径越来越慢。
-  // 这里直接追加到草稿数组，草稿只保存在 ref 里，不会破坏 React 状态不可变约定。
+  // Lasso drags create many points, and copying the whole path would become progressively slower.
+  // Append directly because the draft lives only in a ref and does not violate React state immutability.
   path.push(point);
   return path;
 }
 
 export function buildLassoSelectionMask(width: number, height: number, path: ImagePoint[]): EditorSelectionMask | null {
   if (path.length < 3) return null;
-  // 套索路径先画到离屏 canvas，再读取 alpha 作为选区 mask。
-  // 这比手写多边形扫描更稳定，也能和浏览器 Canvas 的边界规则保持一致。
+  // Draw the lasso path to an offscreen canvas and use its alpha channel as the selection mask.
+  // This is more stable than a custom polygon scan and follows browser Canvas boundary rules.
   const scratch = document.createElement("canvas");
   scratch.width = width;
   scratch.height = height;
@@ -617,8 +617,8 @@ export function buildMagicWandSelection(imageData: ImageData, point: ImagePoint,
   };
 
   if (contiguous) {
-    // 连续模式只扩展相邻像素，适合点选透明背景或单个色块。
-    // 非连续模式会扫描整张图，适合一次选中相同颜色的多个零散区域。
+    // Contiguous mode expands through adjacent pixels for transparent backgrounds or one color block.
+    // Non-contiguous mode scans the whole image to select multiple disconnected regions of the same color.
     const visited = new Uint8Array(imageData.width * imageData.height);
     const queue = [startY * imageData.width + startX];
     visited[queue[0]] = 1;
@@ -630,8 +630,8 @@ export function buildMagicWandSelection(imageData: ImageData, point: ImagePoint,
       if (!accept(x, y)) continue;
       mark(x, y);
 
-      // 魔棒经常会点到大面积透明背景，不能用 shift() 反复移动数组。
-      // 入队时就标记 visited，可以避免边界像素被多个邻居重复塞进队列。
+      // Magic-wand selection often covers large transparent areas, so repeatedly shifting the queue is too expensive.
+      // Mark pixels as visited when enqueuing to prevent multiple neighbors from adding the same boundary pixel.
       if (x > 0 && !visited[pixelIndex - 1]) {
         visited[pixelIndex - 1] = 1;
         queue.push(pixelIndex - 1);
@@ -673,8 +673,8 @@ export function normalizeEditorBounds(minX: number, minY: number, maxX: number, 
 export function extractSelectionClipboard(doc: EditorDocument, cut: boolean): EditorClipboardItem | null {
   const layer = getActiveEditorLayer(doc);
   if (!layer || !doc.selection) return null;
-  // 复制/剪切只读取当前激活图层，避免用户在上层修边时误把所有图层扁平内容都切走。
-  // 这和常见位图编辑器的图层编辑习惯一致。
+  // Copy and cut read only the active layer so editing an upper layer cannot remove flattened content from every layer.
+  // This matches common bitmap-editor layer behavior.
   const bounds = doc.selection.bounds;
   const item = new ImageData(bounds.width, bounds.height);
   for (let y = 0; y < bounds.height; y += 1) {
@@ -724,8 +724,8 @@ export async function writeClipboardImage(imageData: ImageData) {
 }
 
 export async function readClipboardImage(): Promise<EditorClipboardItem | null> {
-  // 系统剪贴板在浏览器里依赖权限和 HTTPS/本地环境，不能作为唯一数据通道。
-  // 调用方始终会先使用内部剪贴板，这里只做可用时增强。
+  // Browser system clipboard access depends on permissions and HTTPS or local context, so it cannot be the only channel.
+  // Callers always use the internal clipboard first and treat this path as an optional enhancement.
   if (!navigator.clipboard || !("read" in navigator.clipboard)) return null;
   const items = await navigator.clipboard.read();
   for (const item of items) {
@@ -755,8 +755,8 @@ export function flattenImageDataOnBackground(imageData: ImageData, backgroundCol
   const output = new ImageData(imageData.width, imageData.height);
   for (let index = 0; index < imageData.data.length; index += 4) {
     const alpha = imageData.data[index + 3] / 255;
-    // 纯色背景导出必须变成真实不透明像素。
-    // 只改变预览底色会让用户以为已经有背景，但导入其他软件后仍然透底。
+    // Solid-background export must produce actual opaque pixels.
+    // Changing preview color alone would appear filled while remaining transparent in other software.
     output.data[index] = Math.round(imageData.data[index] * alpha + color.r * (1 - alpha));
     output.data[index + 1] = Math.round(imageData.data[index + 1] * alpha + color.g * (1 - alpha));
     output.data[index + 2] = Math.round(imageData.data[index + 2] * alpha + color.b * (1 - alpha));

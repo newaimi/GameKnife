@@ -5,7 +5,7 @@ import { readInitialTheme } from "./theme";
 import "@gameknife/image-workflows/styles.css";
 import "./styles.css";
 
-// 在 React 首次渲染前设置主题，避免暗色默认工作台先短暂显示亮色令牌。
+// Set the theme before React's first render so the dark-default workbench never flashes light tokens.
 document.documentElement.dataset.theme = readInitialTheme();
 
 createRoot(document.getElementById("root")!).render(

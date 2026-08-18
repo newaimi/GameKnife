@@ -37,7 +37,7 @@ export function WorkbenchPreview({
   pixelGridVisible?: boolean;
   contentMode?: "fill" | "intrinsic";
   emptyLabel?: string;
-  /** 向需要按实际显示倍率调整内容细节的工作区同步当前缩放值。 */
+  /** Report the current scale to workspaces that adjust content detail according to displayed magnification. */
   onScaleChange?: (scale: number) => void;
 }) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -60,7 +60,7 @@ export function WorkbenchPreview({
       return;
     }
 
-    // 图片 DOMRect 会在缩放和平移后更新，延后一帧读取能避免网格跟着旧位置闪动。
+    // Image DOMRect updates after zoom and pan; reading one frame later prevents the grid from flashing at stale coordinates.
     const frame = window.requestAnimationFrame(() => {
       drawPixelInspection(canvas, overlay, pixelGridVisible);
     });
@@ -88,8 +88,8 @@ export function WorkbenchPreview({
         limitToBounds={false}
         doubleClick={{ disabled: true }}
         panning={{ velocityDisabled: true, excluded: ["no-pan"] }}
-        // no-pan 只表达“这里有自己的拖拽逻辑，不能拖动画布”。
-        // 滚轮缩放不能共用这个排除规则，否则鼠标停在素材框上时会退回页面滚动。
+        // no-pan means only that this target owns drag behavior and must not pan the canvas.
+        // Wheel zoom cannot share that exclusion or hovering an asset box would fall back to page scrolling.
         wheel={{ step: wheelStep }}
         pinch={{ step: 5 }}
         onTransform={(_ref, state) => {
@@ -138,8 +138,8 @@ function ZoomControls({
 }
 
 function readWheelStep(scale: number) {
-  // 现在缩放范围很大，固定滚轮步进在 1% 附近会太猛，在 10000% 附近又会太慢。
-  // 按当前倍率取比例步进，滚轮每一格的体感会更接近“放大一小段”。
+  // A fixed wheel step is too aggressive near 1% and too slow near 10000% across the supported zoom range.
+  // A step proportional to current scale makes each wheel notch feel like a consistent incremental zoom.
   return clamp(scale * ZOOM_WHEEL_STEP_RATIO, 0.00002, 0.08);
 }
 
@@ -315,8 +315,8 @@ function readRenderedImageRect(image: HTMLImageElement) {
   const renderedWidth = naturalWidth * fitRatio;
   const renderedHeight = naturalHeight * fitRatio;
 
-  // object-fit: contain 会让真实图片在 img 元素内部留白。像素网格必须对齐真实绘制区域，
-  // 否则格子会跟元素外框对齐，看起来就像“像素没有落进格子里”。
+  // object-fit: contain leaves empty space around the rendered image inside the img element. The pixel grid must
+  // align with the rendered area rather than the element bounds so pixels remain inside their cells.
   return {
     left: elementRect.left + (elementRect.width - renderedWidth) / 2,
     top: elementRect.top + (elementRect.height - renderedHeight) / 2,

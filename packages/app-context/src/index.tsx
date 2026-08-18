@@ -18,8 +18,8 @@ export const communityContext: AppContext = {
   },
 };
 
-// Community 默认提供匿名上下文，避免工具页面各自判断空用户。
-// 商用版会在外壳层注入真实上下文，公共工具只读取统一接口。
+// Community provides an anonymous context so tool pages never need their own missing-user fallback.
+// Other application shells may inject an explicit principal and workspace through the provider while public tools consume one stable interface.
 export const GameKnifeAppContext = createContext<AppContext>(communityContext);
 
 export function useGameKnifeAppContext(): AppContext {
@@ -39,8 +39,8 @@ const allowAllPermissions: PermissionProviderValue = {
 export const GameKnifePermissionContext = createContext<PermissionProviderValue>(allowAllPermissions);
 
 export function PermissionProvider({ value, children }: { value?: PermissionProviderValue; children: ReactNode }) {
-  // Community 不需要真实用户权限，默认放行可以保持无登录工具体验。
-  // Studio 从外壳注入 RBAC 权限，公共工具只读这个接口，避免导入商用用户和角色类型。
+  // Community keeps its login-free workflow by allowing actions through the default implementation.
+  // Callers that enforce permissions inject their checker through the provider, so public tools never import account or role types.
   return <GameKnifePermissionContext.Provider value={value ?? allowAllPermissions}>{children}</GameKnifePermissionContext.Provider>;
 }
 

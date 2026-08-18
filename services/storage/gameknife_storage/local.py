@@ -23,14 +23,14 @@ class LocalStorageProvider:
         try:
             self.resolve_asset_path(relative_path).unlink(missing_ok=True)
         except OSError:
-            # 删除任务以数据库为准，磁盘清理按尽力执行。
-            # 本地文件被占用或已被用户移动时，不应该反向破坏数据库状态。
+            # Database state is authoritative for deletion; disk cleanup is best effort.
+            # A locked or user-moved local file must not invalidate the database operation.
             return None
 
     def resolve_asset_path(self, relative_path: str) -> Path:
         root = self.root.resolve()
         candidate = (self.root / relative_path).resolve()
         if not candidate.is_relative_to(root):
-            # 数据库里的路径也按不可信输入处理，避免异常数据越过本地存储根目录。
+            # Treat database paths as untrusted input so malformed data cannot escape the local storage root.
             raise ValueError("素材路径超出本地存储目录。")
         return candidate

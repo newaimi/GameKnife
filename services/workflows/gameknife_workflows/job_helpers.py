@@ -49,8 +49,8 @@ def create_job_record(
     input_asset_id: str,
     parameters: dict[str, Any],
 ) -> JobRecord:
-    # job 创建属于公共工作流边界，原因是 Community 和 Commercial 都需要统一的权限动作和字段写入语义。
-    # Community 注入放行权限，Commercial 注入 RBAC，工作流层只依赖 RequestContext。
+    # Job creation is a public workflow boundary, giving every entry point the same permission action and field semantics.
+    # Callers inject permission behavior through RequestContext, so the workflow never reads account or role data.
     context.permissions.require("jobs.create", {"job_type": job_type, "input_asset_id": input_asset_id})
     now = _now()
     job = JobRecord(
@@ -108,8 +108,8 @@ def run_image_output_job(
             "output_assets": output_assets,
         }
         if output_kind == "asset_cutout" and output_assets:
-            # 素材板后续刷新框和导出依赖 cutout_asset_id 直连抠图结果。
-            # 通用 output_assets 保留下载列表，专用字段保留工作台链路的稳定输入。
+            # Asset-board refresh and export flows use cutout_asset_id to address the extracted result directly.
+            # Generic output_assets preserves the download list, while the dedicated field provides a stable workbench input.
             final_result["cutout_asset_id"] = output_assets[0]["id"]
             final_result["cutout_url"] = output_assets[0]["url"]
         mark_success(repository, context, job_id, result, final_result)

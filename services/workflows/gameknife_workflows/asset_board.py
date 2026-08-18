@@ -47,8 +47,8 @@ def create_asset_board_region_workflow(
     if input_asset is None:
         raise WorkflowInputNotFoundError("输入素材不存在。")
 
-    # 区域识别只做素材板连通域分析，不传入 BiRefNet 模型服务。
-    # 这样它可以作为快速预检独立运行，抠图任务再显式依赖模型。
+    # Region detection performs connected-component analysis without receiving the BiRefNet service.
+    # It can run independently as a fast preflight, while extraction declares its model dependency explicitly.
     job = create_job_record(
         repository,
         context,
@@ -78,8 +78,8 @@ def create_asset_board_cutout_workflow(
     if input_asset is None:
         raise WorkflowInputNotFoundError("输入素材不存在。")
 
-    # 素材板抠图显式接收模型服务，原因是它和区域识别的依赖完全不同。
-    # 创建阶段先检查模型安装状态，后台任务只负责读取本地缓存并生成抠图资产。
+    # Asset extraction receives the model service explicitly because its dependencies differ from region detection.
+    # Creation checks installation first, and the background job only reads local cache and writes the extracted asset.
     job = create_job_record(
         repository,
         context,
@@ -140,8 +140,8 @@ def create_asset_board_export_workflow(
     if cutout_asset is None:
         raise WorkflowInputNotFoundError("抠图结果不存在。")
 
-    # 导出任务必须显式接收用户确认后的组件和选择列表，避免依赖前一次刷新框任务的隐式顺序。
-    # 这样用户只要传入当前界面状态，就能单独执行 ZIP 导出。
+    # Export receives the confirmed components and selection explicitly instead of depending on an earlier refine job.
+    # Passing current UI state is sufficient to execute ZIP export independently.
     job = create_job_record(
         repository,
         context,

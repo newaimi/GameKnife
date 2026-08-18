@@ -18,8 +18,8 @@ export interface FeatureEntry {
   route: string;
   permission: string;
   /**
-   * 工具入口是否需要保留当前工作台并在新标签页打开。
-   * 该字段只描述导航行为，图片等跨标签页数据仍由具体业务入口负责传递。
+   * Whether the tool entry preserves the current workbench by opening in a new tab.
+   * This field describes navigation only; the initiating workflow still transfers images and other cross-tab data.
    */
   openInNewTab?: boolean;
 }
@@ -36,7 +36,7 @@ export const communityFeatureEntries: FeatureEntry[] = [
 ];
 
 export function createFeatureRegistry(routes: FeatureRoute[]): FeatureRoute[] {
-  // 注册表只保留工具事实数据和路由元数据，避免 Community 和商用外壳复制工具页面装配逻辑。
-  // 图标仍由具体 UI 包维护，注册表不绑定视觉库，商业版接入时可以按自己的外壳替换展示方式。
+  // The registry stores tool facts and route metadata so application shells can reuse one tool-page composition path.
+  // Concrete UI packages still own icons, keeping the registry independent of a visual library and replaceable by the caller.
   return [...routes];
 }

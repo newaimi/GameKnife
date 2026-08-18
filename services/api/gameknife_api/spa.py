@@ -8,11 +8,11 @@ from fastapi.staticfiles import StaticFiles
 
 
 def mount_spa(app: FastAPI, web_dist: Path | None, *, assets_name: str) -> None:
-    """把 Vite 构建产物挂载到 FastAPI 应用。
+    """Mount a Vite build in a FastAPI application.
 
-    Community 与 Studio 都采用同端口部署，调用方只需要提供各自的 dist 目录和静态资源挂载名。
-    该入口负责返回根目录公共文件、处理前端路由回落，并阻止回落路由接管不存在的 API。
-    dist 不存在时保持 API-only 运行方式，不注册任何前端路由。
+    Same-port deployments provide their dist directory and static-asset mount name. This entry point serves
+    root-level public files, handles frontend route fallback, and prevents that fallback from capturing missing
+    API routes. When dist is unavailable, the application remains API-only and registers no frontend routes.
     """
 
     if web_dist is None or not (web_dist / "index.html").is_file():
@@ -29,16 +29,16 @@ def mount_spa(app: FastAPI, web_dist: Path | None, *, assets_name: str) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa_fallback(path: str) -> FileResponse:
-        # 公共 API 固定使用 /api 前缀。不存在的接口必须保留 404，避免前端 index.html 掩盖路由错误。
+        # Public API routes use the /api prefix. Missing endpoints must retain their 404 instead of falling back to index.html.
         if path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404, detail="接口不存在。")
 
         requested_file = (web_dist_root / path).resolve()
-        # Vite 会把 public 目录内容复制到 dist 根目录。边界检查先于文件读取，防止构造路径访问 dist 外部文件。
+        # Vite copies public files into the dist root. Validate the boundary before reading to block paths outside dist.
         if requested_file.is_relative_to(web_dist_root) and requested_file.is_file():
             if requested_file.name == "index.html":
                 return FileResponse(requested_file, headers={"Cache-Control": "no-store"})
             return FileResponse(requested_file)
 
-        # 浏览器侧路由统一回落到入口文件，入口禁用缓存以便部署后及时加载最新资源清单。
+        # Browser routes fall back to the entry file, which disables caching so deployments load the latest asset manifest.
         return FileResponse(web_dist_root / "index.html", headers={"Cache-Control": "no-store"})

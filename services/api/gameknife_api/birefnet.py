@@ -115,8 +115,8 @@ class BiRefNetService:
             return self._normalize_alpha(self._alpha_provider(image), image.size)
 
         if not self.is_installed():
-            # 推理阶段禁止隐式下载。模型文件体积大，后台任务里联网下载会让用户误判为任务卡死。
-            # 所以只有设置页显式安装完成后，任务才能从本地缓存加载模型。
+            # Inference forbids implicit downloads because large background transfers make jobs appear stalled.
+            # A job can load from the local cache only after Settings completes an explicit installation.
             raise RuntimeError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
         if not self.is_loaded():
             self._ensure_model_loaded(status_updates=False, local_files_only=True)

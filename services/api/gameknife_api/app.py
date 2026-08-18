@@ -16,8 +16,8 @@ def create_community_app(settings: CommunitySettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 启动时统一初始化 schema，保证测试、开发和 Docker 入口使用同一套建表逻辑。
-        # Community 不迁移旧库，缺表时直接按 GameKnife 新 schema 创建。
+        # Initialize the schema at startup so tests, development, and Docker use the same table-creation path.
+        # Community does not migrate legacy databases; missing tables are created from the current GameKnife schema.
         init_sqlite_schema(resolved_settings.database_path)
         build_runtime_state(app, resolved_settings)
         yield

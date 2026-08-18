@@ -31,8 +31,8 @@ def create_sequence_frames_export_workflow(
     parameters: dict[str, Any],
 ) -> tuple[JobRecord, Callable[[], None]]:
     _sequence, input_asset_id = _ensure_sequence_export_input(repository, context, sequence_id)
-    # 导出任务只依赖当前序列帧记录和启用帧，不要求先运行清洗任务。
-    # 这样用户导入序列帧后可以直接导出原始 PNG 包。
+    # Export depends only on current sequence records and enabled frames, without requiring a prior cleanup job.
+    # Users can therefore export the original PNG package immediately after import.
     job = create_job_record(
         repository,
         context,
@@ -55,7 +55,7 @@ def create_sequence_spine_export_workflow(
     parameters: dict[str, Any],
 ) -> tuple[JobRecord, Callable[[], None]]:
     _sequence, input_asset_id = _ensure_sequence_export_input(repository, context, sequence_id)
-    # Spine 导出和 PNG 包导出共用同一套序列帧输入校验，避免两个入口对空帧、缺序列的处理不一致。
+    # Spine and PNG exports share sequence validation so missing sequences and empty frames behave consistently.
     job = create_job_record(
         repository,
         context,

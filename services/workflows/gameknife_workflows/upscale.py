@@ -48,8 +48,8 @@ def create_upscale_workflow(
     if input_asset is None:
         raise WorkflowInputNotFoundError("输入素材不存在。")
 
-    # 像素风和 AI 超分共用同一个 job 类型，原因是前端任务历史和下载筛选都按 image_upscale 聚合。
-    # 是否调用模型由参数显式决定，像素风单独开启时也能通过最近邻算法完成。
+    # Pixel-art and AI upscaling share one job type because history and download filters group by image_upscale.
+    # Parameters explicitly choose model use, so pixel-art scaling can run independently with nearest-neighbor interpolation.
     job = create_job_record(repository, context, job_type="image_upscale", input_asset_id=input_asset.id, parameters=parameters)
 
     def run() -> None:

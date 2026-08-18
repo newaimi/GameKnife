@@ -28,9 +28,9 @@ export function ToolWorkspaceLayout({ activeToolId, children }: { activeToolId: 
   } as CSSProperties;
 
   return (
-    // 工作台外壳统一承载预览底层、悬浮工具面板和参数面板，保证 Community 与 Studio
-    // 复用同一套折叠、拖宽和高度约束。具体预览、参数和任务状态仍由各工具自己维护，
-    // 避免公共布局反向绑定某个工具流程。
+    // The workbench shell owns the preview surface and floating tool and parameter panels so every entry point
+    // reuses the same collapse, resize, and height constraints. Each tool still owns its preview, parameters,
+    // and job state, which keeps the shared layout independent of any specific workflow.
     <section className={workspaceClassName} style={workspaceStyle}>
       <ToolSidebar
         activeToolId={activeToolId}

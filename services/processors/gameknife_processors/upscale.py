@@ -53,7 +53,7 @@ class UpscaleProcessor:
             device = "CPU"
             warnings: list[str] = []
         elif model_service is None or not model_service.is_installed():
-            # AI 超分必须在设置页显式安装模型后运行，任务阶段只读取本地模型，避免后台任务偷偷联网下载。
+            # AI upscaling runs only after explicit installation in Settings; job execution reads local weights and never downloads implicitly.
             raise RuntimeError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
         else:
             output, model_name, device, warnings = model_service.upscale_image(

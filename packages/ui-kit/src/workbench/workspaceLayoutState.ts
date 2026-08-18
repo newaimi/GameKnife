@@ -21,8 +21,8 @@ export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutState = {
 };
 
 /**
- * 工作台布局保存在浏览器本地，读取时必须对旧版本、损坏 JSON 和超出范围的宽度做收敛。
- * 这里不直接访问 localStorage，便于 Community、Commercial 和单元测试复用同一份兼容规则。
+ * Workbench layout is stored in the browser. Reads normalize legacy values, malformed JSON, and out-of-range widths.
+ * Keeping localStorage access outside this helper lets component callers and unit tests reuse the same compatibility rules.
  */
 export function readWorkspaceLayoutState(serialized: string | null): WorkspaceLayoutState {
   if (!serialized) return DEFAULT_WORKSPACE_LAYOUT;

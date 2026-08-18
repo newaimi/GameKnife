@@ -190,8 +190,8 @@ class StableAudioWorkerPool:
         seed = int(time.time()) if request.seed is None or request.seed < 0 else int(request.seed)
         conditioning = [{"prompt": request.prompt, "seconds_start": 0, "seconds_total": float(request.duration_seconds)}]
 
-        # 声效推理由独立服务 worker 串行消费，Community API 只负责排队和持久化任务。
-        # 这样 GPU 占用、排队时间和失败原因都集中在服务边界内，不会阻塞主 Web 进程。
+        # A standalone worker consumes sound inference serially while Community API only queues and persists jobs.
+        # GPU use, queue time, and failures stay inside the service boundary without blocking the main Web process.
         with torch.no_grad():
             audio = generate_diffusion_cond(
                 model,
@@ -268,8 +268,8 @@ def encode_wav_pcm16(audio: Any, sample_rate: int) -> bytes:
     if channels <= 0:
         raise RuntimeError("声效输出没有可写入的声道。")
 
-    # 生成阶段已经裁剪到 int16 PCM。这里直接用标准库写 WAV，
-    # 避免 torchaudio 在不同系统和 conda 后端里对 BytesIO 支持不一致。
+    # Generation already clips output to int16 PCM. Write WAV with the standard library to avoid inconsistent
+    # torchaudio BytesIO support across operating systems and conda backends.
     if hasattr(audio, "detach"):
         audio = audio.detach().cpu().numpy()
     interleaved = audio.transpose(1, 0).copy().tobytes()

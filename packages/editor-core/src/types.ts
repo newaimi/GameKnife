@@ -57,7 +57,7 @@ export type EditorSnapshot = {
   createdAt: number;
   width: number;
   height: number;
-  /** 原始图片在编辑期间只读，快照共享该引用，避免每条历史重复保存同一份像素。 */
+  /** The original image is read-only during editing, so snapshots share it instead of duplicating the same pixels. */
   originalImageData: ImageData;
   layers: EditorLayer[];
   activeLayerId: string;
@@ -65,19 +65,19 @@ export type EditorSnapshot = {
   floatingSelection: EditorClipboardItem | null;
 };
 
-/** 只影响选区和浮动内容的轻量历史状态。 */
+/** Lightweight history state for selection and floating-content changes. */
 export type EditorSelectionHistoryState = {
   activeLayerId: string;
   selection: EditorSelectionMask | null;
   floatingSelection: EditorClipboardItem | null;
 };
 
-/** 单个图层局部像素及其关联选区状态，用于画笔和局部像素编辑。 */
+/** Local pixels from one layer plus related selection state, used for brush and localized pixel edits. */
 export type EditorPixelHistoryState = EditorSelectionHistoryState & {
   pixels: ImageData;
 };
 
-/** 不复制像素的图层顺序和展示属性状态。 */
+/** Layer order and presentation state that does not duplicate pixel data. */
 export type EditorLayerHistoryState = {
   activeLayerId: string;
   layers: Array<Pick<EditorLayer, "id" | "name" | "visible" | "opacity">>;
@@ -87,9 +87,9 @@ type EditorHistoryMetadata = {
   id: string;
   title: string;
   createdAt: number;
-  /** 撤销或重做后是否需要刷新位图；纯选区和重命名只刷新覆盖层或状态。 */
+  /** Whether undo or redo must redraw the bitmap; selection-only and rename changes update overlays or state. */
   redrawBitmap: boolean;
-  /** 操作是否改变画布尺寸，用于通知外层重新计算文档布局。 */
+  /** Whether the operation changes canvas dimensions and requires the outer layout to recalculate the document. */
   layout: boolean;
 };
 
@@ -142,7 +142,7 @@ export type EditorStrokeState = {
   beforeSelection: EditorSelectionHistoryState;
 };
 
-/** 笔画期间只记录第一次被修改的像素，结束时再压缩为矩形脏区。 */
+/** Record each pixel only before its first change in a stroke, then compact the result into a rectangular dirty region. */
 export type EditorPixelRecorder = {
   layerId: string;
   width: number;

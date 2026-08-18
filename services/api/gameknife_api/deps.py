@@ -52,7 +52,7 @@ class CommunitySettings:
     @classmethod
     def from_env(cls) -> "CommunitySettings":
         storage_root = Path(os.getenv("GAMEKNIFE_STORAGE_ROOT", "storage")).resolve()
-        # Community 数据库路径使用 GAMEKNIFE_DB_PATH，保持品牌迁移后的统一环境变量口径。
+        # Community reads GAMEKNIFE_DB_PATH so the renamed project uses one environment-variable convention.
         database_path = Path(os.getenv("GAMEKNIFE_DB_PATH", storage_root / "gameknife.sqlite3")).resolve()
         web_dist = Path(os.getenv("GAMEKNIFE_WEB_DIST", "apps/community-web/dist")).resolve()
         cors_origins = [item.strip() for item in os.getenv("GAMEKNIFE_CORS_ORIGINS", "*").split(",") if item.strip()]
@@ -92,10 +92,10 @@ def build_runtime_state(app, settings: CommunitySettings) -> None:
     )
     birefnet_model_root = settings.birefnet_model_root or settings.storage_root / "models" / "birefnet"
     upscale_model_root = settings.upscale_model_root or settings.storage_root / "models" / "upscale"
-    # Community 的模型安装状态必须跟本地 storage 绑定，不能读取用户机器上的全局 Hugging Face 缓存。
-    # 这样新工作区、测试环境和 Docker 数据卷都能独立判断“是否已在本地安装模型”。
+    # Community model state belongs to local storage and must not read the machine-wide Hugging Face cache.
+    # New workspaces, tests, and Docker volumes can then determine local installation independently.
     app.state.birefnet = BiRefNetService(model_input_size=settings.model_input_size, model_cache_dir=birefnet_model_root)
-    # 超分模型体积较大，运行时只保存服务句柄；真正加载发生在任务执行时，避免 Community 启动被模型初始化拖慢。
+    # Upscaling weights are large, so startup stores only the service handle and defers loading until job execution.
     app.state.upscale_models = UpscaleModelService(upscale_model_root)
 
 

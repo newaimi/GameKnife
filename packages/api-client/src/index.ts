@@ -356,8 +356,8 @@ export class GameKnifeApiClient {
 }
 
 function readDefaultBaseUrl(): string {
-  // 默认同源访问可以满足 Community 本地部署；读取 Vite 配置是为了保留原工程连接外部后端的开发方式。
-  // 这里只读取公开的 base url，不读取 token，避免把登录态重新带回开源 Community。
+  // Same-origin access supports local Community deployment, while the Vite setting preserves external-backend development.
+  // Read only the public base URL and never a token, keeping login state out of the open source Community client.
   return ((import.meta as ViteImportMeta).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 }
 

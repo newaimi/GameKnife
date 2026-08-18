@@ -590,7 +590,7 @@ class SQLiteGameKnifeRepository:
             )
 
     def table_columns(self, table_name: str) -> list[str]:
-        # 测试通过真实 schema 检查字段，避免 Community 数据表重新混入账号字段。
+        # Tests inspect the real schema so account fields cannot re-enter Community tables unnoticed.
         with self._connect() as connection:
             rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
         return [row["name"] for row in rows]

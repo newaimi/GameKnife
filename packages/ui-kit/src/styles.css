@@ -1,6 +1,6 @@
 /*
- * 公共令牌由 ui-kit 持有，Community 和 Commercial 只选择主题，不再各自维护一套同名颜色。
- * 默认值对应暗色工作台；显式 light 主题覆盖同一组语义变量，保证功能和状态层级一致。
+ * ui-kit owns the shared tokens, while application shells only select a theme instead of maintaining duplicate colors.
+ * Defaults represent the dark workbench; the explicit light theme overrides the same semantic variables to preserve visual hierarchy.
  */
 :root,
 :root[data-theme="dark"] {
@@ -61,7 +61,7 @@
   --gk-material-filter: blur(22px) saturate(150%);
   --gk-material-border-highlight: rgb(255 255 255 / 0.07);
 
-  /* 旧工作流仍在逐步迁移，别名让令牌收敛期间保持已有页面的视觉与业务行为。 */
+  /* Legacy workflows are migrating incrementally; aliases preserve existing visual and business behavior while tokens converge. */
   --blue: var(--gk-color-accent);
   --primary: var(--gk-color-accent);
   --blue-dark: var(--gk-color-accent-strong);
@@ -332,7 +332,7 @@
   }
 }
 
-/* 拖拽区域用三段短线保留像素工具感，静止时降低对画布的视觉干扰。 */
+/* Three short lines keep the resize handle consistent with pixel tools while minimizing visual noise when idle. */
 .gk-panel-resize-handle {
   width: 100%;
   height: 100%;

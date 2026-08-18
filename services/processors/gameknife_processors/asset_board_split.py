@@ -107,7 +107,7 @@ class AssetBoardSplitProcessor:
                 if component.id not in selected_ids:
                     continue
                 component_image = self._crop_cutout_component(cutout, component, parameters)
-                # zip 内文件名保留用户素材主体，方便游戏项目里重新对应原素材板。
+                # ZIP names retain the user's asset stem so game projects can map exports back to the source board.
                 filename = f"{export_name_stem}_component_{export_index:03d}.png"
                 buffer = io.BytesIO()
                 component_image.save(buffer, format="PNG")
@@ -157,7 +157,7 @@ class AssetBoardSplitProcessor:
         mask = (distance > threshold).astype(np.uint8) * 255
         kernel_size = max(3, (min(width, height) // 180) | 1)
         kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
-        # 先闭合小裂缝，再去掉边缘噪点。素材板常见浅色背景，直接连通域会把断裂的同一块素材拆散。
+        # Close small gaps before removing edge noise; direct connected components can split one asset on common light backgrounds.
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
         return mask.astype(np.uint8)
@@ -211,7 +211,7 @@ class AssetBoardSplitProcessor:
         if alpha_smoothing <= 0 and alpha_contract <= 0 and alpha_feather <= 0 and alpha_defringe <= 0:
             return cropped
         local_alpha = np.asarray(cropped.getchannel("A"), dtype=np.uint8)
-        # 导出单个素材时只做 CPU 后处理，避免重复进入 GPU 抠图队列。
+        # Single-asset export performs only CPU post-processing and does not re-enter the GPU extraction queue.
         if alpha_smoothing > 0:
             local_alpha = smooth_alpha(local_alpha, alpha_smoothing)
         if alpha_contract > 0 or alpha_feather > 0:

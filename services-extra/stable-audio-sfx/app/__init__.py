@@ -1,1 +1,1 @@
-"""GameKnife 独立声效服务。"""
+"""Standalone GameKnife sound-effect service."""

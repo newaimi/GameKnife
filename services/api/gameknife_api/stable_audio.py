@@ -8,8 +8,8 @@ from urllib.request import Request, urlopen
 
 
 class StableAudioService:
-    # Community API 不直接加载 Stable Audio 模型，只通过内部 HTTP 服务排队生成。
-    # 这样主 Web 进程不会持有音频模型和 GPU 状态，模型安装、队列上限和超时也都留在独立服务边界内。
+    # Community API queues generation through the internal HTTP service and never loads Stable Audio directly.
+    # The main Web process holds no audio model or GPU state; installation, queue limits, and timeouts stay in the service boundary.
     def __init__(self, base_url: str, token: str = "", timeout_seconds: int = 900):
         self.base_url = base_url.rstrip("/")
         self.token = token
@@ -20,8 +20,8 @@ class StableAudioService:
         return bool(self.base_url)
 
     def install_status(self) -> dict[str, Any]:
-        # 未配置服务时返回稳定结构，设置页和创建任务逻辑可以直接按 status 分支处理。
-        # 这里不抛异常，是为了让 Community 无登录启动时设置页仍然可打开。
+        # Return a stable shape when unconfigured so Settings and job creation can branch directly on status.
+        # Do not raise here, because Settings must remain available in a login-free Community startup.
         if not self.is_configured:
             return {
                 "status": "unconfigured",
@@ -58,8 +58,8 @@ class StableAudioService:
         body, headers = self._request_bytes("POST", "/generate", payload)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(body)
-        # 生成服务把运行设备、排队时间和采样率放在响应头，API 层只负责持久化到 job 结果。
-        # 这样历史任务可以追踪实际运行信息，但公共工作流不需要了解服务内部 worker 状态。
+        # The generation service reports device, queue time, and sample rate in headers; the API persists them in job results.
+        # History can trace actual execution details without exposing internal worker state to public workflows.
         return {
             "model": headers.get("X-Stable-Audio-Model", ""),
             "device": headers.get("X-Stable-Audio-Device", ""),

@@ -30,8 +30,8 @@ def contract_alpha(alpha: np.ndarray, amount: float, *, threshold: int = 16, fea
     else:
         ramp = np.clip((edge_distance - pixels) / feather_radius, 0, 1)
         weight = ramp * ramp * (3 - 2 * ramp)
-    # 先按阈值找到素材真实边界，再按距离场做软收缩。
-    # 距离场比逐圈腐蚀更接近连续边界，斜线和弧线在放大后不容易出现明显台阶。
+    # Find the real asset boundary by threshold, then apply soft contraction through a distance field.
+    # A distance field approximates continuous boundaries better than repeated erosion and preserves smoother diagonals and curves.
     return np.clip(source_alpha.astype(np.float32) * weight, 0, 255).astype(np.uint8)
 
 
@@ -65,8 +65,8 @@ def decontaminate_edge_colors(source: Image.Image, alpha: np.ndarray, radius: in
             rgb[:, :, channel][fillable] = neighbor_sum[fillable] / neighbor_count[fillable]
         filled_mask[fillable] = 1
 
-    # 去边色只替换透明边缘的 RGB，alpha 仍沿用前面的收缩结果。
-    # PNG 的半透明边如果保留旧背景色，导入游戏引擎后会在深色背景上露出浅边。
+    # Defringing replaces only RGB on translucent edges while preserving alpha from the contraction step.
+    # Retained background color on semi-transparent PNG edges would create halos on dark game-engine backgrounds.
     result = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), mode="RGB").convert("RGBA")
     result.putalpha(Image.fromarray(source_alpha, mode="L"))
     return result

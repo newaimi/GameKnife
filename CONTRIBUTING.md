@@ -1,26 +1,26 @@
-# GameKnife 贡献说明
+# Contributing to GameKnife
 
-## 基本原则
+## Core Principles
 
-- Community 保持无登录本地工作区。
-- 公共处理器、公共工作流和公共编辑器不能导入商用 auth、users、organizations、projects、rbac、billing、audit 模块。
-- 新增工具能力先确认 `packages/image-workflows`、`services/workflows`、`services/processors` 是否已有可复用实现。
-- 依赖模型的任务必须在创建阶段检查安装状态，推理阶段只能读取本地缓存。
-- 数据库和文件删除以数据库记录为准，磁盘清理按尽力执行。
+- Keep the Community edition local and login-free.
+- Public processors, workflows, and editors must not import concrete account, organization, project, permission, billing, or audit implementations.
+- Before adding a tool capability, check `packages/image-workflows`, `services/workflows`, and `services/processors` for an existing reusable implementation.
+- Model-dependent jobs must check installation status before creation and may read only local model caches during inference.
+- Database records are the source of truth for deletions. Disk cleanup remains a best-effort follow-up.
 
-## 提交
+## Commits
 
-提交信息使用 Conventional Commits。
+Write commit messages in English and follow Conventional Commits.
 
-## 验证
+## Verification
 
-后端改动运行：
+For backend changes, run:
 
 ```powershell
 python -m pytest -q apps\community-api\tests services-extra\stable-audio-sfx\tests
 ```
 
-前端改动运行：
+For frontend changes, run:
 
 ```powershell
 npm run build

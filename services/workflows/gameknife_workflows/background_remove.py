@@ -38,8 +38,8 @@ def create_background_remove_workflow(
     if input_asset is None:
         raise WorkflowInputNotFoundError("输入素材不存在。")
 
-    # 创建校验放在工作流层，原因是 Community 和 Commercial 都会复用同一条任务编排。
-    # API 层只负责 HTTP 状态码转换，避免后续商用入口复制模型检查和资产归属判断。
+    # Creation validation lives in the workflow so every API entry point reuses the same orchestration path.
+    # The API layer only maps HTTP status codes, avoiding duplicated model checks and asset-ownership rules.
     job = create_job_record(repository, context, job_type="background_remove", input_asset_id=input_asset.id, parameters=parameters)
 
     def run() -> None:

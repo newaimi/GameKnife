@@ -12,22 +12,22 @@ import type {
   EditorSnapshot,
 } from "./types.js";
 
-/** 生成只在当前编辑会话内使用的稳定标识。 */
+/** Create a stable identifier scoped to the current editing session. */
 export function createEditorId(prefix: string) {
   return `${prefix}_${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`}`;
 }
 
-/** 复制像素缓冲，保证历史记录不会被后续原地绘制污染。 */
+/** Copy a pixel buffer so later in-place drawing cannot mutate history. */
 export function cloneImageData(imageData: ImageData) {
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 }
 
-/** 复制图层属性和像素，用于确实改变图层结构或画布尺寸的历史节点。 */
+/** Copy layer properties and pixels for history entries that change layer structure or canvas dimensions. */
 export function cloneEditorLayer(layer: EditorLayer): EditorLayer {
   return { ...layer, imageData: cloneImageData(layer.imageData) };
 }
 
-/** 复制选区 mask 和路径，拖动中的选区不会回写到已经提交的历史状态。 */
+/** Copy the selection mask and path so an in-progress drag cannot mutate committed history. */
 export function cloneSelectionMask(selection: EditorSelectionMask | null): EditorSelectionMask | null {
   if (!selection) return null;
   return {
@@ -38,14 +38,14 @@ export function cloneSelectionMask(selection: EditorSelectionMask | null): Edito
   };
 }
 
-/** 复制浮动选区。它只包含局部像素，允许在轻量选区历史中独立恢复。 */
+/** Copy floating content, whose localized pixels can be restored independently in lightweight selection history. */
 export function cloneEditorClipboardItem(item: EditorClipboardItem): EditorClipboardItem {
   return { name: item.name, imageData: cloneImageData(item.imageData), bounds: { ...item.bounds } };
 }
 
 /**
- * 创建结构快照。原始图片在编辑会话内只读，直接共享引用；图层像素仍需复制，
- * 因为画笔和修边操作会原地修改当前图层。
+ * Create a structural snapshot. The original image remains read-only for the session and shares its reference;
+ * layer pixels still require copies because brushes and edge operations mutate the active layer in place.
  */
 export function cloneEditorSnapshot(doc: EditorDocument, title: string): EditorSnapshot {
   return {
@@ -62,7 +62,7 @@ export function cloneEditorSnapshot(doc: EditorDocument, title: string): EditorS
   };
 }
 
-/** 恢复结构快照；恢复后的可编辑图层重新复制，历史节点继续保持只读。 */
+/** Restore a structural snapshot and copy editable layers again so the history entry remains read-only. */
 export function restoreEditorSnapshot(doc: EditorDocument, snapshot: EditorSnapshot) {
   doc.width = snapshot.width;
   doc.height = snapshot.height;
@@ -73,7 +73,7 @@ export function restoreEditorSnapshot(doc: EditorDocument, snapshot: EditorSnaps
   doc.originalImageData = snapshot.originalImageData;
 }
 
-/** 捕获只影响选区的状态，避免矩形、套索和魔棒复制整张图片。 */
+/** Capture selection-only state so rectangle, lasso, and magic-wand operations do not duplicate the whole image. */
 export function captureEditorSelectionHistoryState(doc: EditorDocument): EditorSelectionHistoryState {
   return {
     activeLayerId: doc.activeLayerId,
@@ -82,7 +82,7 @@ export function captureEditorSelectionHistoryState(doc: EditorDocument): EditorS
   };
 }
 
-/** 捕获图层顺序和展示属性，重命名、显隐和透明度调整不保存图层像素。 */
+/** Capture layer order and presentation properties without storing pixels for rename, visibility, or opacity changes. */
 export function captureEditorLayerHistoryState(doc: EditorDocument): EditorLayerHistoryState {
   return {
     activeLayerId: doc.activeLayerId,
@@ -90,7 +90,7 @@ export function captureEditorLayerHistoryState(doc: EditorDocument): EditorLayer
   };
 }
 
-/** 从图层读取一个独立的矩形像素块。 */
+/** Read an independent rectangular pixel block from a layer. */
 export function readEditorImageDataPatch(imageData: ImageData, bounds: EditorSelection): ImageData {
   const safeBounds = normalizeHistoryBounds(bounds, imageData.width, imageData.height);
   const patch = new ImageData(safeBounds.width, safeBounds.height);
@@ -102,7 +102,7 @@ export function readEditorImageDataPatch(imageData: ImageData, bounds: EditorSel
   return patch;
 }
 
-/** 把历史像素块写回目标图层；边界来自同一文档版本，写入时仍做裁剪以避免异常历史破坏缓冲区。 */
+/** Write a historical pixel block to its layer, clipping even same-version bounds so malformed history cannot corrupt the buffer. */
 export function writeEditorImageDataPatch(target: ImageData, patch: ImageData, bounds: EditorSelection) {
   const safeBounds = normalizeHistoryBounds(bounds, target.width, target.height);
   const rows = Math.min(safeBounds.height, patch.height);
@@ -114,7 +114,7 @@ export function writeEditorImageDataPatch(target: ImageData, patch: ImageData, b
   }
 }
 
-/** 捕获已知脏区的像素和选区状态，适用于删除、剪切、贴入和整层修边。 */
+/** Capture pixels and selection state for a known dirty region used by delete, cut, paste, and whole-layer edge edits. */
 export function captureEditorPixelHistoryState(doc: EditorDocument, layerId: string, bounds: EditorSelection): EditorPixelHistoryState | null {
   const layer = doc.layers.find((item) => item.id === layerId);
   if (!layer) return null;
@@ -124,7 +124,7 @@ export function captureEditorPixelHistoryState(doc: EditorDocument, layerId: str
   };
 }
 
-/** 创建笔画记录器，绘制时只记住第一次碰到某个像素之前的 RGBA。 */
+/** Create a stroke recorder that stores RGBA only before a pixel is touched for the first time. */
 export function createEditorPixelRecorder(layerId: string, width: number, height: number): EditorPixelRecorder {
   return {
     layerId,
@@ -138,7 +138,7 @@ export function createEditorPixelRecorder(layerId: string, width: number, height
   };
 }
 
-/** 在修改像素前保存其原值；同一笔画重复经过该像素时只记录一次。 */
+/** Save a pixel before mutation and record it only once when the same stroke crosses it repeatedly. */
 export function recordEditorPixelBefore(recorder: EditorPixelRecorder, data: Uint8ClampedArray, byteIndex: number) {
   const pixelIndex = Math.floor(byteIndex / 4);
   if (recorder.beforePixels.has(pixelIndex)) return;
@@ -153,8 +153,8 @@ export function recordEditorPixelBefore(recorder: EditorPixelRecorder, data: Uin
 }
 
 /**
- * 把笔画期间的稀疏像素记录压缩成前后两个矩形块。
- * 矩形内没有被笔画碰到的像素沿用当前值，撤销时不会影响邻近内容。
+ * Compact sparse stroke records into rectangular before and after blocks.
+ * Pixels inside the rectangle that the stroke never touched retain current values, so undo leaves nearby content intact.
  */
 export function buildEditorStrokeHistoryStates(
   doc: EditorDocument,
@@ -180,7 +180,7 @@ export function buildEditorStrokeHistoryStates(
     beforePixels.data[localIndex + 2] = Math.floor(packed / 65536) % 256;
     beforePixels.data[localIndex + 3] = Math.floor(packed / 16777216) % 256;
   }
-  // 恢复笔扫过未修改区域、画笔使用相同颜色时不应产生空历史，避免占用撤销次数。
+  // A restore stroke over unchanged pixels or a brush using the existing color should not consume an undo entry.
   if (areImageDataEqual(beforePixels, afterPixels)) return null;
   return {
     layerId: recorder.layerId,
@@ -190,7 +190,7 @@ export function buildEditorStrokeHistoryStates(
   };
 }
 
-/** 合并两个脏区，增量重绘和移动选区历史使用同一边界口径。 */
+/** Merge two dirty regions so incremental redraw and move-selection history use the same boundary rules. */
 export function unionEditorBounds(first: EditorSelection, second: EditorSelection): EditorSelection {
   const x = Math.min(first.x, second.x);
   const y = Math.min(first.y, second.y);
@@ -200,8 +200,8 @@ export function unionEditorBounds(first: EditorSelection, second: EditorSelectio
 }
 
 /**
- * 移动选区在开始和结束时脏区不同。该方法用移动前的局部像素覆盖当前临时状态，
- * 还原出完整联合区域在操作前的像素，避免为未知终点提前复制整层。
+ * A moving selection has different dirty regions at its start and end. Overlaying the pre-move local pixels on
+ * current temporary state reconstructs the full union before the operation without copying a layer for an unknown destination.
  */
 export function expandEditorPixelHistoryState(
   doc: EditorDocument,
@@ -222,7 +222,7 @@ export function expandEditorPixelHistoryState(
   };
 }
 
-/** 根据历史记录类型恢复前态或后态。 */
+/** Restore the before or after state according to the history-entry type. */
 export function applyEditorHistoryEntry(doc: EditorDocument, entry: EditorHistoryEntry, direction: "before" | "after") {
   const state = entry[direction];
   if (entry.kind === "snapshot") {
@@ -243,7 +243,7 @@ export function applyEditorHistoryEntry(doc: EditorDocument, entry: EditorHistor
   applyEditorSelectionHistoryState(doc, pixelState);
 }
 
-/** 按真实唯一缓冲区估算历史内存，共享的原图引用在同一历史集合中只计算一次。 */
+/** Estimate history memory by unique buffers, counting a shared original-image reference only once per history set. */
 export function estimateEditorHistoryBytes(entries: EditorHistoryEntry[]) {
   const buffers = new Set<ArrayBufferLike>();
   const addImage = (imageData: ImageData | null | undefined) => {

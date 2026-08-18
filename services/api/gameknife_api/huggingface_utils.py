@@ -18,7 +18,7 @@ def model_files_cached(
     revision: str | None = None,
     cache_dir: Path | None = None,
 ) -> bool:
-    # 设置页只检查本地缓存，不加载权重；这样状态刷新不会把模型意外拉进内存。
+    # Settings inspect the local cache without loading weights, so a status refresh cannot pull a model into memory.
     if not all(_cached_file_exists(model_id, filename, revision=revision, cache_dir=cache_dir) for filename in required_files):
         return False
     return any(_cached_file_exists(model_id, filename, revision=revision, cache_dir=cache_dir) for filename in weight_files)
@@ -35,7 +35,7 @@ def _cached_file_exists(model_id: str, filename: str, *, revision: str | None = 
 
 @contextmanager
 def huggingface_model_io(local_files_only: bool) -> Iterator[None]:
-    # Hugging Face 的离线开关是进程级状态，必须串行修改，避免一个任务切离线时影响另一个模型安装。
+    # Hugging Face offline mode is process-wide and must change serially so one task cannot disrupt another installation.
     with _MODEL_IO_LOCK:
         if not local_files_only:
             yield
@@ -62,7 +62,7 @@ def _huggingface_offline_mode() -> Iterator[None]:
     except Exception:  # noqa: BLE001
         transformers_hub = None
         hf_constants = None
-    # 部分 AutoProcessor 会探测可选配置文件。任务阶段打开离线模式，可以拦住这些隐式 HEAD 请求。
+    # Some AutoProcessor implementations probe optional configuration files; offline execution blocks those implicit HEAD requests.
     os.environ["HF_HUB_OFFLINE"] = "1"
     try:
         yield

@@ -41,8 +41,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // 主题变量定义在 html 上，原工程的 CSS 变量会跟随 data-theme 同步切换。
-    // Community 仍保存用户选择，避免本地工具刷新后丢失常用的亮暗色偏好。
+    // Theme variables live on html, so existing CSS variables switch together with data-theme.
+    // Community persists the selection so refreshing a local tool does not discard the preferred color mode.
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
@@ -75,7 +75,7 @@ export function App() {
           onThemeToggle={toggleTheme}
         >
           <main className="content">
-            {/* Community Shell 只装配公共能力；图片素材会话放在公共包里，商业版也通过同一入口复用工作台状态。 */}
+            {/* The Community shell composes public routes and global providers. The public package owns the image-asset session so tool changes preserve workbench state. */}
             <ImageAssetSessionProvider>
               <Suspense fallback={<div className="page-panel">加载中</div>}>
                 <Routes>
