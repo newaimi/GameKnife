@@ -3,14 +3,28 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 from uuid import uuid4
 
-from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
+from gameknife_core import AssetRecord, ProcessResult, RequestContext
+from gameknife_jobs import JobSubmissionResult, TaskSubmission
 
 from .errors import WorkflowModelNotInstalledError, WorkflowServiceUnavailableError, WorkflowValidationError
-from .job_helpers import WorkflowRepository, create_job_record, mark_failed, mark_success, output_path, register_output_assets
+from .job_helpers import (
+    WorkflowRepository,
+    claim_job,
+    cleanup_registered_output_assets,
+    create_job_record,
+    download_object,
+    mark_failed,
+    mark_success,
+    output_path,
+    register_output_assets,
+    temporary_job_directory,
+)
 
 
 class SoundEffectService(Protocol):
@@ -27,7 +41,8 @@ def create_sound_effect_workflow(
     service: SoundEffectService,
     *,
     parameters: dict[str, Any],
-) -> tuple[JobRecord, Callable[[], None]]:
+    submission: TaskSubmission | None = None,
+) -> tuple[JobSubmissionResult, Callable[[], None]]:
     prompt = str(parameters.get("prompt") or "").strip()
     if not prompt:
         raise WorkflowValidationError("请输入声效提示词。")
@@ -38,26 +53,32 @@ def create_sound_effect_workflow(
     if not install_status.get("installed"):
         raise WorkflowModelNotInstalledError("Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
 
-    prompt_asset = _create_prompt_asset(repository, context, prompt)
+    prompt_asset, prompt_asset_created = _get_or_create_prompt_asset(repository, context, prompt, submission)
     try:
-        job = create_job_record(
+        submitted = create_job_record(
             repository,
             context,
             job_type="sound_effect_generate",
             input_asset_id=prompt_asset.id,
             parameters={**parameters, "prompt": prompt},
+            submission=submission,
         )
     except Exception:
         # Persisting the prompt as an asset gives job history a stable input. If subsequent job creation fails,
         # remove both the file and record so credit or permission rejection cannot leave an unreachable temporary asset.
-        repository.delete_assets_for_workspace([prompt_asset.id], context.workspace.id)
-        context.storage.remove_asset_file(prompt_asset.path)
+        if prompt_asset_created:
+            _delete_prompt_asset_best_effort(repository, context, prompt_asset)
         raise
 
-    def run() -> None:
-        run_sound_effect_workflow(repository, context, service, job.id)
+    if submitted.replayed and prompt_asset_created and submitted.job.input_asset_id != prompt_asset.id:
+        # A repository owns the final idempotency comparison. If it resolves this request to an earlier Job whose
+        # input differs, the prompt created for the rejected candidate is not referenced and must not leak.
+        _delete_prompt_asset_best_effort(repository, context, prompt_asset)
 
-    return job, run
+    def run() -> None:
+        run_sound_effect_workflow(repository, context, service, submitted.job.id)
+
+    return submitted, run
 
 
 def run_sound_effect_workflow(
@@ -69,66 +90,131 @@ def run_sound_effect_workflow(
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
+    if not claim_job(repository, context, job.id):
+        return
     prompt_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if prompt_asset is None:
         mark_failed(repository, context, job_id, "声效提示词不存在。")
         return
 
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    output_assets: list[dict[str, str]] = []
     try:
-        prompt_path = context.storage.resolve_asset_path(prompt_asset.path)
-        prompt = prompt_path.read_text(encoding="utf-8").strip()
-        if not prompt:
-            raise RuntimeError("声效提示词不能为空。")
-        parameters = json.loads(job.parameters_json)
-        target_path = output_path(context, job.id, "sound_effect.wav")
-        metadata = service.generate_sound_effect(prompt, target_path, parameters)
-        result = ProcessResult(
-            output_paths=[target_path],
-            result={
-                "prompt": prompt,
-                "duration_seconds": parameters.get("duration_seconds"),
-                "seed": parameters.get("seed"),
-                "steps": parameters.get("steps"),
-                "cfg_scale": parameters.get("cfg_scale"),
-                "model": metadata.get("model"),
-                "sample_rate": metadata.get("sample_rate"),
-                "queue_wait_ms": metadata.get("queue_wait_ms"),
-            },
-            duration_ms=int(metadata.get("duration_ms") or 0),
-            device=str(metadata.get("device") or ""),
-        )
-        output_assets = register_output_assets(repository, context, result.output_paths, "sound_effect", "audio/wav")
+        with temporary_job_directory(job.id) as working_directory:
+            prompt_path = download_object(
+                context,
+                prompt_asset.path,
+                working_directory / "inputs" / "sound_prompt.txt",
+            )
+            prompt = prompt_path.read_text(encoding="utf-8").strip()
+            if not prompt:
+                raise RuntimeError("声效提示词不能为空。")
+            parameters = json.loads(job.parameters_json)
+            target_path = output_path(working_directory, "sound_effect.wav")
+            metadata = service.generate_sound_effect(prompt, target_path, parameters)
+            result = ProcessResult(
+                output_paths=[target_path],
+                result={
+                    "prompt": prompt,
+                    "duration_seconds": parameters.get("duration_seconds"),
+                    "seed": parameters.get("seed"),
+                    "steps": parameters.get("steps"),
+                    "cfg_scale": parameters.get("cfg_scale"),
+                    "model": metadata.get("model"),
+                    "sample_rate": metadata.get("sample_rate"),
+                    "queue_wait_ms": metadata.get("queue_wait_ms"),
+                },
+                duration_ms=int(metadata.get("duration_ms") or 0),
+                device=str(metadata.get("device") or ""),
+            )
+            output_assets = register_output_assets(repository, context, job.id, result.output_paths, "sound_effect", "audio/wav")
         mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
     except Exception as exc:  # noqa: BLE001
+        cleanup_registered_output_assets(repository, context, job_id, output_assets)
         mark_failed(repository, context, job_id, str(exc))
 
 
-def _create_prompt_asset(repository: WorkflowRepository, context: RequestContext, prompt: str) -> AssetRecord:
+def _get_or_create_prompt_asset(
+    repository: WorkflowRepository,
+    context: RequestContext,
+    prompt: str,
+    submission: TaskSubmission | None,
+) -> tuple[AssetRecord, bool]:
     # Sound-effect jobs use the shared input_asset_id relationship required by job history, cleanup, and repository implementations.
     # Saving the prompt as a text asset keeps the original input available to audit and retry flows.
-    asset_id = uuid4().hex
+    asset_id = _prompt_asset_id(context, prompt, submission)
+    deterministic_id = submission is not None and submission.idempotency_key is not None
+    if deterministic_id:
+        existing = repository.get_asset_for_workspace(asset_id, context.workspace.id)
+        if existing is not None:
+            return existing, False
+
     content = prompt.encode("utf-8")
     now = _now()
-    relative_path = context.storage.write_asset(asset_id, "sound_prompt.txt", content)
+    with TemporaryDirectory(prefix="gameknife-prompt-") as directory:
+        source_path = Path(directory) / "sound_prompt.txt"
+        source_path.write_bytes(content)
+        stored = context.storage.put_file(asset_id, "sound_prompt.txt", source_path)
     asset = AssetRecord(
         id=asset_id,
         workspace_id=context.workspace.id,
         created_by=context.principal.id,
         kind="sound_prompt",
         original_name="sound_prompt.txt",
-        path=relative_path,
+        path=stored.key,
         mime_type="text/plain",
-        size_bytes=len(content),
+        size_bytes=stored.size_bytes,
         created_at=now,
         updated_at=now,
     )
     try:
         repository.create_asset(asset)
     except Exception:
-        context.storage.remove_asset_file(relative_path)
+        # Concurrent retries with the same key produce the same prompt content and Asset ID. Reuse the row that won
+        # the race; any other persistence failure still removes the object written by this attempt.
+        if deterministic_id:
+            existing = repository.get_asset_for_workspace(asset_id, context.workspace.id)
+            if existing is not None:
+                return existing, False
+        try:
+            context.storage.delete_object(stored.key)
+        except Exception:  # noqa: BLE001
+            pass
         raise
-    return asset
+    return asset, True
+
+
+def _prompt_asset_id(context: RequestContext, prompt: str, submission: TaskSubmission | None) -> str:
+    if submission is None or submission.idempotency_key is None:
+        return uuid4().hex
+    # Stable prompt inputs keep a Commercial request digest identical across retries. Including the prompt separates
+    # a reused key with changed input, allowing the repository to report an idempotency conflict without overwriting
+    # the object referenced by the original Job.
+    digest = sha256(
+        "\0".join(
+            (
+                context.workspace.id,
+                context.principal.id,
+                submission.idempotency_key,
+                prompt,
+            )
+        ).encode("utf-8")
+    ).hexdigest()
+    return digest
+
+
+def _delete_prompt_asset_best_effort(
+    repository: WorkflowRepository,
+    context: RequestContext,
+    prompt_asset: AssetRecord,
+) -> None:
+    try:
+        repository.delete_assets_for_workspace([prompt_asset.id], context.workspace.id)
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        context.storage.delete_object(prompt_asset.path)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _now() -> str:

@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from tempfile import TemporaryDirectory
+from typing import Any
 from uuid import uuid4
 
-from gameknife_core import AssetRecord, JobRecord, ProcessResult, RequestContext
-from gameknife_jobs import GameKnifeRepository
-from gameknife_processors import BackgroundRemoveProcessor, SequenceFrameProcessor
+from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord, ProcessResult, RequestContext
+from gameknife_jobs import GameKnifeRepository, JobSubmissionResult, TaskSubmission
+from gameknife_processors import SequenceFrameProcessor
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.video_generation import VideoGenerationClient
 
 sequence_processor = SequenceFrameProcessor()
-background_processor = BackgroundRemoveProcessor()
 DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "alpha_threshold": 24,
     "alpha_smoothing": 0,
@@ -33,7 +33,8 @@ def create_job(
     job_type: str,
     input_asset_id: str,
     parameters: dict[str, Any],
-) -> JobRecord:
+    submission: TaskSubmission | None = None,
+) -> JobSubmissionResult:
     # Job creation is the shared entry point for long-running workflows, so permission checks establish one boundary for every caller.
     # RequestContext supplies the permission rules, keeping account and role data out of public workflows.
     context.permissions.require("jobs.create", {"job_type": job_type, "input_asset_id": input_asset_id})
@@ -53,145 +54,210 @@ def create_job(
         created_at=now,
         updated_at=now,
     )
-    repository.create_job(job)
-    stored = repository.get_job_for_workspace(job.id, context.workspace.id)
+    submitted = repository.create_job(job, submission)
+    stored = repository.get_job_for_workspace(submitted.job.id, context.workspace.id)
     if stored is None:
         raise RuntimeError("任务创建失败。")
-    return stored
-
-
-def run_background_remove_job(repository: GameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
-    _run_image_output_job(
-        repository,
-        context,
-        job_id,
-        output_kind="background_remove",
-        output_mime_type="image/png",
-        output_suffix="_cutout.png",
-        processor=lambda input_path, output_path, parameters: background_processor.process(input_path, output_path, parameters, service),
-    )
+    return JobSubmissionResult(job=stored, replayed=submitted.replayed)
 
 
 def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestContext, job_id: str, sequence_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if job is None:
         return
+    if not _claim_job(repository, context, job.id):
+        return
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
         _mark_failed(repository, context, job_id, "序列帧不存在。")
         return
 
-    frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
-    if not frames:
-        _mark_failed(repository, context, job_id, "序列帧没有可用帧。")
+    try:
+        original_clean_parameters = json.loads(sequence["clean_parameters_json"])
+        job_parameters = json.loads(job.parameters_json)
+        expected_revision = job_parameters["sequence_revision"]
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise ValueError("序列帧版本无效。")
+        delivery_keys = {"sequence_id", "sequence_revision", "frame_count", "canvas_width", "canvas_height"}
+        clean_parameters = {
+            **original_clean_parameters,
+            **{key: value for key, value in job_parameters.items() if key not in delivery_keys},
+        }
+        processor_parameters = dict(clean_parameters)
+        if bool(processor_parameters.get("fit_canvas_size", False)):
+            # Capacity snapshots may be needed during this execution, but they are not user clean settings and must
+            # not leak back into clean_parameters_json.
+            processor_parameters.setdefault("canvas_width", int(job_parameters["canvas_width"]))
+            processor_parameters.setdefault("canvas_height", int(job_parameters["canvas_height"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        _mark_failed(repository, context, job_id, str(exc))
         return
 
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    repository.update_sequence(sequence_id, context.workspace.id, status="cleaning", updated_at=_now())
-    old_processed_ids = repository.list_sequence_processed_asset_ids(sequence_id, context.workspace.id)
-    old_records = repository.list_assets_by_ids_for_workspace(old_processed_ids, context.workspace.id)
-    try:
-        parameters = {**json.loads(sequence["clean_parameters_json"]), **json.loads(job.parameters_json)}
-        result, outputs = sequence_processor.clean_frames(
-            _sequence_mapping(sequence),
-            _frame_mappings(context, frames),
-            context.storage.root / "outputs" / job_id / "sequence_frames",
-            parameters,
-        )
-        for output in outputs:
-            output_assets = _register_output_assets(repository, context, [output.output_path], "sequence_frame_processed", "image/png")
-            repository.update_sequence_frame_processed_asset(output.frame_id, sequence_id, output_assets[0]["id"], updated_at=_now())
+    claimed_revision = repository.claim_sequence_for_job(
+        sequence_id,
+        context.workspace.id,
+        job.id,
+        expected_revision,
+        updated_at=_now(),
+    )
+    if claimed_revision is None:
+        _mark_failed(repository, context, job_id, "序列帧已被其他任务修改或正在处理。")
+        return
 
-        repository.delete_assets_for_workspace([asset.id for asset in old_records], context.workspace.id)
-        for asset in old_records:
-            context.storage.remove_asset_file(asset.path)
+    old_records: list[AssetRecord] = []
+    try:
+        # Every read after the Sequence claim belongs to the same failure path. If persistence becomes unavailable,
+        # the atomic failure finalizer releases the claim instead of leaving a failed Job with a locked Sequence.
+        frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
+        if not frames:
+            raise ValueError("序列帧没有可用帧。")
+        old_processed_ids = repository.list_sequence_processed_asset_ids(sequence_id, context.workspace.id)
+        old_records = repository.list_assets_by_ids_for_workspace(old_processed_ids, context.workspace.id)
+        processed_assets_by_frame: dict[str, str] = {}
+        with TemporaryDirectory(prefix=f"gameknife-{job.id}-") as directory:
+            working_directory = Path(directory)
+            result, outputs = sequence_processor.clean_frames(
+                _sequence_mapping(sequence),
+                _frame_mappings(context, frames, working_directory),
+                working_directory / "outputs" / "sequence_frames",
+                processor_parameters,
+            )
+            for output in outputs:
+                output_assets = _register_output_assets(
+                    repository,
+                    context,
+                    job.id,
+                    [output.output_path],
+                    "sequence_frame_processed",
+                    "image/png",
+                )
+                processed_assets_by_frame[output.frame_id] = output_assets[0]["id"]
 
         canvas_size = result.result.get("canvas_size", [sequence["canvas_width"], sequence["canvas_height"]])
-        repository.update_sequence(
+        completed_revision = claimed_revision + 1
+        final_result = {
+            **result.result,
+            "sequence_id": sequence_id,
+            "sequence_revision": completed_revision,
+            "output_assets": [],
+        }
+        repository.finalize_sequence_clean_job(
             sequence_id,
             context.workspace.id,
+            job.id,
+            claimed_revision,
+            processed_assets_by_frame=processed_assets_by_frame,
             canvas_width=int(canvas_size[0]),
             canvas_height=int(canvas_size[1]),
-            clean_parameters=parameters,
-            status="ready",
+            clean_parameters=clean_parameters,
+            result_json=json.dumps(final_result, ensure_ascii=False),
+            device=result.device,
+            duration_ms=result.duration_ms,
             updated_at=_now(),
         )
-        _mark_success(repository, context, job_id, result, {**result.result, "output_assets": []})
     except Exception as exc:  # noqa: BLE001
-        repository.update_sequence(sequence_id, context.workspace.id, status="ready", updated_at=_now())
-        _mark_failed(repository, context, job_id, str(exc))
+        try:
+            cleanup_assets = repository.fail_sequence_clean_job(
+                sequence_id,
+                context.workspace.id,
+                job.id,
+                claimed_revision,
+                error_message=str(exc),
+                updated_at=_now(),
+            )
+            _delete_asset_objects_best_effort(context, cleanup_assets)
+        except Exception:  # noqa: BLE001
+            # Repository recovery on the next Community startup remains the final fallback if local persistence is
+            # unavailable while the runner is already handling a processor or storage failure.
+            return
+    else:
+        # The sequence and Job are already terminally successful. Old, now-unreferenced processed assets are only
+        # cleanup candidates, so storage or database cleanup failures must not roll back the delivered sequence.
+        _cleanup_unreferenced_assets_best_effort(repository, context, old_records)
 
 
 def run_sequence_from_video_job(repository: GameKnifeRepository, context: RequestContext, service: BiRefNetService, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
+    if not _claim_job(repository, context, job.id):
+        return
     video_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if video_asset is None:
         _mark_failed(repository, context, job_id, "视频素材不存在。")
         return
 
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    frame_asset_ids: list[str] = []
     sequence_id: str | None = None
     try:
-        parameters = json.loads(job.parameters_json)
-        raw_result, outputs = sequence_processor.extract_video_frames(
-            context.storage.resolve_asset_path(video_asset.path),
-            context.storage.root / "outputs" / job_id / "video_frames",
-            parameters,
-            service,
-        )
-        frame_payloads: list[dict[str, Any]] = []
-        for output in outputs:
-            asset = _register_output_assets(repository, context, [output.output_path], "sequence_frame", "image/png")[0]
-            frame_asset_ids.append(asset["id"])
-            frame_payloads.append(
-                {
-                    "source_asset_id": asset["id"],
-                    "original_name": output.original_name,
-                    "width": output.width,
-                    "height": output.height,
-                    "bbox": output.bbox,
-                    "duration_ms": output.duration_ms,
-                    "enabled": True,
-                    "is_generated": True,
-                }
+        with TemporaryDirectory(prefix=f"gameknife-{job.id}-") as directory:
+            working_directory = Path(directory)
+            parameters = json.loads(job.parameters_json)
+            video_path = _download_object(
+                context,
+                video_asset.path,
+                working_directory / "inputs" / (Path(video_asset.original_name).name or "input-video.bin"),
             )
-        clean_parameters = _video_sequence_clean_parameters(parameters)
-        sequence = repository.create_sequence_with_frames(
-            workspace_id=context.workspace.id,
-            created_by=context.principal.id,
-            name=_video_sequence_name(video_asset.original_name, parameters),
-            fps=int(raw_result.result["fps"]),
-            loop=bool(parameters.get("loop", True)),
-            clean_parameters=clean_parameters,
-            frames=frame_payloads,
-            created_at=_now(),
-        )
-        sequence_id = sequence["id"]
-        frames = repository.list_sequence_frames(sequence_id, context.workspace.id)
-        clean_result, processed_outputs = sequence_processor.clean_frames(
-            _sequence_mapping(sequence),
-            _frame_mappings(context, frames),
-            context.storage.root / "outputs" / job_id / "sequence_frames",
-            clean_parameters,
-        )
-        for output in processed_outputs:
-            output_assets = _register_output_assets(repository, context, [output.output_path], "sequence_frame_processed", "image/png")
-            frame_asset_ids.append(output_assets[0]["id"])
-            repository.update_sequence_frame_processed_asset(output.frame_id, sequence_id, output_assets[0]["id"], updated_at=_now())
+            raw_result, outputs = sequence_processor.extract_video_frames(
+                video_path,
+                working_directory / "outputs" / "video_frames",
+                parameters,
+                service,
+            )
+            frame_payloads: list[dict[str, Any]] = []
+            for output in outputs:
+                asset = _register_output_assets(
+                    repository,
+                    context,
+                    job.id,
+                    [output.output_path],
+                    "sequence_frame",
+                    "image/png",
+                )[0]
+                frame_payloads.append(
+                    {
+                        "source_asset_id": asset["id"],
+                        "original_name": output.original_name,
+                        "width": output.width,
+                        "height": output.height,
+                        "bbox": output.bbox,
+                        "duration_ms": output.duration_ms,
+                        "enabled": True,
+                        "is_generated": True,
+                    }
+                )
+            clean_parameters = _video_sequence_clean_parameters(parameters)
+            sequence = repository.create_sequence_with_frames_for_job(
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                job_id=job.id,
+                name=_video_sequence_name(video_asset.original_name, parameters),
+                fps=int(raw_result.result["fps"]),
+                loop=bool(parameters.get("loop", True)),
+                clean_parameters=clean_parameters,
+                frames=frame_payloads,
+                created_at=_now(),
+            )
+            sequence_id = sequence["id"]
+            frames = repository.list_sequence_frames(sequence_id, context.workspace.id)
+            clean_result, processed_outputs = sequence_processor.clean_frames(
+                _sequence_mapping(sequence),
+                _frame_mappings(context, frames, working_directory),
+                working_directory / "outputs" / "sequence_frames",
+                clean_parameters,
+            )
+            processed_assets_by_frame: dict[str, str] = {}
+            for output in processed_outputs:
+                output_assets = _register_output_assets(
+                    repository,
+                    context,
+                    job.id,
+                    [output.output_path],
+                    "sequence_frame_processed",
+                    "image/png",
+                )
+                processed_assets_by_frame[output.frame_id] = output_assets[0]["id"]
 
         canvas_size = clean_result.result.get("canvas_size", [sequence["canvas_width"], sequence["canvas_height"]])
-        repository.update_sequence(
-            sequence_id,
-            context.workspace.id,
-            canvas_width=int(canvas_size[0]),
-            canvas_height=int(canvas_size[1]),
-            clean_parameters=clean_parameters,
-            status="ready",
-            updated_at=_now(),
-        )
         combined_result = ProcessResult(
             output_paths=[],
             result={
@@ -210,57 +276,89 @@ def run_sequence_from_video_job(repository: GameKnifeRepository, context: Reques
             "clip_start_seconds": float(parameters.get("start_second") or 0),
             "duration_seconds": parameters.get("duration_seconds"),
         }
-        _mark_success(repository, context, job_id, combined_result, final_result)
+        repository.finalize_sequence_from_video_job(
+            sequence_id,
+            context.workspace.id,
+            job.id,
+            processed_assets_by_frame=processed_assets_by_frame,
+            canvas_width=int(canvas_size[0]),
+            canvas_height=int(canvas_size[1]),
+            clean_parameters=clean_parameters,
+            result_json=json.dumps(final_result, ensure_ascii=False),
+            device=combined_result.device,
+            duration_ms=combined_result.duration_ms,
+            updated_at=_now(),
+        )
     except Exception as exc:  # noqa: BLE001
-        if sequence_id:
-            frame_asset_ids.extend(repository.collect_sequence_asset_ids(sequence_id, context.workspace.id))
-            repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
-        frame_assets = repository.list_assets_by_ids_for_workspace(list(dict.fromkeys(frame_asset_ids)), context.workspace.id)
-        repository.delete_assets_for_workspace([asset.id for asset in frame_assets], context.workspace.id)
-        for asset in frame_assets:
-            context.storage.remove_asset_file(asset.path)
-        _mark_failed(repository, context, job_id, str(exc))
+        try:
+            cleanup_assets = repository.fail_sequence_from_video_job(
+                context.workspace.id,
+                job.id,
+                sequence_id=sequence_id,
+                error_message=str(exc),
+                updated_at=_now(),
+            )
+            _delete_asset_objects_best_effort(context, cleanup_assets)
+        except Exception:  # noqa: BLE001
+            return
 
 
 def run_sequence_generate_video_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
         return
+    if not _claim_job(repository, context, job.id):
+        return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
         _mark_failed(repository, context, job_id, "输入素材不存在。")
         return
 
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
+    output_assets: list[dict[str, str]] = []
     try:
-        started = datetime.now(UTC)
-        parameters = json.loads(job.parameters_json)
-        output_path = _output_path(context, job.id, f"{Path(input_asset.original_name).stem}_generated.mp4")
-        generated = VideoGenerationClient(repository).generate_video(
-            context.storage.resolve_asset_path(input_asset.path),
-            output_path,
-            parameters,
-        )
-        result = ProcessResult(
-            output_paths=[generated.output_path],
-            result={
-                "external_task_id": generated.external_task_id,
-                "provider": generated.provider,
-                "remote_video_url": generated.video_url,
-            },
-            duration_ms=round((datetime.now(UTC) - started).total_seconds() * 1000),
-            device="外部API",
-        )
-        output_assets = _register_output_assets(repository, context, result.output_paths, "sequence_video", "video/mp4")
-        video_asset = output_assets[0]
-        final_result = {
-            **result.result,
-            "video_asset_id": video_asset["id"],
-            "video_url": video_asset["url"],
-            "output_assets": output_assets,
-        }
+        with TemporaryDirectory(prefix=f"gameknife-{job.id}-") as directory:
+            working_directory = Path(directory)
+            started = datetime.now(UTC)
+            parameters = json.loads(job.parameters_json)
+            input_path = _download_object(
+                context,
+                input_asset.path,
+                working_directory / "inputs" / (Path(input_asset.original_name).name or "input.bin"),
+            )
+            output_path = _output_path(working_directory, f"{Path(input_asset.original_name).stem}_generated.mp4")
+            generated = VideoGenerationClient(repository).generate_video(
+                input_path,
+                output_path,
+                parameters,
+            )
+            result = ProcessResult(
+                output_paths=[generated.output_path],
+                result={
+                    "external_task_id": generated.external_task_id,
+                    "provider": generated.provider,
+                    "remote_video_url": generated.video_url,
+                },
+                duration_ms=round((datetime.now(UTC) - started).total_seconds() * 1000),
+                device="外部API",
+            )
+            output_assets = _register_output_assets(
+                repository,
+                context,
+                job.id,
+                result.output_paths,
+                "sequence_video",
+                "video/mp4",
+            )
+            video_asset = output_assets[0]
+            final_result = {
+                **result.result,
+                "video_asset_id": video_asset["id"],
+                "video_url": video_asset["url"],
+                "output_assets": output_assets,
+            }
         _mark_success(repository, context, job_id, result, final_result)
     except Exception as exc:  # noqa: BLE001
+        _cleanup_registered_output_assets(repository, context, job.id, output_assets)
         _mark_failed(repository, context, job_id, str(exc))
 
 
@@ -271,83 +369,158 @@ def delete_job(repository: GameKnifeRepository, context: RequestContext, job_id:
     if job.status in {"pending", "running"}:
         raise ValueError("任务正在处理中，完成后再删除。")
 
-    result = json.loads(job.result_json)
-    asset_ids = _collect_result_asset_ids(result)
-    asset_records = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
-    repository.delete_job_for_workspace(job_id, context.workspace.id)
-    repository.delete_assets_for_workspace([asset.id for asset in asset_records], context.workspace.id)
+    # job_output_assets is the ownership boundary. Result payloads may also contain input or source Asset IDs and
+    # must never decide what a Job deletion owns. The repository deletes Job rows and owned output Assets atomically.
+    asset_records = repository.delete_job_for_workspace(job_id, context.workspace.id)
     for asset in asset_records:
-        context.storage.remove_asset_file(asset.path)
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            # Database deletion is authoritative. Remote providers may defer failed object cleanup to maintenance.
+            continue
     return True
-
-
-def _run_image_output_job(
-    repository: GameKnifeRepository,
-    context: RequestContext,
-    job_id: str,
-    *,
-    output_kind: str,
-    output_mime_type: str,
-    output_suffix: str,
-    processor: Callable[[Path, Path, dict[str, Any]], ProcessResult],
-) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    if job is None:
-        return
-    input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if input_asset is None:
-        _mark_failed(repository, context, job_id, "输入素材不存在。")
-        return
-
-    repository.update_job(job_id, context.workspace.id, status="running", updated_at=_now())
-    try:
-        output_name = f"{Path(input_asset.original_name).stem}{output_suffix}"
-        result = processor(
-            context.storage.resolve_asset_path(input_asset.path),
-            _output_path(context, job.id, output_name),
-            json.loads(job.parameters_json),
-        )
-        output_assets = _register_output_assets(repository, context, result.output_paths, output_kind, output_mime_type)
-        final_result = {
-            **result.result,
-            "input_asset_url": f"/api/assets/{input_asset.id}",
-            "output_assets": output_assets,
-        }
-        if output_kind == "asset_cutout" and output_assets:
-            final_result["cutout_asset_id"] = output_assets[0]["id"]
-            final_result["cutout_url"] = output_assets[0]["url"]
-        _mark_success(repository, context, job_id, result, final_result)
-    except Exception as exc:  # noqa: BLE001
-        _mark_failed(repository, context, job_id, str(exc))
 
 
 def _register_output_assets(
     repository: GameKnifeRepository,
     context: RequestContext,
+    job_id: str,
     paths: list[Path],
     kind: str,
     mime_type: str,
+    *,
+    record_job_output: bool = True,
 ) -> list[dict[str, str]]:
     output_assets: list[dict[str, str]] = []
-    for path in paths:
-        asset_id = uuid4().hex
-        now = _now()
-        relative_path = path.resolve().relative_to(context.storage.root.resolve()).as_posix()
-        asset = AssetRecord(
-            id=asset_id,
-            workspace_id=context.workspace.id,
-            created_by=context.principal.id,
-            kind=kind,
-            original_name=path.name,
-            path=relative_path,
-            mime_type=mime_type,
-            size_bytes=path.stat().st_size,
-            created_at=now,
-            updated_at=now,
-        )
-        repository.create_asset(asset)
-        output_assets.append({"id": asset.id, "url": f"/api/assets/{asset.id}"})
+    stored_assets: list[AssetRecord] = []
+    try:
+        for path in paths:
+            asset_id = uuid4().hex
+            now = _now()
+            stored = context.storage.put_file(asset_id, path.name, path)
+            asset = AssetRecord(
+                id=asset_id,
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                kind=kind,
+                original_name=path.name,
+                path=stored.key,
+                mime_type=mime_type,
+                size_bytes=stored.size_bytes,
+                created_at=now,
+                updated_at=now,
+            )
+            stored_assets.append(asset)
+            repository.create_asset(asset)
+            if record_job_output:
+                repository.create_job_output_asset(
+                    JobOutputAssetRecord(
+                        id=uuid4().hex,
+                        workspace_id=context.workspace.id,
+                        created_by=context.principal.id,
+                        job_id=job_id,
+                        asset_id=asset.id,
+                        created_at=now,
+                    )
+                )
+            output_assets.append({"id": asset.id, "url": f"/api/assets/{asset.id}"})
+    except Exception:
+        _cleanup_assets_best_effort(repository, context, job_id, stored_assets)
+        raise
     return output_assets
+
+
+def _cleanup_registered_output_assets(
+    repository: GameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    output_assets: list[dict[str, str]],
+) -> None:
+    asset_ids = [str(item["id"]) for item in output_assets if item.get("id")]
+    _cleanup_asset_ids_best_effort(repository, context, job_id, asset_ids)
+
+
+def _cleanup_asset_ids_best_effort(
+    repository: GameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    asset_ids: list[str],
+) -> None:
+    if not asset_ids:
+        return
+    try:
+        assets = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
+    except Exception:  # noqa: BLE001
+        return
+    _cleanup_assets_best_effort(repository, context, job_id, assets)
+
+
+def _cleanup_assets_best_effort(
+    repository: GameKnifeRepository,
+    context: RequestContext,
+    job_id: str,
+    assets: list[AssetRecord],
+) -> None:
+    asset_ids = [asset.id for asset in assets]
+    if not asset_ids:
+        return
+    try:
+        removed_assets = repository.cleanup_job_output_assets_for_workspace(
+            job_id,
+            context.workspace.id,
+            asset_ids,
+        )
+    except Exception:  # noqa: BLE001
+        # Relationship detachment and Asset deletion share one repository transaction. A failed transaction keeps
+        # both ownership and the durable object intact so startup recovery can retry the same candidates.
+        return
+    for asset in removed_assets:
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            # Object deletion remains best effort until Commercial supplies its durable delete outbox.
+            continue
+
+
+def _cleanup_unreferenced_assets_best_effort(
+    repository: GameKnifeRepository,
+    context: RequestContext,
+    assets: list[AssetRecord],
+) -> None:
+    if not assets:
+        return
+    try:
+        references = {
+            summary.asset_id: summary
+            for summary in repository.get_asset_reference_summaries(
+                [asset.id for asset in assets],
+                context.workspace.id,
+            )
+        }
+        removable = [asset for asset in assets if not references.get(asset.id) or not references[asset.id].is_referenced]
+        if not removable:
+            return
+        repository.delete_assets_for_workspace([asset.id for asset in removable], context.workspace.id)
+    except Exception:  # noqa: BLE001
+        # Cleanup runs after the terminal success boundary. Any database, reference, or local I/O failure leaves the
+        # old Asset and object intact for a later maintenance pass and must not change the delivered Job state.
+        return
+    for asset in removable:
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            # The Asset row is already gone, so object cleanup remains best effort until a durable delete outbox exists.
+            continue
+
+
+def _delete_asset_objects_best_effort(context: RequestContext, assets: list[AssetRecord]) -> None:
+    for asset in assets:
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            # Recovery and failure finalizers have already removed the database row. Local object deletion remains
+            # best effort, matching the public deletion contract until Commercial supplies a durable delete outbox.
+            continue
 
 
 def _mark_success(
@@ -368,6 +541,10 @@ def _mark_success(
     )
 
 
+def _claim_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> bool:
+    return repository.claim_job_for_workspace(job_id, context.workspace.id, updated_at=_now())
+
+
 def _mark_failed(repository: GameKnifeRepository, context: RequestContext, job_id: str, error_message: str) -> None:
     repository.update_job(
         job_id,
@@ -378,8 +555,12 @@ def _mark_failed(repository: GameKnifeRepository, context: RequestContext, job_i
     )
 
 
-def _output_path(context: RequestContext, job_id: str, filename: str) -> Path:
-    path = context.storage.root / "outputs" / job_id / filename
+def _download_object(context: RequestContext, key: str, destination: Path) -> Path:
+    return context.storage.download_to(key, destination)
+
+
+def _output_path(working_directory: Path, filename: str) -> Path:
+    path = working_directory / "outputs" / Path(filename).name
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -410,24 +591,6 @@ def _video_sequence_name(original_name: str, parameters: dict[str, Any]) -> str:
     return f"{Path(original_name).stem}_{action}".strip("_")
 
 
-def _collect_result_asset_ids(result: dict[str, Any]) -> list[str]:
-    asset_ids: list[str] = []
-
-    def append_asset_id(value: Any) -> None:
-        if isinstance(value, str) and value not in asset_ids:
-            asset_ids.append(value)
-
-    append_asset_id(result.get("cutout_asset_id"))
-    append_asset_id(result.get("video_asset_id"))
-    for output_asset in result.get("output_assets", []):
-        if isinstance(output_asset, dict):
-            append_asset_id(output_asset.get("id"))
-    for component in result.get("components", []):
-        if isinstance(component, dict):
-            append_asset_id(component.get("preview_asset_id"))
-    return asset_ids
-
-
 def _sequence_mapping(sequence: Any) -> dict[str, Any]:
     return {
         "id": sequence["id"],
@@ -442,11 +605,24 @@ def _sequence_mapping(sequence: Any) -> dict[str, Any]:
     }
 
 
-def _frame_mappings(context: RequestContext, frames: list[Any]) -> list[dict[str, Any]]:
+def _frame_mappings(context: RequestContext, frames: list[Any], working_directory: Path) -> list[dict[str, Any]]:
     mapped: list[dict[str, Any]] = []
     for frame in frames:
-        source_path = context.storage.resolve_asset_path(frame["source_path"])
-        processed_path = context.storage.resolve_asset_path(frame["processed_path"]) if frame["processed_path"] else None
+        frame_directory = working_directory / "frames" / str(frame["id"])
+        source_path = _download_object(
+            context,
+            frame["source_path"],
+            frame_directory / f"source{Path(frame['source_path']).suffix or '.bin'}",
+        )
+        processed_path = (
+            _download_object(
+                context,
+                frame["processed_path"],
+                frame_directory / f"processed{Path(frame['processed_path']).suffix or '.bin'}",
+            )
+            if frame["processed_path"]
+            else None
+        )
         mapped.append(
             {
                 "id": frame["id"],

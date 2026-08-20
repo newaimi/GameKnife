@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from gameknife_core import JobRecord, RequestContext
+from gameknife_core import RequestContext
+from gameknife_jobs import JobSubmissionResult, TaskSubmission
 from gameknife_processors import BackgroundRemoveProcessor
 
 from .errors import WorkflowInputNotFoundError, WorkflowModelNotInstalledError
@@ -30,7 +31,8 @@ def create_background_remove_workflow(
     *,
     input_asset_id: str,
     parameters: dict[str, Any],
-) -> tuple[JobRecord, Callable[[], None]]:
+    submission: TaskSubmission | None = None,
+) -> tuple[JobSubmissionResult, Callable[[], None]]:
     if not model.is_installed():
         raise WorkflowModelNotInstalledError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
 
@@ -40,17 +42,38 @@ def create_background_remove_workflow(
 
     # Creation validation lives in the workflow so every API entry point reuses the same orchestration path.
     # The API layer only maps HTTP status codes, avoiding duplicated model checks and asset-ownership rules.
-    job = create_job_record(repository, context, job_type="background_remove", input_asset_id=input_asset.id, parameters=parameters)
+    submitted = create_job_record(
+        repository,
+        context,
+        job_type="background_remove",
+        input_asset_id=input_asset.id,
+        parameters=parameters,
+        submission=submission,
+    )
 
     def run() -> None:
-        run_image_output_job(
-            repository,
-            context,
-            job.id,
-            output_kind="background_remove",
-            output_mime_type="image/png",
-            output_suffix="_cutout.png",
-            processor=lambda input_path, output_path, job_parameters: background_processor.process(input_path, output_path, job_parameters, model),
-        )
+        run_background_remove_workflow(repository, context, model, submitted.job.id)
 
-    return job, run
+    return submitted, run
+
+
+def run_background_remove_workflow(
+    repository: WorkflowRepository,
+    context: RequestContext,
+    model: BackgroundRemoveModel,
+    job_id: str,
+) -> None:
+    run_image_output_job(
+        repository,
+        context,
+        job_id,
+        output_kind="background_remove",
+        output_mime_type="image/png",
+        output_suffix="_cutout.png",
+        processor=lambda input_path, output_path, job_parameters: background_processor.process(
+            input_path,
+            output_path,
+            job_parameters,
+            model,
+        ),
+    )

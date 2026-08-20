@@ -5,7 +5,8 @@ from typing import Any, Protocol
 
 from PIL import Image
 
-from gameknife_core import JobRecord, RequestContext
+from gameknife_core import RequestContext
+from gameknife_jobs import JobSubmissionResult, TaskSubmission
 from gameknife_processors import UpscaleProcessor
 
 from .errors import WorkflowInputNotFoundError, WorkflowModelNotInstalledError
@@ -40,7 +41,8 @@ def create_upscale_workflow(
     *,
     input_asset_id: str,
     parameters: dict[str, Any],
-) -> tuple[JobRecord, Callable[[], None]]:
+    submission: TaskSubmission | None = None,
+) -> tuple[JobSubmissionResult, Callable[[], None]]:
     if str(parameters.get("style") or "general") != "pixel" and not model.is_installed():
         raise WorkflowModelNotInstalledError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
 
@@ -50,17 +52,40 @@ def create_upscale_workflow(
 
     # Pixel-art and AI upscaling share one job type because history and download filters group by image_upscale.
     # Parameters explicitly choose model use, so pixel-art scaling can run independently with nearest-neighbor interpolation.
-    job = create_job_record(repository, context, job_type="image_upscale", input_asset_id=input_asset.id, parameters=parameters)
+    submitted = create_job_record(
+        repository,
+        context,
+        job_type="image_upscale",
+        input_asset_id=input_asset.id,
+        parameters=parameters,
+        submission=submission,
+    )
 
     def run() -> None:
-        run_image_output_job(
-            repository,
-            context,
-            job.id,
-            output_kind="upscale_result",
-            output_mime_type="image/png",
-            output_suffix="_upscale.png",
-            processor=lambda input_path, output_path, job_parameters: upscale_processor.process(input_path, output_path, job_parameters, model),
-        )
+        run_upscale_workflow(repository, context, model, submitted.job.id)
 
-    return job, run
+    return submitted, run
+
+
+def run_upscale_workflow(
+    repository: WorkflowRepository,
+    context: RequestContext,
+    model: UpscaleModel,
+    job_id: str,
+) -> None:
+    """Execute a persisted upscale job with the runtime's installed model service."""
+
+    run_image_output_job(
+        repository,
+        context,
+        job_id,
+        output_kind="upscale_result",
+        output_mime_type="image/png",
+        output_suffix="_upscale.png",
+        processor=lambda input_path, output_path, job_parameters: upscale_processor.process(
+            input_path,
+            output_path,
+            job_parameters,
+            model,
+        ),
+    )

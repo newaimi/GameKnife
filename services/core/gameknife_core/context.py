@@ -33,16 +33,36 @@ class PermissionChecker(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class StoredObject:
+    # The storage key is the only durable locator persisted by public workflows. Size and integrity metadata let
+    # local and remote providers report what was actually stored without exposing their filesystem or bucket layout.
+    key: str
+    size_bytes: int
+    etag: str | None = None
+    checksum_sha256: str | None = None
+
+
 class StorageProvider(Protocol):
-    root: Path
-
-    def write_asset(self, asset_id: str, original_name: str, content: bytes) -> str:
+    def put_file(self, asset_id: str, original_name: str, source_path: Path) -> StoredObject:
         ...
 
-    def remove_asset_file(self, relative_path: str) -> None:
+    def download_to(self, key: str, destination: Path) -> Path:
         ...
 
-    def resolve_asset_path(self, relative_path: str) -> Path:
+    def local_path(self, key: str) -> Path | None:
+        ...
+
+    def create_download_url(
+        self,
+        key: str,
+        filename: str,
+        mime_type: str,
+        expires_seconds: int,
+    ) -> str | None:
+        ...
+
+    def delete_object(self, key: str) -> None:
         ...
 
 

@@ -50,3 +50,37 @@ class JobRecord:
     error_message: str | None
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class JobOutputAssetRecord:
+    """Immutable relationship between a job and one persisted output asset."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    job_id: str
+    asset_id: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssetReferenceSummary:
+    """References that must be resolved before an asset can be deleted safely."""
+
+    asset_id: str
+    input_job_ids: tuple[str, ...] = ()
+    output_job_ids: tuple[str, ...] = ()
+    source_sequence_frame_ids: tuple[str, ...] = ()
+    processed_sequence_frame_ids: tuple[str, ...] = ()
+
+    @property
+    def is_referenced(self) -> bool:
+        return any(
+            (
+                self.input_job_ids,
+                self.output_job_ids,
+                self.source_sequence_frame_ids,
+                self.processed_sequence_frame_ids,
+            )
+        )

@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from gameknife_core import AssetRecord, JobRecord
+from gameknife_core import AssetRecord, AssetReferenceSummary, JobOutputAssetRecord, JobRecord
+
+from .submission import JobSubmissionResult, TaskSubmission
 
 
 class GameKnifeRepository(Protocol):
@@ -29,7 +31,45 @@ class GameKnifeRepository(Protocol):
     def delete_assets_for_workspace(self, asset_ids: list[str], workspace_id: str) -> None:
         ...
 
-    def create_job(self, job: JobRecord) -> None:
+    def get_asset_reference_summaries(
+        self,
+        asset_ids: list[str],
+        workspace_id: str,
+    ) -> list[AssetReferenceSummary]:
+        ...
+
+    def create_job(
+        self,
+        job: JobRecord,
+        submission: TaskSubmission | None = None,
+    ) -> JobSubmissionResult:
+        ...
+
+    def claim_job_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+        *,
+        updated_at: str,
+    ) -> bool:
+        ...
+
+    def create_job_output_asset(self, output: JobOutputAssetRecord) -> None:
+        ...
+
+    def list_job_output_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+    ) -> list[JobOutputAssetRecord]:
+        ...
+
+    def cleanup_job_output_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+        asset_ids: list[str],
+    ) -> list[AssetRecord]:
         ...
 
     def update_job(
@@ -76,7 +116,7 @@ class GameKnifeRepository(Protocol):
     ) -> int:
         ...
 
-    def delete_job_for_workspace(self, job_id: str, workspace_id: str) -> None:
+    def delete_job_for_workspace(self, job_id: str, workspace_id: str) -> list[AssetRecord]:
         ...
 
     def create_sequence_with_frames(
@@ -93,10 +133,32 @@ class GameKnifeRepository(Protocol):
     ) -> Mapping[str, Any]:
         ...
 
+    def create_sequence_with_frames_for_job(
+        self,
+        *,
+        workspace_id: str,
+        created_by: str,
+        job_id: str,
+        name: str,
+        fps: int,
+        loop: bool,
+        clean_parameters: dict[str, Any],
+        frames: list[dict[str, Any]],
+        created_at: str,
+    ) -> Mapping[str, Any]:
+        ...
+
     def list_sequences_for_workspace(self, workspace_id: str) -> list[Mapping[str, Any]]:
         ...
 
     def get_sequence_for_workspace(self, sequence_id: str, workspace_id: str) -> Mapping[str, Any] | None:
+        ...
+
+    def get_sequence_for_workspace_including_processing(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+    ) -> Mapping[str, Any] | None:
         ...
 
     def list_sequence_frames(self, sequence_id: str, workspace_id: str, *, enabled_only: bool = False) -> list[Mapping[str, Any]]:
@@ -124,16 +186,86 @@ class GameKnifeRepository(Protocol):
     def update_sequence_frames(self, sequence_id: str, workspace_id: str, frames: list[dict[str, Any]], *, updated_at: str) -> None:
         ...
 
-    def update_sequence_frame_processed_asset(self, frame_id: str, sequence_id: str, processed_asset_id: str | None, *, updated_at: str) -> None:
+    def claim_sequence_for_job(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+        job_id: str,
+        expected_revision: int,
+        *,
+        updated_at: str,
+    ) -> int | None:
         ...
 
-    def collect_sequence_asset_ids(self, sequence_id: str, workspace_id: str) -> list[str]:
+    def finalize_sequence_clean_job(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+        job_id: str,
+        claimed_revision: int,
+        *,
+        processed_assets_by_frame: Mapping[str, str],
+        canvas_width: int,
+        canvas_height: int,
+        clean_parameters: dict[str, Any],
+        result_json: str,
+        device: str | None,
+        duration_ms: int,
+        updated_at: str,
+    ) -> int:
+        ...
+
+    def fail_sequence_clean_job(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+        job_id: str,
+        claimed_revision: int,
+        *,
+        error_message: str,
+        updated_at: str,
+    ) -> list[AssetRecord]:
+        ...
+
+    def finalize_sequence_from_video_job(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+        job_id: str,
+        *,
+        processed_assets_by_frame: Mapping[str, str],
+        canvas_width: int,
+        canvas_height: int,
+        clean_parameters: dict[str, Any],
+        result_json: str,
+        device: str | None,
+        duration_ms: int,
+        updated_at: str,
+    ) -> int:
+        ...
+
+    def fail_sequence_from_video_job(
+        self,
+        workspace_id: str,
+        job_id: str,
+        *,
+        sequence_id: str | None,
+        error_message: str,
+        updated_at: str,
+    ) -> list[AssetRecord]:
         ...
 
     def list_sequence_processed_asset_ids(self, sequence_id: str, workspace_id: str) -> list[str]:
         ...
 
-    def delete_sequence_for_workspace(self, sequence_id: str, workspace_id: str) -> bool:
+    def delete_sequence_for_workspace(
+        self,
+        sequence_id: str,
+        workspace_id: str,
+    ) -> list[AssetRecord] | None:
+        ...
+
+    def recover_incomplete_jobs(self, *, error_message: str, updated_at: str) -> list[AssetRecord]:
         ...
 
     def list_settings(self) -> dict[str, str]:

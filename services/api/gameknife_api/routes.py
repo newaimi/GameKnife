@@ -7,16 +7,18 @@ import sys
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse
 from PIL import Image, UnidentifiedImageError
 
 from gameknife_api.deps import (
     CommunitySettings,
-    get_community_settings,
     get_birefnet_service,
+    get_community_settings,
+    get_job_dispatcher,
     get_repository,
     get_request_context,
     get_stable_audio_service,
@@ -25,9 +27,6 @@ from gameknife_api.deps import (
 from gameknife_api.job_service import (
     create_job,
     delete_job,
-    run_sequence_clean_job,
-    run_sequence_generate_video_job,
-    run_sequence_from_video_job,
 )
 from gameknife_api.schemas import (
     AssetBoardExportRequest,
@@ -49,8 +48,14 @@ from gameknife_api.schemas import (
     VideoSequenceGenerateRequest,
     VideoToSequenceRequest,
 )
-from gameknife_core import AssetRecord, JobRecord, RequestContext
-from gameknife_jobs import GameKnifeRepository
+from gameknife_core import AssetRecord, JobRecord, RequestContext, StoredObject
+from gameknife_jobs import (
+    GameKnifeRepository,
+    JobDispatcher,
+    ResourceReferenceError,
+    SequenceActiveJobError,
+    TaskSubmission,
+)
 from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
@@ -111,6 +116,16 @@ DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "stabilize": False,
     "stabilize_strength": 35,
 }
+
+
+def _task_submission(
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    quote_id: str | None = Header(None, alias="X-GameKnife-Quote-Id"),
+) -> TaskSubmission:
+    try:
+        return TaskSubmission(idempotency_key=idempotency_key, quote_id=quote_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/health")
@@ -262,9 +277,21 @@ def remove_job(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> Response:
-    _require_project_workflow_write(context, "delete_job", {"job_id": job_id})
+    job = repository.get_job_for_workspace(job_id, context.workspace.id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在。")
+    _require_project_workflow_write(
+        context,
+        "delete_job",
+        {"job_id": job_id, "created_by": job.created_by},
+    )
     try:
         deleted = delete_job(repository, context, job_id)
+    except ResourceReferenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_resource_reference_detail(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not deleted:
@@ -275,67 +302,77 @@ def remove_job(
 @router.post("/jobs/background-remove", response_model=JobResponse)
 def create_background_remove_job(
     payload: AssetJobRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_background_remove_workflow(
+        submitted, _runner = create_background_remove_workflow(
             repository,
             context,
             birefnet,
             input_asset_id=payload.input_asset_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowModelNotInstalledError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/upscale", response_model=JobResponse)
 def create_upscale_job(
     payload: AssetJobRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_upscale_workflow(
+        submitted, _runner = create_upscale_workflow(
             repository,
             context,
             upscale_models,
             input_asset_id=payload.input_asset_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowModelNotInstalledError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/sound-effect", response_model=JobResponse)
 def create_sound_effect_job(
     payload: SoundEffectRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_sound_effect_workflow(
+        submitted, _runner = create_sound_effect_workflow(
             repository,
             context,
             stable_audio,
             parameters=payload.model_dump(),
+            submission=submission,
         )
     except WorkflowValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -344,97 +381,115 @@ def create_sound_effect_job(
     except WorkflowModelNotInstalledError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/regions", response_model=JobResponse)
 def create_asset_board_region_job(
     payload: AssetJobRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_asset_board_region_workflow(
+        submitted, _runner = create_asset_board_region_workflow(
             repository,
             context,
             input_asset_id=payload.input_asset_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/cutout", response_model=JobResponse)
 def create_asset_board_cutout_job(
     payload: AssetJobRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_asset_board_cutout_workflow(
+        submitted, _runner = create_asset_board_cutout_workflow(
             repository,
             context,
             birefnet,
             input_asset_id=payload.input_asset_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowModelNotInstalledError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/refine", response_model=JobResponse)
 def create_asset_board_refine_job(
     payload: AssetBoardRefineRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_asset_board_refine_workflow(
+        submitted, _runner = create_asset_board_refine_workflow(
             repository,
             context,
             cutout_asset_id=payload.cutout_asset_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/jobs/asset-board/export", response_model=JobResponse)
 def create_asset_board_export_job(
     payload: AssetBoardExportRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_asset_board_export_workflow(
+        submitted, _runner = create_asset_board_export_workflow(
             repository,
             context,
             cutout_asset_id=payload.cutout_asset_id,
             selected_component_ids=payload.selected_component_ids,
             components=payload.components,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
@@ -518,20 +573,23 @@ def update_sequence(
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "update_sequence", {"sequence_id": sequence_id})
-    sequence = repository.update_sequence(
-        sequence_id,
-        context.workspace.id,
-        name=payload.name.strip() if payload.name else None,
-        fps=payload.fps,
-        loop=payload.loop,
-        canvas_width=payload.canvas_width,
-        canvas_height=payload.canvas_height,
-        anchor_mode=payload.anchor_mode,
-        anchor_x=payload.anchor_x,
-        anchor_y=payload.anchor_y,
-        clean_parameters=payload.clean_parameters,
-        updated_at=_now(),
-    )
+    try:
+        sequence = repository.update_sequence(
+            sequence_id,
+            context.workspace.id,
+            name=payload.name.strip() if payload.name else None,
+            fps=payload.fps,
+            loop=payload.loop,
+            canvas_width=payload.canvas_width,
+            canvas_height=payload.canvas_height,
+            anchor_mode=payload.anchor_mode,
+            anchor_x=payload.anchor_x,
+            anchor_y=payload.anchor_y,
+            clean_parameters=payload.clean_parameters,
+            updated_at=_now(),
+        )
+    except SequenceActiveJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能修改。") from exc
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
     return _sequence_response(sequence, context, repository)
@@ -545,10 +603,18 @@ def update_sequence_frames(
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "update_sequence_frames", {"sequence_id": sequence_id})
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
-    repository.update_sequence_frames(sequence_id, context.workspace.id, [frame.model_dump(exclude_none=True) for frame in payload.frames], updated_at=_now())
+    try:
+        repository.update_sequence_frames(
+            sequence_id,
+            context.workspace.id,
+            [frame.model_dump(exclude_none=True) for frame in payload.frames],
+            updated_at=_now(),
+        )
+    except SequenceActiveJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能修改。") from exc
     updated = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
@@ -561,19 +627,30 @@ def delete_sequence(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> Response:
-    _require_project_workflow_write(context, "delete_sequence", {"sequence_id": sequence_id})
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+    _require_project_workflow_write(
+        context,
+        "delete_sequence",
+        {"sequence_id": sequence_id, "created_by": str(sequence["created_by"])},
+    )
 
-    asset_ids = repository.collect_sequence_asset_ids(sequence_id, context.workspace.id)
-    asset_records = repository.list_assets_by_ids_for_workspace(asset_ids, context.workspace.id)
-    deleted = repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
-    if not deleted:
+    try:
+        asset_records = repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
+    except SequenceActiveJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能删除。") from exc
+    if asset_records is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
-    repository.delete_assets_for_workspace([asset.id for asset in asset_records], context.workspace.id)
+    # The repository already deleted the Sequence and every now-unreferenced Asset in one transaction. Returned
+    # records are the exact object cleanup set; Assets shared with Jobs or other Sequences remain in the database.
     for asset in asset_records:
-        context.storage.remove_asset_file(asset.path)
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            # Sequence and Asset rows are already removed. Community keeps object cleanup best effort; Commercial
+            # replaces this boundary with its durable deletion outbox in the storage-lifecycle phase.
+            continue
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -581,28 +658,44 @@ def delete_sequence(
 def create_sequence_clean_task(
     sequence_id: str,
     payload: SequenceTaskRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
-    _, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
-    job = create_job(
+    sequence, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
+    if sequence["active_job_id"] is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，请稍后重试。")
+    enabled_frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
+    submitted = create_job(
         repository,
         context,
         job_type="sequence_clean",
         input_asset_id=input_asset_id,
-        parameters={"sequence_id": sequence_id, **payload.parameters},
+        parameters={
+            **payload.parameters,
+            # Capacity inputs are server snapshots. Clients cannot understate them to bypass Commercial storage holds.
+            "sequence_id": sequence_id,
+            "sequence_revision": int(sequence["revision"]),
+            "frame_count": len(enabled_frames),
+            "canvas_width": int(sequence["canvas_width"]),
+            "canvas_height": int(sequence["canvas_height"]),
+        },
+        submission=submission,
     )
-    background_tasks.add_task(run_sequence_clean_job, repository, context, job.id, sequence_id)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/sequences/generate-from-image", response_model=JobResponse)
 def create_sequence_generate_video_task(
     payload: VideoSequenceGenerateRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     if not payload.confirmed_external_api:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
@@ -615,24 +708,28 @@ def create_sequence_generate_video_task(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     parameters = payload.model_dump()
-    job = create_job(
+    submitted = create_job(
         repository,
         context,
         job_type="sequence_generate_video",
         input_asset_id=input_asset.id,
         parameters=parameters,
+        submission=submission,
     )
-    background_tasks.add_task(run_sequence_generate_video_job, repository, context, job.id)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
 @router.post("/sequences/from-video", response_model=JobResponse)
 def create_sequence_from_video_task(
     payload: VideoToSequenceRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
     if not video_asset.mime_type.startswith("video/"):
@@ -651,14 +748,17 @@ def create_sequence_from_video_task(
         "duration_seconds": payload.duration_seconds,
         "remove_background": payload.remove_background,
     }
-    job = create_job(
+    submitted = create_job(
         repository,
         context,
         job_type="sequence_video_to_frames",
         input_asset_id=video_asset.id,
         parameters=parameters,
+        submission=submission,
     )
-    background_tasks.add_task(run_sequence_from_video_job, repository, context, birefnet, job.id)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
@@ -666,23 +766,27 @@ def create_sequence_from_video_task(
 def create_sequence_frames_export_task(
     sequence_id: str,
     payload: SequenceTaskRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_sequence_frames_export_workflow(
+        submitted, _runner = create_sequence_frames_export_workflow(
             repository,
             context,
             sequence_id=sequence_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WorkflowValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
@@ -690,23 +794,27 @@ def create_sequence_frames_export_task(
 def create_sequence_spine_export_task(
     sequence_id: str,
     payload: SequenceTaskRequest,
-    background_tasks: BackgroundTasks,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(_task_submission),
 ) -> JobResponse:
     try:
-        job, runner = create_sequence_spine_export_workflow(
+        submitted, _runner = create_sequence_spine_export_workflow(
             repository,
             context,
             sequence_id=sequence_id,
             parameters=payload.parameters,
+            submission=submission,
         )
     except WorkflowInputNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WorkflowValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    background_tasks.add_task(runner)
+    job = submitted.job
+    if not submitted.replayed:
+        dispatcher.dispatch(job.id, job.workspace_id)
     return _job_response(job, context, repository)
 
 
@@ -726,16 +834,16 @@ async def upload_image_asset(
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.png").name
     now = _now()
-    relative_path = context.storage.write_asset(asset_id, filename, content)
+    stored = _put_bytes(context, asset_id, filename, content)
     asset = AssetRecord(
         id=asset_id,
         workspace_id=context.workspace.id,
         created_by=context.principal.id,
         kind="image",
         original_name=filename,
-        path=relative_path,
+        path=stored.key,
         mime_type=file.content_type,
-        size_bytes=len(content),
+        size_bytes=stored.size_bytes,
         created_at=now,
         updated_at=now,
     )
@@ -745,7 +853,7 @@ async def upload_image_asset(
     except Exception:
         # Uploads write the file before the database record and remove the new file if persistence fails.
         # This prevents orphaned files and keeps every asset-list entry traceable to a database record.
-        context.storage.remove_asset_file(relative_path)
+        context.storage.delete_object(stored.key)
         raise
 
     return _asset_response(asset)
@@ -768,23 +876,23 @@ async def upload_video_asset(
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.mp4").name
     now = _now()
-    relative_path = context.storage.write_asset(asset_id, filename, content)
+    stored = _put_bytes(context, asset_id, filename, content)
     asset = AssetRecord(
         id=asset_id,
         workspace_id=context.workspace.id,
         created_by=context.principal.id,
         kind="video",
         original_name=filename,
-        path=relative_path,
+        path=stored.key,
         mime_type=file.content_type,
-        size_bytes=len(content),
+        size_bytes=stored.size_bytes,
         created_at=now,
         updated_at=now,
     )
     try:
         repository.create_asset(asset)
     except Exception:
-        context.storage.remove_asset_file(relative_path)
+        context.storage.delete_object(stored.key)
         raise
     return _asset_response(asset)
 
@@ -794,20 +902,62 @@ def get_asset(
     asset_id: str,
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
-) -> FileResponse:
+) -> Response:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if not asset:
         raise HTTPException(status_code=404, detail="素材不存在或已被删除。")
 
     try:
-        file_path = context.storage.resolve_asset_path(asset.path)
+        file_path = context.storage.local_path(asset.path)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="素材文件不存在。")
+    if file_path is not None:
+        if not file_path.is_file():
+            raise HTTPException(status_code=404, detail="素材文件不存在。")
+        return FileResponse(file_path, media_type=asset.mime_type, filename=asset.original_name)
 
-    return FileResponse(file_path, media_type=asset.mime_type, filename=asset.original_name)
+    download_url = context.storage.create_download_url(
+        asset.path,
+        asset.original_name,
+        asset.mime_type,
+        expires_seconds=300,
+    )
+    if not download_url:
+        raise HTTPException(status_code=500, detail="存储服务未提供素材下载方式。")
+    return RedirectResponse(download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset(
+    asset_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: GameKnifeRepository = Depends(get_repository),
+) -> Response:
+    asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="素材不存在或已被删除。")
+    _require_project_workflow_write(
+        context,
+        "delete_asset",
+        {"asset_id": asset.id, "created_by": asset.created_by},
+    )
+    try:
+        # Repository reference checks and deletion share one transaction, so a concurrent Job or Sequence reference
+        # either wins first and returns 409, or observes the Asset as already absent.
+        repository.delete_assets_for_workspace([asset.id], context.workspace.id)
+    except ResourceReferenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_resource_reference_detail(exc),
+        ) from exc
+    try:
+        context.storage.delete_object(asset.path)
+    except Exception:  # noqa: BLE001
+        # The Asset row is authoritative for Community. Commercial replaces this best-effort edge with its durable
+        # object deletion outbox when the S3 lifecycle is implemented.
+        pass
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/manual-edits/save", response_model=AssetResponse)
@@ -832,16 +982,16 @@ async def save_manual_edit_asset(
     filename = _manual_edit_name(name, file.filename, "manual-edit", suffix)
     asset_id = uuid4().hex
     now = _now()
-    relative_path = context.storage.write_asset(asset_id, filename, content)
+    stored = _put_bytes(context, asset_id, filename, content)
     asset = AssetRecord(
         id=asset_id,
         workspace_id=context.workspace.id,
         created_by=context.principal.id,
         kind="manual_edit",
         original_name=filename,
-        path=relative_path,
+        path=stored.key,
         mime_type=file.content_type,
-        size_bytes=len(content),
+        size_bytes=stored.size_bytes,
         created_at=now,
         updated_at=now,
     )
@@ -850,7 +1000,7 @@ async def save_manual_edit_asset(
     except Exception:
         # Manual-edit saves create a new asset and remove its file if the database write fails.
         # This prevents an edited result without a traceable record from appearing in later job-history flows.
-        context.storage.remove_asset_file(relative_path)
+        context.storage.delete_object(stored.key)
         raise
     return _asset_response(asset)
 
@@ -862,6 +1012,15 @@ def _verify_image(content: bytes) -> None:
         Image.open(BytesIO(content)).verify()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=400, detail="上传文件不是有效图片。") from exc
+
+
+def _put_bytes(context: RequestContext, asset_id: str, original_name: str, content: bytes) -> StoredObject:
+    # Upload validation still operates on request bytes, but durable storage accepts local source paths so remote
+    # providers can use their normal multipart and retry implementation without exposing provider details here.
+    with TemporaryDirectory(prefix="gameknife-upload-") as directory:
+        source_path = Path(directory) / (Path(original_name).name or "upload.bin")
+        source_path.write_bytes(content)
+        return context.storage.put_file(asset_id, original_name, source_path)
 
 
 def _manual_edit_name(name: str | None, filename: str | None, fallback: str, suffix: str) -> str:
@@ -879,6 +1038,24 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
         size_bytes=asset.size_bytes,
         url=f"/api/assets/{asset.id}",
     )
+
+
+def _resource_reference_detail(exc: ResourceReferenceError) -> dict[str, object]:
+    return {
+        "code": "RESOURCE_REFERENCED",
+        "message": "资源仍被其他任务或序列使用，无法删除。",
+        "resource": {"kind": exc.resource_kind, "id": exc.resource_id},
+        "references": [
+            {
+                "asset_id": reference.asset_id,
+                "input_job_ids": list(reference.input_job_ids),
+                "output_job_ids": list(reference.output_job_ids),
+                "source_sequence_frame_ids": list(reference.source_sequence_frame_ids),
+                "processed_sequence_frame_ids": list(reference.processed_sequence_frame_ids),
+            }
+            for reference in exc.references
+        ],
+    }
 
 
 def _require_project_workflow_write(context: RequestContext, operation: str, resource: dict[str, object] | None = None) -> None:
@@ -998,20 +1175,29 @@ async def _save_sequence_upload(
     asset_id = uuid4().hex
     filename = Path(upload.filename or "frame.png").name
     now = _now()
-    relative_path = context.storage.write_asset(asset_id, filename, content)
+    stored = _put_bytes(context, asset_id, filename, content)
     asset = AssetRecord(
         id=asset_id,
         workspace_id=context.workspace.id,
         created_by=context.principal.id,
         kind="sequence_frame",
         original_name=filename,
-        path=relative_path,
+        path=stored.key,
         mime_type=upload.content_type or "application/octet-stream",
-        size_bytes=len(content),
+        size_bytes=stored.size_bytes,
         created_at=now,
         updated_at=now,
     )
-    repository.create_asset(asset)
+    try:
+        repository.create_asset(asset)
+    except Exception:
+        # The caller cannot add this Asset to its batch cleanup list until persistence returns. Remove the object
+        # here so an insert failure never leaves a storage key with no corresponding database record.
+        try:
+            context.storage.delete_object(stored.key)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
 
     try:
         with Image.open(BytesIO(content)) as opened:
@@ -1019,8 +1205,7 @@ async def _save_sequence_upload(
             bbox = image.getchannel("A").getbbox() or (0, 0, image.width, image.height)
             width, height = image.size
     except Exception as exc:  # noqa: BLE001
-        repository.delete_assets_for_workspace([asset.id], context.workspace.id)
-        context.storage.remove_asset_file(relative_path)
+        _cleanup_created_assets(repository, context, [asset])
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} 读取失败。") from exc
 
     return asset, {
@@ -1092,7 +1277,7 @@ def _ensure_sequence_job_input(
     context: RequestContext,
     sequence_id: str,
 ):
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
+    sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
@@ -1123,9 +1308,19 @@ def _guess_sequence_name(files: list[UploadFile]) -> str:
 
 
 def _cleanup_created_assets(repository: GameKnifeRepository, context: RequestContext, assets: list[AssetRecord]) -> None:
-    repository.delete_assets_for_workspace([asset.id for asset in assets], context.workspace.id)
+    if not assets:
+        return
+    try:
+        repository.delete_assets_for_workspace([asset.id for asset in assets], context.workspace.id)
+    except Exception:  # noqa: BLE001
+        # Keep objects when database cleanup does not commit; deleting them would leave durable Asset rows that point
+        # to missing content and would hide the original import failure.
+        return
     for asset in assets:
-        context.storage.remove_asset_file(asset.path)
+        try:
+            context.storage.delete_object(asset.path)
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def _job_response(job: JobRecord, context: RequestContext, repository: GameKnifeRepository) -> JobResponse:

@@ -5,11 +5,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from gameknife_core import JobRecord, ProcessResult, RequestContext
+from gameknife_core import ProcessResult, RequestContext
+from gameknife_jobs import JobSubmissionResult, TaskSubmission
 from gameknife_processors import SequenceFrameProcessor
 
 from .errors import WorkflowInputNotFoundError, WorkflowValidationError
-from .job_helpers import WorkflowRepository, create_job_record, mark_failed, mark_running, mark_success, output_path, register_output_assets
+from .job_helpers import (
+    WorkflowRepository,
+    claim_job,
+    cleanup_registered_output_assets,
+    create_job_record,
+    download_object,
+    mark_failed,
+    mark_success,
+    output_path,
+    register_output_assets,
+    temporary_job_directory,
+)
 
 
 sequence_processor = SequenceFrameProcessor()
@@ -29,22 +41,24 @@ def create_sequence_frames_export_workflow(
     *,
     sequence_id: str,
     parameters: dict[str, Any],
-) -> tuple[JobRecord, Callable[[], None]]:
+    submission: TaskSubmission | None = None,
+) -> tuple[JobSubmissionResult, Callable[[], None]]:
     _sequence, input_asset_id = _ensure_sequence_export_input(repository, context, sequence_id)
     # Export depends only on current sequence records and enabled frames, without requiring a prior cleanup job.
     # Users can therefore export the original PNG package immediately after import.
-    job = create_job_record(
+    submitted = create_job_record(
         repository,
         context,
         job_type="sequence_export_frames",
         input_asset_id=input_asset_id,
         parameters={"sequence_id": sequence_id, **parameters},
+        submission=submission,
     )
 
     def run() -> None:
-        run_sequence_frames_export_workflow(repository, context, job.id, sequence_id)
+        run_sequence_frames_export_workflow(repository, context, submitted.job.id, sequence_id)
 
-    return job, run
+    return submitted, run
 
 
 def create_sequence_spine_export_workflow(
@@ -53,21 +67,23 @@ def create_sequence_spine_export_workflow(
     *,
     sequence_id: str,
     parameters: dict[str, Any],
-) -> tuple[JobRecord, Callable[[], None]]:
+    submission: TaskSubmission | None = None,
+) -> tuple[JobSubmissionResult, Callable[[], None]]:
     _sequence, input_asset_id = _ensure_sequence_export_input(repository, context, sequence_id)
     # Spine and PNG exports share sequence validation so missing sequences and empty frames behave consistently.
-    job = create_job_record(
+    submitted = create_job_record(
         repository,
         context,
         job_type="sequence_export_spine",
         input_asset_id=input_asset_id,
         parameters={"sequence_id": sequence_id, **parameters},
+        submission=submission,
     )
 
     def run() -> None:
-        run_sequence_spine_export_workflow(repository, context, job.id, sequence_id)
+        run_sequence_spine_export_workflow(repository, context, submitted.job.id, sequence_id)
 
-    return job, run
+    return submitted, run
 
 
 def run_sequence_frames_export_workflow(
@@ -112,6 +128,8 @@ def _ensure_sequence_export_input(
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
         raise WorkflowInputNotFoundError("序列帧不存在。")
+    if sequence["active_job_id"] is not None:
+        raise WorkflowValidationError("序列帧正在处理中，请稍后导出。")
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
         raise WorkflowValidationError("序列帧没有可用帧。")
@@ -129,29 +147,36 @@ def _run_sequence_export_workflow(
     processor: Callable[[dict[str, Any], list[dict[str, Any]], Path, dict[str, Any]], ProcessResult],
 ) -> None:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if job is None:
         return
+    if not claim_job(repository, context, job.id):
+        return
+    sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
         mark_failed(repository, context, job_id, "序列帧不存在。")
+        return
+    if sequence["active_job_id"] is not None:
+        mark_failed(repository, context, job_id, "序列帧正在处理中，请稍后导出。")
         return
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
         mark_failed(repository, context, job_id, "序列帧没有可导出的帧。")
         return
 
-    mark_running(repository, context, job_id)
+    output_assets: list[dict[str, str]] = []
     try:
-        target_path = output_path(context, job_id, f"{_safe_name(str(sequence['name']))}{output_suffix}")
-        result = processor(
-            _sequence_mapping(sequence),
-            _frame_mappings(context, frames),
-            target_path,
-            json.loads(job.parameters_json),
-        )
-        output_assets = register_output_assets(repository, context, result.output_paths, output_kind, "application/zip")
+        with temporary_job_directory(job.id) as working_directory:
+            target_path = output_path(working_directory, f"{_safe_name(str(sequence['name']))}{output_suffix}")
+            result = processor(
+                _sequence_mapping(sequence),
+                _frame_mappings(context, frames, working_directory),
+                target_path,
+                json.loads(job.parameters_json),
+            )
+            output_assets = register_output_assets(repository, context, job.id, result.output_paths, output_kind, "application/zip")
         mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
     except Exception as exc:  # noqa: BLE001
+        cleanup_registered_output_assets(repository, context, job_id, output_assets)
         mark_failed(repository, context, job_id, str(exc))
 
 
@@ -169,11 +194,24 @@ def _sequence_mapping(sequence: Any) -> dict[str, Any]:
     }
 
 
-def _frame_mappings(context: RequestContext, frames: list[Any]) -> list[dict[str, Any]]:
+def _frame_mappings(context: RequestContext, frames: list[Any], working_directory: Path) -> list[dict[str, Any]]:
     mapped: list[dict[str, Any]] = []
     for frame in frames:
-        source_path = context.storage.resolve_asset_path(frame["source_path"])
-        processed_path = context.storage.resolve_asset_path(frame["processed_path"]) if frame["processed_path"] else None
+        frame_directory = working_directory / "frames" / str(frame["id"])
+        source_path = download_object(
+            context,
+            frame["source_path"],
+            frame_directory / f"source{Path(frame['source_path']).suffix or '.bin'}",
+        )
+        processed_path = (
+            download_object(
+                context,
+                frame["processed_path"],
+                frame_directory / f"processed{Path(frame['processed_path']).suffix or '.bin'}",
+            )
+            if frame["processed_path"]
+            else None
+        )
         mapped.append(
             {
                 "id": frame["id"],

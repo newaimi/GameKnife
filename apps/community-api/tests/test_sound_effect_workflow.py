@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
-from gameknife_jobs import SQLiteGameKnifeRepository, init_sqlite_schema
+from gameknife_core import AllowAllPermissionChecker, CapabilitySet, JobRecord, Principal, RequestContext, Workspace
+from gameknife_jobs import JobSubmissionResult, SQLiteGameKnifeRepository, TaskSubmission, init_sqlite_schema
 from gameknife_storage import LocalStorageProvider
 from gameknife_workflows import (
     WorkflowModelNotInstalledError,
@@ -33,6 +33,25 @@ class FakeSoundEffectService:
             "queue_wait_ms": 0,
             "duration_ms": 5,
         }
+
+
+class ReplaySoundEffectRepository(SQLiteGameKnifeRepository):
+    def __init__(self, database_path: Path) -> None:
+        super().__init__(database_path)
+        self._accepted_by_key: dict[str, JobRecord] = {}
+
+    def create_job(
+        self,
+        job: JobRecord,
+        submission: TaskSubmission | None = None,
+    ) -> JobSubmissionResult:
+        key = submission.idempotency_key if submission is not None else None
+        if key is not None and key in self._accepted_by_key:
+            return JobSubmissionResult(job=self._accepted_by_key[key], replayed=True)
+        result = super().create_job(job, submission)
+        if key is not None:
+            self._accepted_by_key[key] = result.job
+        return result
 
 
 def test_sound_effect_workflow_rejects_blank_prompt(tmp_path: Path) -> None:
@@ -87,12 +106,13 @@ def test_sound_effect_workflow_creates_prompt_and_wav_assets(tmp_path: Path) -> 
     repository, context = _make_repository_and_context(tmp_path)
     service = FakeSoundEffectService()
 
-    job, runner = create_sound_effect_workflow(
+    submitted, runner = create_sound_effect_workflow(
         repository,
         context,
         service,
         parameters={"prompt": " coin pickup ", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -108,15 +128,62 @@ def test_sound_effect_workflow_creates_prompt_and_wav_assets(tmp_path: Path) -> 
     assert output_asset is not None
     assert output_asset.kind == "sound_effect"
     assert output_asset.mime_type == "audio/wav"
-    assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"RIFF")
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    assert output_path.read_bytes().startswith(b"RIFF")
     assert service.generate_calls == 1
 
 
-def _make_repository_and_context(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext]:
+def test_sound_effect_replay_reuses_input_and_removes_unaccepted_prompt(tmp_path: Path) -> None:
+    repository, context = _make_repository_and_context(tmp_path, ReplaySoundEffectRepository)
+    service = FakeSoundEffectService()
+    submission = TaskSubmission(idempotency_key="sound-request-1", quote_id="quote-1")
+
+    first, _first_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+    replay, _replay_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+    changed_prompt_replay, _changed_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "sword impact", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+
+    prompt_assets = [
+        asset
+        for asset in repository.list_assets_for_workspace(context.workspace.id)
+        if asset.kind == "sound_prompt"
+    ]
+    assert first.replayed is False
+    assert replay.replayed is True
+    assert changed_prompt_replay.replayed is True
+    assert replay.job.id == first.job.id
+    assert replay.job.input_asset_id == first.job.input_asset_id
+    assert changed_prompt_replay.job.id == first.job.id
+    assert [asset.id for asset in prompt_assets] == [first.job.input_asset_id]
+    assert len(list((tmp_path / "storage" / "assets").glob("*.txt"))) == 1
+
+
+def _make_repository_and_context(
+    tmp_path: Path,
+    repository_type: type[SQLiteGameKnifeRepository] = SQLiteGameKnifeRepository,
+) -> tuple[SQLiteGameKnifeRepository, RequestContext]:
     storage = LocalStorageProvider(tmp_path / "storage")
     database_path = tmp_path / "storage" / "gameknife.sqlite3"
     init_sqlite_schema(database_path)
-    repository = SQLiteGameKnifeRepository(database_path)
+    repository = repository_type(database_path)
     context = RequestContext(
         principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
         workspace=Workspace(id="local", kind="local", name="本地工作区"),

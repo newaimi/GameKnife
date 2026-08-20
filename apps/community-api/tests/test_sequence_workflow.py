@@ -16,7 +16,8 @@ from gameknife_workflows import create_sequence_frames_export_workflow, create_s
 def test_sequence_frames_export_workflow_creates_png_zip(tmp_path: Path) -> None:
     repository, context, sequence_id = _make_repository_context_and_sequence(tmp_path)
 
-    job, runner = create_sequence_frames_export_workflow(repository, context, sequence_id=sequence_id, parameters={})
+    submitted, runner = create_sequence_frames_export_workflow(repository, context, sequence_id=sequence_id, parameters={})
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -27,7 +28,9 @@ def test_sequence_frames_export_workflow_creates_png_zip(tmp_path: Path) -> None
     assert stored.job_type == "sequence_export_frames"
     assert output_asset is not None
     assert output_asset.kind == "sequence_export"
-    with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
         names = set(archive.namelist())
     assert "manifest.json" in names
     assert "spritesheet.png" in names
@@ -36,7 +39,8 @@ def test_sequence_frames_export_workflow_creates_png_zip(tmp_path: Path) -> None
 def test_sequence_spine_export_workflow_creates_spine_zip(tmp_path: Path) -> None:
     repository, context, sequence_id = _make_repository_context_and_sequence(tmp_path)
 
-    job, runner = create_sequence_spine_export_workflow(repository, context, sequence_id=sequence_id, parameters={})
+    submitted, runner = create_sequence_spine_export_workflow(repository, context, sequence_id=sequence_id, parameters={})
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -48,7 +52,9 @@ def test_sequence_spine_export_workflow_creates_spine_zip(tmp_path: Path) -> Non
     assert result["warnings"] == ["Spine 导出为逐帧切换附件，不包含骨骼绑定和蒙皮权重。"]
     assert output_asset is not None
     assert output_asset.kind == "sequence_spine"
-    with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
         names = set(archive.namelist())
     assert "walk.png" in names
     assert "walk.atlas" in names
@@ -64,16 +70,18 @@ def _make_repository_context_and_sequence(tmp_path: Path) -> tuple[SQLiteGameKni
     for index, color in enumerate([(255, 0, 0, 255), (0, 0, 255, 255)], start=1):
         asset_id = f"asset-{index}"
         filename = f"walk_{index:03d}.png"
-        asset_path = storage.write_asset(asset_id, filename, _make_sequence_frame_bytes(color))
+        source_path = tmp_path / filename
+        source_path.write_bytes(_make_sequence_frame_bytes(color))
+        stored = storage.put_file(asset_id, filename, source_path)
         asset = AssetRecord(
             id=asset_id,
             workspace_id="local",
             created_by="anonymous",
             kind="sequence_frame",
             original_name=filename,
-            path=asset_path,
+            path=stored.key,
             mime_type="image/png",
-            size_bytes=storage.resolve_asset_path(asset_path).stat().st_size,
+            size_bytes=stored.size_bytes,
             created_at="2026-01-01T00:00:00+00:00",
             updated_at="2026-01-01T00:00:00+00:00",
         )

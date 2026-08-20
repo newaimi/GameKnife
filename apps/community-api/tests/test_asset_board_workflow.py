@@ -57,12 +57,13 @@ def test_asset_board_region_workflow_rejects_missing_input_asset(tmp_path: Path)
 def test_asset_board_region_workflow_detects_components_without_output_assets(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_region_workflow(
+    submitted, runner = create_asset_board_region_workflow(
         repository,
         context,
         input_asset_id=asset.id,
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -113,13 +114,14 @@ def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> Non
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
     model = FakeAssetBoardCutoutModel()
 
-    job, runner = create_asset_board_cutout_workflow(
+    submitted, runner = create_asset_board_cutout_workflow(
         repository,
         context,
         model,
         input_asset_id=asset.id,
         parameters={},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -131,19 +133,22 @@ def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> Non
     assert result["cutout_asset_id"] == result["output_assets"][0]["id"]
     assert output_asset is not None
     assert output_asset.kind == "asset_cutout"
-    assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"\x89PNG")
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    assert output_path.read_bytes().startswith(b"\x89PNG")
     assert model.predict_calls == 1
 
 
 def test_asset_board_refine_workflow_refreshes_components(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_refine_workflow(
+    submitted, runner = create_asset_board_refine_workflow(
         repository,
         context,
         cutout_asset_id=asset.id,
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -159,7 +164,7 @@ def test_asset_board_refine_workflow_refreshes_components(tmp_path: Path) -> Non
 def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_export_workflow(
+    submitted, runner = create_asset_board_export_workflow(
         repository,
         context,
         cutout_asset_id=asset.id,
@@ -167,6 +172,7 @@ def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
         components=[],
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -179,7 +185,9 @@ def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
     assert output_asset is not None
     assert output_asset.kind == "asset_component"
     assert output_asset.mime_type == "application/zip"
-    with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
         assert len(archive.namelist()) == 2
 
 
@@ -189,16 +197,18 @@ def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeR
     init_sqlite_schema(database_path)
     repository = SQLiteGameKnifeRepository(database_path)
     asset_id = "asset-1"
-    asset_path = storage.write_asset(asset_id, "sheet.png", _make_asset_board_png_bytes())
+    source_path = tmp_path / "sheet.png"
+    source_path.write_bytes(_make_asset_board_png_bytes())
+    stored = storage.put_file(asset_id, "sheet.png", source_path)
     asset = AssetRecord(
         id=asset_id,
         workspace_id="local",
         created_by="anonymous",
         kind="image",
         original_name="sheet.png",
-        path=asset_path,
+        path=stored.key,
         mime_type="image/png",
-        size_bytes=storage.resolve_asset_path(asset_path).stat().st_size,
+        size_bytes=stored.size_bytes,
         created_at="2026-01-01T00:00:00+00:00",
         updated_at="2026-01-01T00:00:00+00:00",
     )
