@@ -4,6 +4,7 @@ export { CommunitySettingsPage } from "./pages/settings/CommunitySettingsPage";
 export { ImageAssetSessionProvider } from "./context/ImageAssetSession";
 export {
   WorkflowSubmissionProvider,
+  WorkflowSubmissionCancelledError,
   useWorkflowSubmission,
   type WorkflowSubmissionProviderValue,
   type WorkflowSubmissionRequest,

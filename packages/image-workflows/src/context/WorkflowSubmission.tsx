@@ -14,6 +14,13 @@ export interface WorkflowSubmissionProviderValue {
   onJobFinished?(job: JobResponse): void;
 }
 
+export class WorkflowSubmissionCancelledError extends Error {
+  constructor() {
+    super("Workflow submission was cancelled.");
+    this.name = "WorkflowSubmissionCancelledError";
+  }
+}
+
 const directSubmissionProvider: WorkflowSubmissionProviderValue = {
   submit<TJob extends JobResponse>(request: WorkflowSubmissionRequest<TJob>) {
     return request.createJob();

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { TaskSubmissionOptions } from "@gameknife/api-client";
 import type { JobResponse } from "@gameknife/shared-types";
 import { readJobFailureDialog, readRequestFailureDialog } from "../components/FailureDialog";
-import { useWorkflowSubmission } from "../context/WorkflowSubmission";
+import { useWorkflowSubmission, WorkflowSubmissionCancelledError } from "../context/WorkflowSubmission";
 import type { FailureDialogState } from "../types/failure";
 import { readMessage } from "../utils/errors";
 import { waitForJob, type JobPollingOptions } from "../utils/jobs";
@@ -59,6 +59,9 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
       }
       return finished;
     } catch (exc) {
+      if (exc instanceof WorkflowSubmissionCancelledError) {
+        return null;
+      }
       setError(readMessage(exc));
       setFailureDialog(readRequestFailureDialog(options.failureTitle, options.failureMessage, exc));
       return null;

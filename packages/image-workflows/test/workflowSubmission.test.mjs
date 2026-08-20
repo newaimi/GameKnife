@@ -91,6 +91,8 @@ test("useWorkflowJob delegates creation and terminal notification to the injecte
   assert.match(source, /parameters: options\.parameters/);
   assert.match(source, /idempotencyPayload: options\.idempotencyPayload/);
   assert.match(source, /submissionProvider\.onJobFinished\?\.\(finished\)/);
+  assert.match(source, /exc instanceof WorkflowSubmissionCancelledError/);
+  assert.match(source, /return null/);
 });
 
 test("sequence clean submits only client-known parameters", () => {
