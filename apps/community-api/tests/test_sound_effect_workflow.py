@@ -3,8 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from gameknife_core import AllowAllPermissionChecker, CapabilitySet, JobRecord, Principal, RequestContext, Workspace
-from gameknife_jobs import JobSubmissionResult, SQLiteGameKnifeRepository, TaskSubmission, init_sqlite_schema
+from gameknife_jobs import (
+    AssetWriteInProgressError,
+    JobSubmissionResult,
+    SQLiteGameKnifeRepository,
+    TaskSubmission,
+    init_sqlite_schema,
+)
 from gameknife_storage import LocalStorageProvider
 from gameknife_workflows import (
     WorkflowModelNotInstalledError,
@@ -52,6 +59,18 @@ class ReplaySoundEffectRepository(SQLiteGameKnifeRepository):
         if key is not None:
             self._accepted_by_key[key] = result.job
         return result
+
+
+class FencedPromptRepository(SQLiteGameKnifeRepository):
+    def create_pending_asset(
+        self,
+        asset,
+        *,
+        reserved_bytes: int,
+        reservation_job_id: str | None = None,
+    ):
+        del reserved_bytes, reservation_job_id
+        raise AssetWriteInProgressError(asset.id)
 
 
 def test_sound_effect_workflow_rejects_blank_prompt(tmp_path: Path) -> None:
@@ -174,6 +193,35 @@ def test_sound_effect_replay_reuses_input_and_removes_unaccepted_prompt(tmp_path
     assert changed_prompt_replay.job.id == first.job.id
     assert [asset.id for asset in prompt_assets] == [first.job.input_asset_id]
     assert len(list((tmp_path / "storage" / "assets").glob("*.txt"))) == 1
+
+
+def test_sound_effect_prompt_delete_fence_returns_service_unavailable(
+    tmp_path: Path,
+) -> None:
+    repository, context = _make_repository_and_context(
+        tmp_path,
+        FencedPromptRepository,
+    )
+
+    with pytest.raises(
+        WorkflowServiceUnavailableError,
+        match="相同声效任务正在提交",
+    ):
+        create_sound_effect_workflow(
+            repository,
+            context,
+            FakeSoundEffectService(),
+            parameters={
+                "prompt": "coin pickup",
+                "duration_seconds": 1,
+                "steps": 20,
+                "cfg_scale": 5,
+            },
+            submission=TaskSubmission(
+                idempotency_key="sound-fenced",
+                quote_id="quote-fenced",
+            ),
+        )
 
 
 def _make_repository_and_context(

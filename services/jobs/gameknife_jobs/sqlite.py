@@ -185,6 +185,37 @@ class SQLiteGameKnifeRepository:
                 ),
             )
 
+    def create_pending_asset(
+        self,
+        asset: AssetRecord,
+        *,
+        reserved_bytes: int,
+        reservation_job_id: str | None = None,
+    ) -> AssetRecord | None:
+        # Community has no shared quota or remote object store. Deferring the SQLite insert until finalization keeps
+        # pending Commercial lifecycle state out of the local database while preserving the same public call order.
+        del reservation_job_id
+        if asset.storage_state != "pending" or reserved_bytes < 0:
+            raise ValueError("Pending assets require a non-negative reservation.")
+        return None
+
+    def finalize_pending_asset(self, asset: AssetRecord) -> None:
+        if asset.storage_state != "ready":
+            raise ValueError("Only ready assets can be finalized.")
+        self.create_asset(asset)
+
+    def fail_pending_asset(
+        self,
+        asset_id: str,
+        workspace_id: str,
+        *,
+        storage_key: str | None,
+        failure_code: str,
+        updated_at: str,
+    ) -> None:
+        # No pending row is created for Community, so a failed local write has no database state to settle.
+        del asset_id, workspace_id, storage_key, failure_code, updated_at
+
     def get_asset_for_workspace(self, asset_id: str, workspace_id: str) -> AssetRecord | None:
         with self._connect() as connection:
             row = connection.execute(

@@ -1,3 +1,4 @@
+from .asset_persistence import AssetPersistenceRepository, persist_asset_file
 from .asset_board import (
     create_asset_board_cutout_workflow,
     create_asset_board_export_workflow,
@@ -28,6 +29,7 @@ from .sequence import (
 from .upscale import create_upscale_workflow, run_upscale_workflow
 
 __all__ = [
+    "AssetPersistenceRepository",
     "WorkflowInputNotFoundError",
     "WorkflowModelNotInstalledError",
     "WorkflowServiceUnavailableError",
@@ -41,6 +43,7 @@ __all__ = [
     "create_sequence_spine_export_workflow",
     "create_sound_effect_workflow",
     "create_upscale_workflow",
+    "persist_asset_file",
     "run_asset_board_cutout_workflow",
     "run_asset_board_export_workflow",
     "run_asset_board_refine_workflow",

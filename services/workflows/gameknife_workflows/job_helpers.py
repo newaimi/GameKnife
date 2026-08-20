@@ -12,8 +12,10 @@ from uuid import uuid4
 from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord, ProcessResult, RequestContext
 from gameknife_jobs import JobSubmissionResult, TaskSubmission
 
+from .asset_persistence import AssetPersistenceRepository, persist_asset_file
 
-class WorkflowRepository(Protocol):
+
+class WorkflowRepository(AssetPersistenceRepository, Protocol):
     def create_asset(self, asset: AssetRecord) -> None:
         ...
 
@@ -177,21 +179,25 @@ def register_output_assets(
         for path in paths:
             asset_id = uuid4().hex
             now = _now()
-            stored = context.storage.put_file(asset_id, path.name, path)
-            asset = AssetRecord(
-                id=asset_id,
-                workspace_id=context.workspace.id,
-                created_by=context.principal.id,
-                kind=kind,
-                original_name=path.name,
-                path=stored.key,
-                mime_type=mime_type,
-                size_bytes=stored.size_bytes,
-                created_at=now,
-                updated_at=now,
+            asset = persist_asset_file(
+                repository,
+                context.storage,
+                AssetRecord(
+                    id=asset_id,
+                    workspace_id=context.workspace.id,
+                    created_by=context.principal.id,
+                    kind=kind,
+                    original_name=path.name,
+                    path="",
+                    mime_type=mime_type,
+                    size_bytes=path.stat().st_size,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                path,
+                reservation_job_id=job_id,
             )
             stored_assets.append(asset)
-            repository.create_asset(asset)
             if record_job_output:
                 # State-changing jobs may persist assets owned by their target entity. Other processors must record
                 # the job-output relationship before success so delivery checks never depend on result JSON alone.

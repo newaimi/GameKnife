@@ -5,6 +5,7 @@ import sqlite3
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory as RealTemporaryDirectory
+from threading import get_ident
 from types import SimpleNamespace
 import zipfile
 
@@ -278,6 +279,104 @@ def test_image_upload_creates_local_anonymous_asset(tmp_path: Path) -> None:
 
     assert row == ("local", "anonymous", "image", "sprite.png")
     assert "user_id" not in columns
+
+
+def test_asset_upload_rejects_body_above_the_streaming_limit(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(api_routes, "MAX_ASSET_UPLOAD_BYTES", 4)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/api/assets/images",
+            files={"file": ("oversized.png", b"12345", "image/png")},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "上传文件不能超过 50MB。"
+
+
+@pytest.mark.parametrize(
+    ("route", "field_name", "filename", "content_type", "form_data"),
+    [
+        ("/api/assets/images", "file", "sprite.png", "image/png", {}),
+        ("/api/assets/videos", "file", "clip.mp4", "video/mp4", {}),
+        ("/api/manual-edits/save", "file", "edited.png", "image/png", {}),
+        ("/api/sequences/import", "files", "idle-01.png", "image/png", {"fps": "12"}),
+    ],
+)
+def test_async_upload_routes_run_the_complete_asset_persistence_chain_in_one_worker_thread(
+    tmp_path: Path,
+    monkeypatch,
+    route: str,
+    field_name: str,
+    filename: str,
+    content_type: str,
+    form_data: dict[str, str],
+) -> None:
+    event_loop_threads: list[int] = []
+    persistence_threads: dict[str, list[int]] = {
+        "reserve": [],
+        "put_file": [],
+        "finalize": [],
+    }
+    sequence_write_threads: list[int] = []
+    original_stage_upload = api_routes._stage_upload
+
+    async def record_stage_upload(*args, **kwargs):
+        event_loop_threads.append(get_ident())
+        return await original_stage_upload(*args, **kwargs)
+
+    monkeypatch.setattr(api_routes, "_stage_upload", record_stage_upload)
+    payload = make_png_bytes() if content_type == "image/png" else b"video-payload"
+    with make_client(tmp_path) as client:
+        repository = client.app.state.repository
+        storage = client.app.state.storage
+
+        def record_call(target, method_name: str, stage: str) -> None:
+            original = getattr(target, method_name)
+
+            def recorded(*args, **kwargs):
+                persistence_threads[stage].append(get_ident())
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(target, method_name, recorded)
+
+        record_call(repository, "create_pending_asset", "reserve")
+        record_call(storage, "put_file", "put_file")
+        record_call(repository, "finalize_pending_asset", "finalize")
+        if route == "/api/sequences/import":
+            original_create_sequence = repository.create_sequence_with_frames
+
+            def record_sequence_write(*args, **kwargs):
+                sequence_write_threads.append(get_ident())
+                return original_create_sequence(*args, **kwargs)
+
+            monkeypatch.setattr(
+                repository,
+                "create_sequence_with_frames",
+                record_sequence_write,
+            )
+        response = client.post(
+            route,
+            files={field_name: (filename, payload, content_type)},
+            data=form_data,
+        )
+
+    assert response.status_code == 200
+    assert len(event_loop_threads) == 1
+    assert {stage: len(threads) for stage, threads in persistence_threads.items()} == {
+        "reserve": 1,
+        "put_file": 1,
+        "finalize": 1,
+    }
+    worker_threads = {
+        thread_id
+        for stage_threads in persistence_threads.values()
+        for thread_id in stage_threads
+    }
+    assert len(worker_threads) == 1
+    assert worker_threads != set(event_loop_threads)
+    if route == "/api/sequences/import":
+        assert len(sequence_write_threads) == 1
+        assert set(sequence_write_threads) != set(event_loop_threads)
 
 
 def test_uploaded_asset_can_be_read_without_authorization(tmp_path: Path) -> None:

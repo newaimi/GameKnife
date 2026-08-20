@@ -33,6 +33,9 @@ class AssetRecord:
     size_bytes: int
     created_at: str
     updated_at: str
+    storage_state: str = "ready"
+    storage_etag: str | None = None
+    checksum_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

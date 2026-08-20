@@ -1,5 +1,11 @@
 from .dispatch import InProcessJobDispatcher, JobDispatcher, JobExecutionHandler, JobResolver, JobScheduler
-from .errors import InvalidJobStateTransitionError, JobDeliveryRequirementError, ResourceReferenceError, SequenceActiveJobError
+from .errors import (
+    AssetWriteInProgressError,
+    InvalidJobStateTransitionError,
+    JobDeliveryRequirementError,
+    ResourceReferenceError,
+    SequenceActiveJobError,
+)
 from .job_types import (
     JOB_TYPE_REGISTRY,
     JobDeliveryRequirement,
@@ -14,6 +20,7 @@ from .submission import JobSubmissionResult, TaskSubmission
 
 __all__ = [
     "GameKnifeRepository",
+    "AssetWriteInProgressError",
     "InProcessJobDispatcher",
     "InvalidJobStateTransitionError",
     "JOB_TYPE_REGISTRY",

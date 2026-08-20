@@ -19,6 +19,29 @@ class GameKnifeRepository(Protocol):
     def create_asset(self, asset: AssetRecord) -> None:
         ...
 
+    def create_pending_asset(
+        self,
+        asset: AssetRecord,
+        *,
+        reserved_bytes: int,
+        reservation_job_id: str | None = None,
+    ) -> AssetRecord | None:
+        ...
+
+    def finalize_pending_asset(self, asset: AssetRecord) -> None:
+        ...
+
+    def fail_pending_asset(
+        self,
+        asset_id: str,
+        workspace_id: str,
+        *,
+        storage_key: str | None,
+        failure_code: str,
+        updated_at: str,
+    ) -> None:
+        ...
+
     def get_asset_for_workspace(self, asset_id: str, workspace_id: str) -> AssetRecord | None:
         ...
 

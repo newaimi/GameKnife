@@ -5,7 +5,6 @@ import platform
 import re
 import sys
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -13,6 +12,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse, RedirectResponse
 from PIL import Image, UnidentifiedImageError
+from starlette.concurrency import run_in_threadpool
 
 from gameknife_api.deps import (
     CommunitySettings,
@@ -49,7 +49,7 @@ from gameknife_api.schemas import (
     VideoSequenceGenerateRequest,
     VideoToSequenceRequest,
 )
-from gameknife_core import AssetRecord, JobRecord, RequestContext, StoredObject
+from gameknife_core import AssetRecord, JobRecord, RequestContext
 from gameknife_jobs import (
     GameKnifeRepository,
     JobDispatcher,
@@ -75,6 +75,7 @@ from gameknife_workflows import (
     create_sequence_spine_export_workflow,
     create_sound_effect_workflow,
     create_upscale_workflow,
+    persist_asset_file,
 )
 
 router = APIRouter()
@@ -107,6 +108,8 @@ ALLOWED_MANUAL_EDIT_TYPES = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+MAX_ASSET_UPLOAD_BYTES = 50 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "alpha_threshold": 24,
     "alpha_smoothing": 0,
@@ -516,7 +519,8 @@ async def import_sequence_frames(
             asset, frame_payload = await _save_sequence_upload(upload, context, repository)
             created_assets.append(asset)
             frame_payloads.append(frame_payload)
-        sequence = repository.create_sequence_with_frames(
+        sequence = await run_in_threadpool(
+            repository.create_sequence_with_frames,
             workspace_id=context.workspace.id,
             created_by=context.principal.id,
             name=(name or _guess_sequence_name(ordered_files)).strip() or "未命名序列帧",
@@ -527,10 +531,10 @@ async def import_sequence_frames(
             created_at=_now(),
         )
     except HTTPException:
-        _cleanup_created_assets(repository, context, created_assets)
+        await run_in_threadpool(_cleanup_created_assets, repository, context, created_assets)
         raise
     except Exception as exc:  # noqa: BLE001
-        _cleanup_created_assets(repository, context, created_assets)
+        await run_in_threadpool(_cleanup_created_assets, repository, context, created_assets)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="序列帧导入失败。") from exc
 
     return _sequence_response(sequence, context, repository, warnings=warnings)
@@ -830,33 +834,32 @@ async def upload_image_asset(
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传文件必须是图片。")
 
-    content = await file.read()
-    _verify_image(content)
-
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.png").name
     now = _now()
-    stored = _put_bytes(context, asset_id, filename, content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="image",
-        original_name=filename,
-        path=stored.key,
-        mime_type=file.content_type,
-        size_bytes=stored.size_bytes,
-        created_at=now,
-        updated_at=now,
-    )
-
-    try:
-        repository.create_asset(asset)
-    except Exception:
-        # Uploads write the file before the database record and remove the new file if persistence fails.
-        # This prevents orphaned files and keeps every asset-list entry traceable to a database record.
-        context.storage.delete_object(stored.key)
-        raise
+    with TemporaryDirectory(prefix="gameknife-upload-", ignore_cleanup_errors=True) as directory:
+        source_path, size_bytes = await _stage_upload(file, Path(directory), filename)
+        _verify_image_path(source_path)
+        # Reserve, object storage, and finalize stay in one worker-thread call so no partial persistence
+        # state is exposed by splitting the workflow across separate thread-pool operations.
+        asset = await run_in_threadpool(
+            persist_asset_file,
+            repository,
+            context.storage,
+            AssetRecord(
+                id=asset_id,
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                kind="image",
+                original_name=filename,
+                path="",
+                mime_type=file.content_type,
+                size_bytes=size_bytes,
+                created_at=now,
+                updated_at=now,
+            ),
+            source_path,
+        )
 
     return _asset_response(asset)
 
@@ -871,31 +874,29 @@ async def upload_video_asset(
     if not file.content_type or not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="上传文件必须是视频。")
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="上传文件不能为空。")
-
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.mp4").name
     now = _now()
-    stored = _put_bytes(context, asset_id, filename, content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="video",
-        original_name=filename,
-        path=stored.key,
-        mime_type=file.content_type,
-        size_bytes=stored.size_bytes,
-        created_at=now,
-        updated_at=now,
-    )
-    try:
-        repository.create_asset(asset)
-    except Exception:
-        context.storage.delete_object(stored.key)
-        raise
+    with TemporaryDirectory(prefix="gameknife-upload-", ignore_cleanup_errors=True) as directory:
+        source_path, size_bytes = await _stage_upload(file, Path(directory), filename)
+        asset = await run_in_threadpool(
+            persist_asset_file,
+            repository,
+            context.storage,
+            AssetRecord(
+                id=asset_id,
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                kind="video",
+                original_name=filename,
+                path="",
+                mime_type=file.content_type,
+                size_bytes=size_bytes,
+                created_at=now,
+                updated_at=now,
+            ),
+            source_path,
+        )
     return _asset_response(asset)
 
 
@@ -973,56 +974,65 @@ async def save_manual_edit_asset(
 ) -> AssetResponse:
     _require_project_workflow_write(context, "save_manual_edit", {"source_asset_id": source_asset_id})
     if source_asset_id:
-        _ensure_asset_exists(repository, context, source_asset_id)
+        await run_in_threadpool(_ensure_asset_exists, repository, context, source_asset_id)
     if file.content_type not in ALLOWED_MANUAL_EDIT_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 图片。")
-
-    content = await file.read()
-    _verify_image(content)
 
     suffix = ALLOWED_MANUAL_EDIT_TYPES[file.content_type]
     filename = _manual_edit_name(name, file.filename, "manual-edit", suffix)
     asset_id = uuid4().hex
     now = _now()
-    stored = _put_bytes(context, asset_id, filename, content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="manual_edit",
-        original_name=filename,
-        path=stored.key,
-        mime_type=file.content_type,
-        size_bytes=stored.size_bytes,
-        created_at=now,
-        updated_at=now,
-    )
-    try:
-        repository.create_asset(asset)
-    except Exception:
-        # Manual-edit saves create a new asset and remove its file if the database write fails.
-        # This prevents an edited result without a traceable record from appearing in later job-history flows.
-        context.storage.delete_object(stored.key)
-        raise
+    with TemporaryDirectory(prefix="gameknife-upload-", ignore_cleanup_errors=True) as directory:
+        source_path, size_bytes = await _stage_upload(file, Path(directory), filename)
+        _verify_image_path(source_path)
+        asset = await run_in_threadpool(
+            persist_asset_file,
+            repository,
+            context.storage,
+            AssetRecord(
+                id=asset_id,
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                kind="manual_edit",
+                original_name=filename,
+                path="",
+                mime_type=file.content_type,
+                size_bytes=size_bytes,
+                created_at=now,
+                updated_at=now,
+            ),
+            source_path,
+        )
     return _asset_response(asset)
 
 
-def _verify_image(content: bytes) -> None:
-    if not content:
-        raise HTTPException(status_code=400, detail="上传文件不能为空。")
+def _verify_image_path(source_path: Path) -> None:
     try:
-        Image.open(BytesIO(content)).verify()
+        Image.open(source_path).verify()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=400, detail="上传文件不是有效图片。") from exc
 
 
-def _put_bytes(context: RequestContext, asset_id: str, original_name: str, content: bytes) -> StoredObject:
-    # Upload validation still operates on request bytes, but durable storage accepts local source paths so remote
-    # providers can use their normal multipart and retry implementation without exposing provider details here.
-    with TemporaryDirectory(prefix="gameknife-upload-") as directory:
-        source_path = Path(directory) / (Path(original_name).name or "upload.bin")
-        source_path.write_bytes(content)
-        return context.storage.put_file(asset_id, original_name, source_path)
+async def _stage_upload(upload: UploadFile, directory: Path, fallback_name: str) -> tuple[Path, int]:
+    """Stream one request body to an isolated file before reserving durable storage."""
+
+    source_path = directory / (Path(upload.filename or fallback_name).name or fallback_name)
+    size_bytes = 0
+    with source_path.open("wb") as target:
+        while True:
+            chunk = await upload.read(UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            size_bytes += len(chunk)
+            if size_bytes > MAX_ASSET_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail="上传文件不能超过 50MB。",
+                )
+            target.write(chunk)
+    if size_bytes == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="上传文件不能为空。")
+    return source_path, size_bytes
 
 
 def _manual_edit_name(name: str | None, filename: str | None, fallback: str, suffix: str) -> str:
@@ -1187,44 +1197,39 @@ async def _save_sequence_upload(
     if upload.content_type not in ALLOWED_SEQUENCE_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{upload.filename or '文件'} 不是支持的图片格式。")
 
-    content = await upload.read()
-    _verify_image(content)
-
     asset_id = uuid4().hex
     filename = Path(upload.filename or "frame.png").name
     now = _now()
-    stored = _put_bytes(context, asset_id, filename, content)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="sequence_frame",
-        original_name=filename,
-        path=stored.key,
-        mime_type=upload.content_type or "application/octet-stream",
-        size_bytes=stored.size_bytes,
-        created_at=now,
-        updated_at=now,
-    )
-    try:
-        repository.create_asset(asset)
-    except Exception:
-        # The caller cannot add this Asset to its batch cleanup list until persistence returns. Remove the object
-        # here so an insert failure never leaves a storage key with no corresponding database record.
-        try:
-            context.storage.delete_object(stored.key)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
+    with TemporaryDirectory(prefix="gameknife-upload-", ignore_cleanup_errors=True) as directory:
+        source_path, size_bytes = await _stage_upload(upload, Path(directory), filename)
+        _verify_image_path(source_path)
+        asset = await run_in_threadpool(
+            persist_asset_file,
+            repository,
+            context.storage,
+            AssetRecord(
+                id=asset_id,
+                workspace_id=context.workspace.id,
+                created_by=context.principal.id,
+                kind="sequence_frame",
+                original_name=filename,
+                path="",
+                mime_type=upload.content_type or "application/octet-stream",
+                size_bytes=size_bytes,
+                created_at=now,
+                updated_at=now,
+            ),
+            source_path,
+        )
 
-    try:
-        with Image.open(BytesIO(content)) as opened:
-            image = opened.convert("RGBA")
-            bbox = image.getchannel("A").getbbox() or (0, 0, image.width, image.height)
-            width, height = image.size
-    except Exception as exc:  # noqa: BLE001
-        _cleanup_created_assets(repository, context, [asset])
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} 读取失败。") from exc
+        try:
+            with Image.open(source_path) as opened:
+                image = opened.convert("RGBA")
+                bbox = image.getchannel("A").getbbox() or (0, 0, image.width, image.height)
+                width, height = image.size
+        except Exception as exc:
+            await run_in_threadpool(_cleanup_created_assets, repository, context, [asset])
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} 读取失败。") from exc
 
     return asset, {
         "source_asset_id": asset.id,

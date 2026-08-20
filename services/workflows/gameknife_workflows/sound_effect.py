@@ -10,9 +10,10 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from gameknife_core import AssetRecord, ProcessResult, RequestContext
-from gameknife_jobs import JobSubmissionResult, TaskSubmission
+from gameknife_jobs import AssetWriteInProgressError, JobSubmissionResult, TaskSubmission
 
 from .errors import WorkflowModelNotInstalledError, WorkflowServiceUnavailableError, WorkflowValidationError
+from .asset_persistence import persist_asset_file
 from .job_helpers import (
     WorkflowRepository,
     claim_job,
@@ -53,7 +54,15 @@ def create_sound_effect_workflow(
     if not install_status.get("installed"):
         raise WorkflowModelNotInstalledError("Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。")
 
-    prompt_asset, prompt_asset_created = _get_or_create_prompt_asset(repository, context, prompt, submission)
+    try:
+        prompt_asset, prompt_asset_created = _get_or_create_prompt_asset(
+            repository,
+            context,
+            prompt,
+            submission,
+        )
+    except AssetWriteInProgressError as exc:
+        raise WorkflowServiceUnavailableError("相同声效任务正在提交，请稍后重试。") from exc
     try:
         submitted = create_job_record(
             repository,
@@ -63,6 +72,8 @@ def create_sound_effect_workflow(
             parameters={**parameters, "prompt": prompt},
             submission=submission,
         )
+    except AssetWriteInProgressError as exc:
+        raise WorkflowServiceUnavailableError("相同声效任务正在提交，请稍后重试。") from exc
     except Exception:
         # Persisting the prompt as an asset gives job history a stable input. If subsequent job creation fails,
         # remove both the file and record so credit or permission rejection cannot leave an unreachable temporary asset.
@@ -150,35 +161,34 @@ def _get_or_create_prompt_asset(
 
     content = prompt.encode("utf-8")
     now = _now()
-    with TemporaryDirectory(prefix="gameknife-prompt-") as directory:
-        source_path = Path(directory) / "sound_prompt.txt"
-        source_path.write_bytes(content)
-        stored = context.storage.put_file(asset_id, "sound_prompt.txt", source_path)
-    asset = AssetRecord(
-        id=asset_id,
-        workspace_id=context.workspace.id,
-        created_by=context.principal.id,
-        kind="sound_prompt",
-        original_name="sound_prompt.txt",
-        path=stored.key,
-        mime_type="text/plain",
-        size_bytes=stored.size_bytes,
-        created_at=now,
-        updated_at=now,
-    )
     try:
-        repository.create_asset(asset)
+        with TemporaryDirectory(prefix="gameknife-prompt-") as directory:
+            source_path = Path(directory) / "sound_prompt.txt"
+            source_path.write_bytes(content)
+            asset = persist_asset_file(
+                repository,
+                context.storage,
+                AssetRecord(
+                    id=asset_id,
+                    workspace_id=context.workspace.id,
+                    created_by=context.principal.id,
+                    kind="sound_prompt",
+                    original_name="sound_prompt.txt",
+                    path="",
+                    mime_type="text/plain",
+                    size_bytes=len(content),
+                    created_at=now,
+                    updated_at=now,
+                ),
+                source_path,
+            )
     except Exception:
-        # Concurrent retries with the same key produce the same prompt content and Asset ID. Reuse the row that won
-        # the race; any other persistence failure still removes the object written by this attempt.
+        # Concurrent retries with the same key produce the same prompt content and Asset ID. Reuse the ready row
+        # that won the race; the persistence helper has already settled this attempt's pending state and object.
         if deterministic_id:
             existing = repository.get_asset_for_workspace(asset_id, context.workspace.id)
             if existing is not None:
                 return existing, False
-        try:
-            context.storage.delete_object(stored.key)
-        except Exception:  # noqa: BLE001
-            pass
         raise
     return asset, True
 

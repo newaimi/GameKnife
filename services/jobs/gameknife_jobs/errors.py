@@ -3,6 +3,14 @@ from __future__ import annotations
 from gameknife_core import AssetReferenceSummary
 
 
+class AssetWriteInProgressError(RuntimeError):
+    """Raised when another request owns the pending write for the same Asset ID."""
+
+    def __init__(self, asset_id: str) -> None:
+        self.asset_id = asset_id
+        super().__init__(f"Asset {asset_id} is currently being stored.")
+
+
 class InvalidJobStateTransitionError(RuntimeError):
     """Raised when a job update would replace or bypass an established state."""
 
