@@ -40,17 +40,20 @@ export function VideoGenerateWorkspace() {
     if (!asset || !canWrite) {
       return;
     }
+    const parameters = {
+      input_asset_id: asset.id,
+      action: params.action,
+      prompt: params.prompt,
+      negative_prompt: params.negative_prompt,
+      duration: params.duration,
+      resolution: params.resolution,
+      confirmed_external_api: true,
+    };
     await runJob({
-      createJob: () =>
-        gameKnifeApiClient.createVideoGenerationJob({
-          input_asset_id: asset.id,
-          action: params.action,
-          prompt: params.prompt,
-          negative_prompt: params.negative_prompt,
-          duration: params.duration,
-          resolution: params.resolution,
-          confirmed_external_api: true,
-        }),
+      jobType: "sequence_generate_video",
+      parameters,
+      idempotencyPayload: parameters,
+      createJob: (submission) => gameKnifeApiClient.createVideoGenerationJob(parameters, submission),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建视频生成任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.long,

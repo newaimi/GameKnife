@@ -73,24 +73,36 @@ export function VideoToSequenceWorkspace() {
       return;
     }
     const duration = Math.max(0.1, params.clip_end_seconds - params.clip_start_seconds);
+    const requestPayload = {
+      video_asset_id: video.id,
+      name: video.filename.replace(/\.[^.]+$/, "") || "video-sequence",
+      fps: params.fps,
+      max_frames: Math.max(1, Math.round(duration * params.fps)),
+      start_second: params.clip_start_seconds,
+      duration_seconds: duration,
+      remove_background: true,
+      parameters: {
+        action: params.action,
+        output_size: params.output_size,
+        loop: params.loop,
+        alpha_smoothing: params.alpha_smoothing,
+        stabilize: params.stabilize,
+      },
+    };
+    const jobParameters = {
+      ...requestPayload.parameters,
+      name: requestPayload.name,
+      fps: requestPayload.fps,
+      max_frames: requestPayload.max_frames,
+      start_second: requestPayload.start_second,
+      duration_seconds: requestPayload.duration_seconds,
+      remove_background: requestPayload.remove_background,
+    };
     const finished = await runJob({
-      createJob: () =>
-        gameKnifeApiClient.createSequenceFromVideoJob({
-          video_asset_id: video.id,
-          name: video.filename.replace(/\.[^.]+$/, "") || "video-sequence",
-          fps: params.fps,
-          max_frames: Math.max(1, Math.round(duration * params.fps)),
-          start_second: params.clip_start_seconds,
-          duration_seconds: duration,
-          remove_background: true,
-          parameters: {
-            action: params.action,
-            output_size: params.output_size,
-            loop: params.loop,
-            alpha_smoothing: params.alpha_smoothing,
-            stabilize: params.stabilize,
-          },
-        }),
+      jobType: "sequence_video_to_frames",
+      parameters: jobParameters,
+      idempotencyPayload: requestPayload,
+      createJob: (submission) => gameKnifeApiClient.createSequenceFromVideoJob(requestPayload, submission),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建视频转帧任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.long,

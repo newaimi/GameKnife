@@ -38,8 +38,12 @@ export function BackgroundRemoveWorkspace() {
     if (!(await ensureModelReady("birefnet"))) {
       return;
     }
+    const parameters = { ...params };
     await runJob({
-      createJob: () => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, params),
+      jobType: "background_remove",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, parameters, submission),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建去背景任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.standard,

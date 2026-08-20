@@ -42,8 +42,12 @@ export function SoundEffectWorkspace() {
     if (!(await ensureModelReady("stable-audio"))) {
       return;
     }
+    const parameters = { ...params, prompt };
     await runJob({
-      createJob: () => gameKnifeApiClient.createSoundEffectJob({ ...params, prompt }),
+      jobType: "sound_effect_generate",
+      parameters,
+      idempotencyPayload: parameters,
+      createJob: (submission) => gameKnifeApiClient.createSoundEffectJob(parameters, submission),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建声效生成任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.long,

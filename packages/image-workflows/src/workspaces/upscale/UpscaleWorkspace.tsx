@@ -53,8 +53,12 @@ export function UpscaleWorkspace() {
     if (params.style !== "pixel" && !(await ensureModelReady("upscale"))) {
       return;
     }
+    const parameters = { ...params };
     await runJob({
-      createJob: () => gameKnifeApiClient.createUpscaleJob(asset.id, params),
+      jobType: "image_upscale",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createUpscaleJob(asset.id, parameters, submission),
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建图片放大任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.long,

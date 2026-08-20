@@ -5,7 +5,7 @@ import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, Seque
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageSequenceUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
 import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
-import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowJob, type WorkflowJobRunOptions } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
@@ -23,6 +23,8 @@ const DEFAULT_SEQUENCE_PARAMS: SequenceCleanParameters = {
   stabilize: false,
   stabilize_strength: 35,
 };
+
+type SequenceJobSubmission = Pick<WorkflowJobRunOptions<JobResponse>, "jobType" | "parameters" | "idempotencyPayload" | "createJob">;
 
 export function SequenceWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -132,12 +134,12 @@ export function SequenceWorkspace() {
     }
   }
 
-  async function runSequenceJob(createJob: () => Promise<JobResponse>, refreshAfter = true) {
+  async function runSequenceJob(submission: SequenceJobSubmission, refreshAfter = true) {
     if (!canWrite) {
       return;
     }
     const finished = await runJob({
-      createJob,
+      ...submission,
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建序列帧任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.standard,
@@ -152,21 +154,39 @@ export function SequenceWorkspace() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceCleanJob(sequence.id, params));
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_clean",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceCleanJob(sequence.id, params, submission),
+    });
   }
 
   async function exportFrames() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceFramesExportJob(sequence.id, params), false);
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_export_frames",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceFramesExportJob(sequence.id, params, submission),
+    }, false);
   }
 
   async function exportSpine() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceSpineExportJob(sequence.id, params), false);
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_export_spine",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceSpineExportJob(sequence.id, params, submission),
+    }, false);
   }
 
   async function deleteSequence(sequenceId: string) {

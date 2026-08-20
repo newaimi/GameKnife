@@ -11,7 +11,7 @@ import { ImageUploadAction, WorkbenchActionBar } from "../../components/Workbenc
 import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
 import { useImageAssetUpload } from "../../hooks/useImageAssetUpload";
 import { useModelRequirement } from "../../hooks/useModelRequirement";
-import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowJob, type WorkflowJobRunOptions } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { JOB_POLLING_PRESETS, readFirstJobOutputAsset, readString, readTupleNumber } from "../../utils/jobs";
@@ -26,6 +26,8 @@ const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
   alpha_defringe: 0,
   export_padding: 8,
 };
+
+type AssetBoardJobSubmission = Pick<WorkflowJobRunOptions<JobResponse>, "jobType" | "parameters" | "idempotencyPayload" | "createJob">;
 
 export function AssetBoardWorkspace() {
   const [params, setParams] = useState<AssetBoardParameters>(DEFAULT_ASSET_BOARD_PARAMS);
@@ -83,7 +85,13 @@ export function AssetBoardWorkspace() {
     }
     // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
     // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
-    await runJob(() => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, readRegionParameters()), applyComponentJobResult);
+    const parameters = readRegionParameters();
+    await runJob({
+      jobType: "asset_board_region_detect",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createAssetBoardRegionJob(asset.id, parameters, submission),
+    }, applyComponentJobResult);
   }
 
   async function cutout() {
@@ -93,9 +101,12 @@ export function AssetBoardWorkspace() {
     if (!(await ensureModelReady("birefnet"))) {
       return;
     }
-    await runJob(async () => {
-      const created = await gameKnifeApiClient.createAssetBoardCutoutJob(asset.id, params);
-      return created;
+    const parameters = { ...params };
+    await runJob({
+      jobType: "asset_board_cutout",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createAssetBoardCutoutJob(asset.id, parameters, submission),
     }, applyCutoutJobResult);
   }
 
@@ -107,7 +118,13 @@ export function AssetBoardWorkspace() {
       setError("请先完成素材板抠图。");
       return;
     }
-    await runJob(() => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, readRegionParameters()), applyComponentJobResult);
+    const parameters = readRegionParameters();
+    await runJob({
+      jobType: "asset_board_region_refine",
+      parameters,
+      idempotencyPayload: { cutout_asset_id: cutoutAssetId, parameters },
+      createJob: (submission) => gameKnifeApiClient.createAssetBoardRefineJob(cutoutAssetId, parameters, submission),
+    }, applyComponentJobResult);
   }
 
   async function exportSelected() {
@@ -118,19 +135,30 @@ export function AssetBoardWorkspace() {
       setError("请先完成素材板抠图。");
       return;
     }
-    await runJob(() =>
-      gameKnifeApiClient.createAssetBoardExportJob({
-        cutoutAssetId,
-        selectedComponentIds: Array.from(selectedComponents),
+    const selectedComponentIds = Array.from(selectedComponents);
+    const exportParameters = { ...params };
+    const parameters = { ...exportParameters, selected_component_ids: selectedComponentIds, components };
+    await runJob({
+      jobType: "asset_board_export",
+      parameters,
+      idempotencyPayload: {
+        cutout_asset_id: cutoutAssetId,
+        selected_component_ids: selectedComponentIds,
         components,
-        parameters: params,
-      }),
-    );
+        parameters: exportParameters,
+      },
+      createJob: (submission) => gameKnifeApiClient.createAssetBoardExportJob({
+        cutoutAssetId,
+        selectedComponentIds,
+        components,
+        parameters: exportParameters,
+      }, submission),
+    });
   }
 
-  async function runJob(createJob: () => Promise<JobResponse>, onSuccess?: (finished: JobResponse) => void) {
+  async function runJob(submission: AssetBoardJobSubmission, onSuccess?: (finished: JobResponse) => void) {
     await runWorkflowJob({
-      createJob,
+      ...submission,
       failureTitle: "任务创建失败",
       failureMessage: "后端拒绝创建素材板任务，下面是接口返回的错误内容。",
       polling: JOB_POLLING_PRESETS.standard,

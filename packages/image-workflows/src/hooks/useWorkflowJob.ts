@@ -1,12 +1,17 @@
 import { useCallback, useState } from "react";
+import type { TaskSubmissionOptions } from "@gameknife/api-client";
 import type { JobResponse } from "@gameknife/shared-types";
 import { readJobFailureDialog, readRequestFailureDialog } from "../components/FailureDialog";
+import { useWorkflowSubmission } from "../context/WorkflowSubmission";
 import type { FailureDialogState } from "../types/failure";
 import { readMessage } from "../utils/errors";
 import { waitForJob, type JobPollingOptions } from "../utils/jobs";
 
 export interface WorkflowJobRunOptions<TJob extends JobResponse> {
-  createJob: () => Promise<JobResponse>;
+  jobType: string;
+  parameters: object;
+  idempotencyPayload: unknown;
+  createJob: (submission?: TaskSubmissionOptions) => Promise<JobResponse>;
   failureTitle: string;
   failureMessage: string;
   polling?: JobPollingOptions;
@@ -16,6 +21,7 @@ export interface WorkflowJobRunOptions<TJob extends JobResponse> {
 }
 
 export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
+  const submissionProvider = useWorkflowSubmission();
   const [job, setJob] = useState<TJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,13 +38,19 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
     setError("");
     setFailureDialog(null);
     try {
-      const created = await options.createJob();
+      const created = await submissionProvider.submit({
+        jobType: options.jobType,
+        parameters: options.parameters,
+        idempotencyPayload: options.idempotencyPayload,
+        createJob: options.createJob,
+      });
       // 任务创建成功后立即写入页面状态，用户可以马上看到队列状态和任务编号。
       // 轮询完成后再覆盖为最终结果，避免长任务期间工作台看起来像没有响应。
       setJob(options.mapJob ? options.mapJob(created) : (created as TJob));
       const polled = await waitForJob(created.id, options.polling);
       const finished = options.mapJob ? options.mapJob(polled) : (polled as TJob);
       setJob(finished);
+      submissionProvider.onJobFinished?.(finished);
       options.onFinished?.(finished);
       if (finished.status === "success") {
         options.onSuccess?.(finished);
@@ -53,7 +65,7 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [submissionProvider]);
 
   return {
     job,
