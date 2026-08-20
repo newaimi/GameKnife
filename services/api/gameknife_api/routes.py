@@ -9,19 +9,57 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, RedirectResponse
+from gameknife_core import AssetRecord, JobRecord, RequestContext
+from gameknife_jobs import (
+    GameKnifeRepository,
+    JobDispatcher,
+    JobSubmissionResult,
+    ResourceReferenceError,
+    SequenceActiveJobError,
+    TaskSubmission,
+)
+from gameknife_workflows import (
+    WorkflowInputNotFoundError,
+    WorkflowModelNotInstalledError,
+    WorkflowServiceUnavailableError,
+    WorkflowValidationError,
+    create_asset_board_cutout_workflow,
+    create_asset_board_export_workflow,
+    create_asset_board_refine_workflow,
+    create_asset_board_region_workflow,
+    create_background_remove_workflow,
+    create_sequence_frames_export_workflow,
+    create_sequence_spine_export_workflow,
+    create_sound_effect_workflow,
+    create_upscale_workflow,
+    persist_asset_file,
+)
 from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
+from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.deps import (
     CommunitySettings,
     get_birefnet_service,
     get_community_settings,
     get_job_dispatcher,
+    get_job_submission_replay,
     get_repository,
     get_request_context,
     get_stable_audio_service,
+    get_task_submission,
     get_upscale_model_service,
     get_video_generation_client,
 )
@@ -49,34 +87,9 @@ from gameknife_api.schemas import (
     VideoSequenceGenerateRequest,
     VideoToSequenceRequest,
 )
-from gameknife_core import AssetRecord, JobRecord, RequestContext
-from gameknife_jobs import (
-    GameKnifeRepository,
-    JobDispatcher,
-    ResourceReferenceError,
-    SequenceActiveJobError,
-    TaskSubmission,
-)
-from gameknife_api.birefnet import BIREFNET_MODEL_ID, BiRefNetService
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
 from gameknife_api.video_generation import VideoGenerationClient
-from gameknife_workflows import (
-    WorkflowInputNotFoundError,
-    WorkflowModelNotInstalledError,
-    WorkflowServiceUnavailableError,
-    WorkflowValidationError,
-    create_asset_board_cutout_workflow,
-    create_asset_board_export_workflow,
-    create_asset_board_refine_workflow,
-    create_asset_board_region_workflow,
-    create_background_remove_workflow,
-    create_sequence_frames_export_workflow,
-    create_sequence_spine_export_workflow,
-    create_sound_effect_workflow,
-    create_upscale_workflow,
-    persist_asset_file,
-)
 
 router = APIRouter()
 
@@ -120,16 +133,6 @@ DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
     "stabilize": False,
     "stabilize_strength": 35,
 }
-
-
-def _task_submission(
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    quote_id: str | None = Header(None, alias="X-GameKnife-Quote-Id"),
-) -> TaskSubmission:
-    try:
-        return TaskSubmission(idempotency_key=idempotency_key, quote_id=quote_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/health")
@@ -310,8 +313,13 @@ def create_background_remove_job(
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_background_remove_workflow(
             repository,
@@ -339,8 +347,13 @@ def create_upscale_job(
     repository: GameKnifeRepository = Depends(get_repository),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_upscale_workflow(
             repository,
@@ -368,8 +381,13 @@ def create_sound_effect_job(
     repository: GameKnifeRepository = Depends(get_repository),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_sound_effect_workflow(
             repository,
@@ -397,8 +415,13 @@ def create_asset_board_region_job(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_asset_board_region_workflow(
             repository,
@@ -423,8 +446,13 @@ def create_asset_board_cutout_job(
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_asset_board_cutout_workflow(
             repository,
@@ -451,8 +479,13 @@ def create_asset_board_refine_job(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_asset_board_refine_workflow(
             repository,
@@ -476,8 +509,13 @@ def create_asset_board_export_job(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_asset_board_export_workflow(
             repository,
@@ -666,8 +704,13 @@ def create_sequence_clean_task(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     sequence, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
     if sequence["active_job_id"] is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，请稍后重试。")
@@ -700,9 +743,14 @@ def create_sequence_generate_video_task(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
     video_generation: VideoGenerationClient = Depends(get_video_generation_client),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     if not payload.confirmed_external_api:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
     input_asset = _ensure_asset_exists(repository, context, payload.input_asset_id)
@@ -735,8 +783,13 @@ def create_sequence_from_video_task(
     repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
     if not video_asset.mime_type.startswith("video/"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是视频。")
@@ -775,8 +828,13 @@ def create_sequence_frames_export_task(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_sequence_frames_export_workflow(
             repository,
@@ -803,8 +861,13 @@ def create_sequence_spine_export_task(
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(_task_submission),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
 ) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
     try:
         submitted, _runner = create_sequence_spine_export_workflow(
             repository,

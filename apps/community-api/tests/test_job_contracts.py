@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-
 from gameknife_core import JobRecord
 from gameknife_jobs import (
     JOB_TYPE_REGISTRY,
@@ -15,8 +14,8 @@ from gameknife_jobs import (
     JobTypeRegistry,
     JobTypeSpec,
     TaskSubmission,
+    bind_task_submission_request,
 )
-
 
 EXPECTED_JOB_TYPES = {
     "background_remove",
@@ -106,6 +105,37 @@ def test_task_submission_normalizes_optional_identifiers() -> None:
     assert submission.idempotency_key == "request-1"
     assert submission.quote_id == "quote-1"
     assert TaskSubmission() == TaskSubmission(idempotency_key=None, quote_id=None)
+
+
+def test_task_submission_binds_the_canonical_client_request() -> None:
+    first = bind_task_submission_request(
+        TaskSubmission(idempotency_key="request-1", quote_id="quote-1"),
+        method="post",
+        path="/api/jobs/sound-effect",
+        body=b'{"duration":2,"prompt":"sword"}',
+    )
+    reordered = bind_task_submission_request(
+        TaskSubmission(idempotency_key="request-1", quote_id="quote-1"),
+        method="POST",
+        path="/api/jobs/sound-effect",
+        body=b'{"prompt":"sword","duration":2}',
+    )
+    other_path = bind_task_submission_request(
+        TaskSubmission(idempotency_key="request-1", quote_id="quote-1"),
+        method="POST",
+        path="/api/jobs/upscale",
+        body=b'{"duration":2,"prompt":"sword"}',
+    )
+
+    assert first.request_digest == reordered.request_digest
+    assert first.request_digest != other_path.request_digest
+    assert first.idempotency_key == "request-1"
+    assert first.quote_id == "quote-1"
+
+
+def test_task_submission_rejects_invalid_request_digest() -> None:
+    with pytest.raises(ValueError, match="SHA-256"):
+        TaskSubmission(request_digest="not-a-digest")
 
 
 @pytest.mark.parametrize("field_name", ("idempotency_key", "quote_id"))

@@ -1,4 +1,10 @@
-from .dispatch import InProcessJobDispatcher, JobDispatcher, JobExecutionHandler, JobResolver, JobScheduler
+from .dispatch import (
+    InProcessJobDispatcher,
+    JobDispatcher,
+    JobExecutionHandler,
+    JobResolver,
+    JobScheduler,
+)
 from .errors import (
     AssetWriteInProgressError,
     InvalidJobStateTransitionError,
@@ -16,17 +22,22 @@ from .job_types import (
 )
 from .repository import GameKnifeRepository
 from .sqlite import SQLITE_SCHEMA_VERSION, SQLiteGameKnifeRepository, init_sqlite_schema
-from .submission import JobSubmissionResult, TaskSubmission
+from .submission import (
+    JobSubmissionResult,
+    TaskSubmission,
+    bind_task_submission_request,
+)
 
 __all__ = [
-    "GameKnifeRepository",
+    "JOB_TYPE_REGISTRY",
+    "SQLITE_SCHEMA_VERSION",
     "AssetWriteInProgressError",
+    "GameKnifeRepository",
     "InProcessJobDispatcher",
     "InvalidJobStateTransitionError",
-    "JOB_TYPE_REGISTRY",
     "JobDeliveryRequirement",
-    "JobDispatcher",
     "JobDeliveryRequirementError",
+    "JobDispatcher",
     "JobExecutionHandler",
     "JobParameterValidationError",
     "JobQueue",
@@ -36,9 +47,9 @@ __all__ = [
     "JobTypeRegistry",
     "JobTypeSpec",
     "ResourceReferenceError",
-    "SequenceActiveJobError",
-    "SQLITE_SCHEMA_VERSION",
     "SQLiteGameKnifeRepository",
+    "SequenceActiveJobError",
     "TaskSubmission",
+    "bind_task_submission_request",
     "init_sqlite_schema",
 ]

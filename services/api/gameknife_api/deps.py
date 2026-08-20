@@ -5,11 +5,25 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, Request
-
-from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
-from gameknife_jobs import GameKnifeRepository, InProcessJobDispatcher, JobDispatcher, SQLiteGameKnifeRepository
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, Request, status
+from gameknife_core import (
+    AllowAllPermissionChecker,
+    CapabilitySet,
+    Principal,
+    RequestContext,
+    Workspace,
+)
+from gameknife_jobs import (
+    GameKnifeRepository,
+    InProcessJobDispatcher,
+    JobDispatcher,
+    JobSubmissionResult,
+    SQLiteGameKnifeRepository,
+    TaskSubmission,
+    bind_task_submission_request,
+)
 from gameknife_storage import LocalStorageProvider
+
 from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.job_dispatch import build_job_execution_handlers
 from gameknife_api.stable_audio import StableAudioService
@@ -157,6 +171,33 @@ def get_community_settings(request: Request) -> CommunitySettings:
 
 def get_request_context(request: Request) -> RequestContext:
     return _build_community_request_context(request.app)
+
+
+async def get_task_submission(
+    request: Request,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    quote_id: str | None = Header(None, alias="X-GameKnife-Quote-Id"),
+) -> TaskSubmission:
+    """Bind optional Commercial headers to the original client request."""
+
+    try:
+        return bind_task_submission_request(
+            TaskSubmission(idempotency_key=idempotency_key, quote_id=quote_id),
+            method=request.method,
+            path=request.url.path,
+            body=await request.body(),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+
+def get_job_submission_replay() -> JobSubmissionResult | None:
+    """Community has no durable idempotency record to replay before validation."""
+
+    return None
 
 
 def get_job_dispatcher(

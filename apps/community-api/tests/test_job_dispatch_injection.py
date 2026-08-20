@@ -4,14 +4,23 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-from PIL import Image
-
 from community_api.main import create_app
-from gameknife_api.deps import CommunitySettings, get_job_dispatcher
+from fastapi.testclient import TestClient
+from gameknife_api.deps import (
+    CommunitySettings,
+    get_job_dispatcher,
+    get_job_submission_replay,
+    get_task_submission,
+)
 from gameknife_core import JobRecord
-from gameknife_jobs import JOB_TYPE_REGISTRY, InProcessJobDispatcher, JobSubmissionResult, TaskSubmission
-
+from gameknife_jobs import (
+    JOB_TYPE_REGISTRY,
+    InProcessJobDispatcher,
+    JobSubmissionResult,
+    TaskSubmission,
+    bind_task_submission_request,
+)
+from PIL import Image
 
 JOB_CREATION_PATHS = {
     "/api/jobs/background-remove",
@@ -53,7 +62,10 @@ def test_every_public_job_creation_route_injects_dispatcher(tmp_path: Path) -> N
 
     assert set(job_routes) == JOB_CREATION_PATHS
     for route in job_routes.values():
-        assert get_job_dispatcher in {dependency.call for dependency in route.dependant.dependencies}
+        dependencies = {dependency.call for dependency in route.dependant.dependencies}
+        assert get_job_dispatcher in dependencies
+        assert get_task_submission in dependencies
+        assert get_job_submission_replay in dependencies
 
 
 def test_job_creation_route_calls_injected_dispatcher_with_persisted_ids(tmp_path: Path) -> None:
@@ -84,7 +96,11 @@ def test_job_creation_route_calls_injected_dispatcher_with_persisted_ids(tmp_pat
     assert created.status_code == 200
     assert stored.json()["status"] == "pending"
     assert dispatcher.calls == [(created.json()["id"], "local")]
-    assert submissions == [TaskSubmission()]
+    assert len(submissions) == 1
+    assert submissions[0] is not None
+    assert submissions[0].idempotency_key is None
+    assert submissions[0].quote_id is None
+    assert submissions[0].request_digest is not None
 
 
 def test_replayed_workflow_submission_is_not_dispatched_again(tmp_path: Path) -> None:
@@ -106,8 +122,19 @@ def test_replayed_workflow_submission_is_not_dispatched_again(tmp_path: Path) ->
         accepted = app.state.repository.get_job_for_workspace(first.json()["id"], "local")
         assert accepted is not None
 
+        expected_submission = bind_task_submission_request(
+            TaskSubmission(idempotency_key="request-1", quote_id="quote-1"),
+            method="POST",
+            path="/api/jobs/asset-board/regions",
+            body=(
+                '{"input_asset_id":"'
+                + uploaded.json()["id"]
+                + '","parameters":{"min_component_area":1}}'
+            ).encode(),
+        )
+
         def replay_create_job(_job: JobRecord, submission: TaskSubmission | None = None) -> JobSubmissionResult:
-            assert submission == TaskSubmission(idempotency_key="request-1", quote_id="quote-1")
+            assert submission == expected_submission
             return JobSubmissionResult(job=accepted, replayed=True)
 
         app.state.repository.create_job = replay_create_job
@@ -144,8 +171,15 @@ def test_replayed_direct_sequence_submission_is_not_dispatched_again(tmp_path: P
         accepted = app.state.repository.get_job_for_workspace(first.json()["id"], "local")
         assert accepted is not None
 
+        expected_submission = bind_task_submission_request(
+            TaskSubmission(idempotency_key="sequence-request-1", quote_id="quote-2"),
+            method="POST",
+            path=f"/api/sequences/{sequence_id}/clean",
+            body=b'{"parameters":{}}',
+        )
+
         def replay_create_job(_job: JobRecord, submission: TaskSubmission | None = None) -> JobSubmissionResult:
-            assert submission == TaskSubmission(idempotency_key="sequence-request-1", quote_id="quote-2")
+            assert submission == expected_submission
             return JobSubmissionResult(job=accepted, replayed=True)
 
         app.state.repository.create_job = replay_create_job
@@ -159,6 +193,46 @@ def test_replayed_direct_sequence_submission_is_not_dispatched_again(tmp_path: P
     assert replay.status_code == 200
     assert replay.json()["id"] == first.json()["id"]
     assert dispatcher.calls == [(first.json()["id"], "local")]
+
+
+def test_prevalidation_replay_skips_mutable_sequence_checks(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    dispatcher = RecordingJobDispatcher()
+    app.dependency_overrides[get_job_dispatcher] = lambda: dispatcher
+    accepted = JobRecord(
+        id="accepted-sequence-clean",
+        workspace_id="local",
+        created_by="anonymous",
+        job_type="sequence_clean",
+        status="success",
+        input_asset_id="deleted-input",
+        parameters_json='{"sequence_id":"deleted-sequence"}',
+        result_json='{"sequence_id":"deleted-sequence","sequence_revision":1}',
+        device="cpu",
+        duration_ms=10,
+        error_message=None,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:01+00:00",
+    )
+    app.dependency_overrides[get_job_submission_replay] = lambda: JobSubmissionResult(
+        job=accepted,
+        replayed=True,
+    )
+
+    with TestClient(app) as client:
+        replay = client.post(
+            "/api/sequences/deleted-sequence/clean",
+            headers={
+                "Idempotency-Key": "accepted-request",
+                "X-GameKnife-Quote-Id": "accepted-quote",
+            },
+            json={"parameters": {}},
+        )
+
+    assert replay.status_code == 200
+    assert replay.json()["id"] == accepted.id
+    assert replay.json()["status"] == "success"
+    assert dispatcher.calls == []
 
 
 def test_malformed_persisted_parameters_fail_without_escaping_scheduler(tmp_path: Path) -> None:
