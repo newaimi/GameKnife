@@ -14,6 +14,7 @@ from gameknife_api.birefnet import BiRefNetService
 from gameknife_api.job_dispatch import build_job_execution_handlers
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
+from gameknife_api.video_generation import VideoGenerationClient
 
 COMMUNITY_FEATURES = frozenset(
     {
@@ -140,6 +141,14 @@ def get_birefnet_service(request: Request) -> BiRefNetService:
 
 def get_upscale_model_service(request: Request) -> UpscaleModelService:
     return request.app.state.upscale_models
+
+
+def get_video_generation_client(
+    repository: GameKnifeRepository = Depends(get_repository),
+) -> VideoGenerationClient:
+    """Resolve the edition-specific video provider configuration boundary."""
+
+    return VideoGenerationClient(repository)
 
 
 def get_community_settings(request: Request) -> CommunitySettings:

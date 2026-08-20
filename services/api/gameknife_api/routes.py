@@ -23,6 +23,7 @@ from gameknife_api.deps import (
     get_request_context,
     get_stable_audio_service,
     get_upscale_model_service,
+    get_video_generation_client,
 )
 from gameknife_api.job_service import (
     create_job,
@@ -157,10 +158,10 @@ def context(context: RequestContext = Depends(get_request_context)) -> ContextRe
 def settings(
     settings: CommunitySettings = Depends(get_community_settings),
     context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
+    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> SettingsResponse:
     _require_settings_manage(context, "read_settings")
     birefnet_settings = {
@@ -202,7 +203,7 @@ def settings(
         birefnet=birefnet_settings,
         upscale_models=upscale_settings,
         stable_audio=stable_audio_settings,
-        video_generation=VideoGenerationClient(repository).read_config(),
+        video_generation=video_generation.read_config(),
     )
 
 
@@ -696,6 +697,7 @@ def create_sequence_generate_video_task(
     repository: GameKnifeRepository = Depends(get_repository),
     dispatcher: JobDispatcher = Depends(get_job_dispatcher),
     submission: TaskSubmission = Depends(_task_submission),
+    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> JobResponse:
     if not payload.confirmed_external_api:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
@@ -703,7 +705,7 @@ def create_sequence_generate_video_task(
     if not input_asset.mime_type.startswith("image/"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是图片。")
     try:
-        VideoGenerationClient(repository).ensure_configured()
+        video_generation.ensure_configured()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -1077,6 +1079,13 @@ def _require_model_status_read(context: RequestContext, operation: str) -> None:
     context.permissions.require(PROJECT_WORKFLOW_PERMISSION, {"operation": operation})
 
 
+def _require_community_video_settings(context: RequestContext) -> None:
+    # Commercial providers are configured through platform routes that store environment references only. Keeping
+    # the Community editor reachable in Commercial would persist raw API keys in the shared settings table.
+    if context.capabilities.edition != "community":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="接口不存在。")
+
+
 @router.get("/settings/birefnet/install")
 def read_birefnet_install(
     context: RequestContext = Depends(get_request_context),
@@ -1137,32 +1146,35 @@ def start_stable_audio_install(
 @router.get("/settings/video-generation", response_model=VideoGenerationConfigResponse)
 def read_video_generation_settings(
     context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
+    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> VideoGenerationConfigResponse:
+    _require_community_video_settings(context)
     _require_settings_manage(context, "read_video_generation")
-    return VideoGenerationConfigResponse(**VideoGenerationClient(repository).read_config())
+    return VideoGenerationConfigResponse(**video_generation.read_config())
 
 
 @router.patch("/settings/video-generation", response_model=VideoGenerationConfigResponse)
 def update_video_generation_settings(
     payload: VideoGenerationConfigRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
+    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> VideoGenerationConfigResponse:
+    _require_community_video_settings(context)
     _require_settings_manage(context, "update_video_generation")
     data = payload.model_dump()
-    return VideoGenerationConfigResponse(**VideoGenerationClient(repository).save_config(data, updated_at=_now()))
+    return VideoGenerationConfigResponse(**video_generation.save_config(data, updated_at=_now()))
 
 
 @router.post("/settings/video-generation/test")
 def test_video_generation_settings(
     payload: VideoGenerationConfigRequest,
     context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
+    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> dict[str, object]:
+    _require_community_video_settings(context)
     _require_settings_manage(context, "test_video_generation")
     try:
-        return VideoGenerationClient(repository).test_config(payload.model_dump())
+        return video_generation.test_config(payload.model_dump())
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

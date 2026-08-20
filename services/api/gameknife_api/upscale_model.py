@@ -95,18 +95,29 @@ class UpscaleModelService:
             return status
 
     def start_install(self) -> dict[str, Any]:
-        with self._install_lock:
-            if self.__class__._install_status["status"] == "running":
-                return dict(self.__class__._install_status)
-            # 下载只能由设置页显式触发；任务执行路径只读本地权重，避免用户提交任务后出现不可控联网行为。
-            self.__class__._install_status = {
-                "status": "running",
-                "progress": 1,
-                "message": "准备下载图片放大模型文件。",
-                "error": None,
-            }
-        thread = threading.Thread(target=self._install_worker, name="upscale-model-install", daemon=True)
+        if not self._prepare_install():
+            return self.install_status()
+        thread = threading.Thread(target=self._run_install, name="upscale-model-install", daemon=True)
         thread.start()
+        return self.install_status()
+
+    def install(self) -> dict[str, Any]:
+        """Install all upscaling weights synchronously for a durable worker runtime."""
+
+        if not self._prepare_install():
+            return self.install_status()
+        return self._run_install()
+
+    def _run_install(self) -> dict[str, Any]:
+        try:
+            self.model_root.mkdir(parents=True, exist_ok=True)
+            for index, spec in enumerate(UPSCALE_MODEL_SPECS):
+                start = int(index / len(UPSCALE_MODEL_SPECS) * 92) + 3
+                end = int((index + 1) / len(UPSCALE_MODEL_SPECS) * 92) + 3
+                self._download_model(spec, start, end)
+            self._set_install_status("success", 100, "图片放大模型文件已安装。")
+        except Exception as exc:  # noqa: BLE001
+            self._set_install_status("failed", 100, "图片放大模型安装失败。", str(exc))
         return self.install_status()
 
     def is_installed(self) -> bool:
@@ -160,16 +171,18 @@ class UpscaleModelService:
         output.putalpha(alpha_output)
         return output, spec.name, self.device_label, warnings
 
-    def _install_worker(self) -> None:
-        try:
-            self.model_root.mkdir(parents=True, exist_ok=True)
-            for index, spec in enumerate(UPSCALE_MODEL_SPECS):
-                start = int(index / len(UPSCALE_MODEL_SPECS) * 92) + 3
-                end = int((index + 1) / len(UPSCALE_MODEL_SPECS) * 92) + 3
-                self._download_model(spec, start, end)
-            self._set_install_status("success", 100, "图片放大模型文件已安装。")
-        except Exception as exc:  # noqa: BLE001
-            self._set_install_status("failed", 100, "图片放大模型安装失败。", str(exc))
+    def _prepare_install(self) -> bool:
+        with self._install_lock:
+            if self.__class__._install_status["status"] == "running":
+                return False
+            # 下载只能由设置页或商业版 Worker 显式触发；推理路径始终只读本地权重。
+            self.__class__._install_status = {
+                "status": "running",
+                "progress": 1,
+                "message": "准备下载图片放大模型文件。",
+                "error": None,
+            }
+        return True
 
     def _download_model(self, spec: UpscaleModelSpec, start_progress: int, end_progress: int) -> None:
         destination = self.model_path(spec.key)

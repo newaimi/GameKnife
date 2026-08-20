@@ -96,18 +96,26 @@ class BiRefNetService:
         return self.__class__._model is not None and self.__class__._transform_image is not None and self.__class__._device is not None
 
     def start_install(self) -> dict[str, Any]:
-        with self._install_lock:
-            if self.__class__._install_status["status"] == "running":
-                return dict(self.__class__._install_status)
-            self.__class__._install_status = {
-                "status": "running",
-                "progress": 1,
-                "message": "准备安装 BiRefNet。",
-                "error": None,
-            }
-
-        thread = threading.Thread(target=self._install_worker, name="birefnet-install", daemon=True)
+        if not self._prepare_install():
+            return self.install_status()
+        thread = threading.Thread(target=self._run_install, name="birefnet-install", daemon=True)
         thread.start()
+        return self.install_status()
+
+    def install(self) -> dict[str, Any]:
+        """Install and load BiRefNet synchronously for runtimes that own durable scheduling."""
+
+        if not self._prepare_install():
+            return self.install_status()
+        return self._run_install()
+
+    def _run_install(self) -> dict[str, Any]:
+        try:
+            self._set_install_status("running", 5, "检查 BiRefNet 依赖。")
+            self._ensure_model_loaded(status_updates=True, local_files_only=False)
+            self._set_install_status("success", 100, "BiRefNet 已安装并加载完成。")
+        except Exception as exc:  # noqa: BLE001
+            self._set_install_status("failed", 100, "BiRefNet 安装失败。", str(exc))
         return self.install_status()
 
     def predict_alpha(self, image: Image.Image) -> np.ndarray:
@@ -136,13 +144,17 @@ class BiRefNetService:
         alpha_image = transforms.ToPILImage()(prediction).resize(image.size, Image.Resampling.LANCZOS)
         return np.asarray(alpha_image).astype(np.uint8)
 
-    def _install_worker(self) -> None:
-        try:
-            self._set_install_status("running", 5, "检查 BiRefNet 依赖。")
-            self._ensure_model_loaded(status_updates=True, local_files_only=False)
-            self._set_install_status("success", 100, "BiRefNet 已安装并加载完成。")
-        except Exception as exc:  # noqa: BLE001
-            self._set_install_status("failed", 100, "BiRefNet 安装失败。", str(exc))
+    def _prepare_install(self) -> bool:
+        with self._install_lock:
+            if self.__class__._install_status["status"] == "running":
+                return False
+            self.__class__._install_status = {
+                "status": "running",
+                "progress": 1,
+                "message": "准备安装 BiRefNet。",
+                "error": None,
+            }
+        return True
 
     def _ensure_model_loaded(self, *, status_updates: bool, local_files_only: bool) -> None:
         try:

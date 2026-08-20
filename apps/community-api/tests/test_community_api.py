@@ -11,6 +11,7 @@ import zipfile
 import cv2
 import numpy as np
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -1541,6 +1542,15 @@ def test_video_generation_settings_save_test_and_mask_secret(tmp_path: Path) -> 
     assert tested.status_code == 200
     assert tested.json()["ok"] is True
     assert settings["video_generation"]["api_key_configured"] is True
+
+
+def test_commercial_edition_cannot_use_raw_video_secret_settings() -> None:
+    context = SimpleNamespace(capabilities=SimpleNamespace(edition="commercial"))
+
+    with pytest.raises(HTTPException) as caught:
+        api_routes._require_community_video_settings(context)
+
+    assert caught.value.status_code == 404
 
 
 def test_video_generation_requires_confirmation_and_config(tmp_path: Path) -> None:
