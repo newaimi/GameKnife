@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { TaskSubmissionOptions } from "@gameknife/api-client";
 import type { JobResponse } from "@gameknife/shared-types";
 import { readJobFailureDialog, readRequestFailureDialog } from "../components/FailureDialog";
@@ -24,6 +24,7 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
   const submissionProvider = useWorkflowSubmission();
   const [job, setJob] = useState<TJob | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [failureDialog, setFailureDialog] = useState<FailureDialogState | null>(null);
 
@@ -34,6 +35,11 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
   }, []);
 
   const runJob = useCallback(async (options: WorkflowJobRunOptions<TJob>) => {
+    // React state is not visible until the next render, so the ref closes the same-tick double-click window synchronously.
+    if (busyRef.current) {
+      return null;
+    }
+    busyRef.current = true;
     setBusy(true);
     setError("");
     setFailureDialog(null);
@@ -66,6 +72,7 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
       setFailureDialog(readRequestFailureDialog(options.failureTitle, options.failureMessage, exc));
       return null;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }, [submissionProvider]);

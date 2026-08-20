@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import ts from "typescript";
 import { WorkflowSubmissionProvider, useWorkflowSubmission } from "../dist/context/WorkflowSubmission.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -91,8 +93,46 @@ test("useWorkflowJob delegates creation and terminal notification to the injecte
   assert.match(source, /parameters: options\.parameters/);
   assert.match(source, /idempotencyPayload: options\.idempotencyPayload/);
   assert.match(source, /submissionProvider\.onJobFinished\?\.\(finished\)/);
-  assert.match(source, /exc instanceof WorkflowSubmissionCancelledError/);
-  assert.match(source, /return null/);
+  assert.match(
+    source,
+    /catch \(exc\) \{\s*if \(exc instanceof WorkflowSubmissionCancelledError\) \{\s*return null;\s*\}\s*setError/,
+  );
+  assert.match(source, /finally \{\s*busyRef\.current = false;\s*setBusy\(false\);\s*\}/);
+});
+
+test("useWorkflowJob synchronously rejects a same-tick second run and releases the guard after completion", async () => {
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  let createCount = 0;
+  const workflow = executeUseWorkflowJob({
+    waitForJob: async (jobId) => ({ id: jobId, status: "success", result: {} }),
+  });
+  const options = {
+    jobType: "background_remove",
+    parameters: { alpha_smoothing: 0 },
+    idempotencyPayload: { input_asset_id: "asset-1" },
+    failureTitle: "Task failed",
+    failureMessage: "Task creation failed.",
+    createJob: async () => {
+      createCount += 1;
+      if (createCount === 1) {
+        await firstGate;
+      }
+      return { id: `job-${createCount}`, status: "pending", result: {} };
+    },
+  };
+
+  const firstRun = workflow.runJob(options);
+  const secondRun = workflow.runJob(options);
+  assert.equal(await secondRun, null);
+  assert.equal(createCount, 1);
+
+  releaseFirst();
+  assert.equal((await firstRun)?.status, "success");
+  assert.equal((await workflow.runJob(options))?.status, "success");
+  assert.equal(createCount, 2);
 });
 
 test("sequence clean submits only client-known parameters", () => {
@@ -100,3 +140,47 @@ test("sequence clean submits only client-known parameters", () => {
   assert.match(source, /const parameters = \{ sequence_id: sequence\.id, \.\.\.params \}/);
   assert.doesNotMatch(source, /sequence_revision|\brevision\b/);
 });
+
+function executeUseWorkflowJob({ waitForJob }) {
+  const source = readFileSync(resolve(packageRoot, "src/hooks/useWorkflowJob.ts"), "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  const submissionProvider = {
+    submit: (request) => request.createJob(),
+    onJobFinished: () => undefined,
+  };
+  const react = {
+    useCallback: (callback) => callback,
+    useRef: (initialValue) => ({ current: initialValue }),
+    useState: (initialValue) => [initialValue, () => undefined],
+  };
+  const requireModule = (specifier) => {
+    if (specifier === "react") {
+      return react;
+    }
+    if (specifier === "../context/WorkflowSubmission") {
+      return {
+        useWorkflowSubmission: () => submissionProvider,
+        WorkflowSubmissionCancelledError: class WorkflowSubmissionCancelledError extends Error {},
+      };
+    }
+    if (specifier === "../components/FailureDialog") {
+      return {
+        readJobFailureDialog: () => null,
+        readRequestFailureDialog: () => null,
+      };
+    }
+    if (specifier === "../utils/errors") {
+      return { readMessage: (error) => error?.message ?? "request failed" };
+    }
+    if (specifier === "../utils/jobs") {
+      return { waitForJob };
+    }
+    throw new Error(`Unexpected test dependency: ${specifier}`);
+  };
+
+  vm.runInNewContext(compiled, { exports: module.exports, module, require: requireModule });
+  return module.exports.useWorkflowJob();
+}
