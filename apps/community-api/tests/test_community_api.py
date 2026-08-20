@@ -5,6 +5,7 @@ import sqlite3
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory as RealTemporaryDirectory
+from types import SimpleNamespace
 import zipfile
 
 import cv2
@@ -557,6 +558,22 @@ def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> No
 
     assert response.status_code == 200
     assert "installed" in response.json()
+
+
+def test_model_status_read_uses_workflow_permission_without_granting_settings_write() -> None:
+    actions: list[str] = []
+
+    class RecordingPermissionChecker:
+        def require(self, action: str, resource: object | None = None) -> None:
+            del resource
+            actions.append(action)
+
+    context = SimpleNamespace(permissions=RecordingPermissionChecker())
+
+    api_routes._require_model_status_read(context, "read_birefnet_install")
+    api_routes._require_settings_manage(context, "install_birefnet")
+
+    assert actions == ["jobs.create", "settings.manage"]
 
 
 def test_birefnet_install_can_start_without_login(tmp_path: Path) -> None:

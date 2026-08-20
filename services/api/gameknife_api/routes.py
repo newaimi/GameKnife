@@ -1071,12 +1071,18 @@ def _require_settings_manage(context: RequestContext, operation: str) -> None:
     context.permissions.require(SETTINGS_MANAGE_PERMISSION, {"operation": operation})
 
 
+def _require_model_status_read(context: RequestContext, operation: str) -> None:
+    # Tool pages need installation status before creating a Job, while installing or reconfiguring a model changes
+    # the service-wide runtime. Reuse the project workflow permission for read-only status without granting settings writes.
+    context.permissions.require(PROJECT_WORKFLOW_PERMISSION, {"operation": operation})
+
+
 @router.get("/settings/birefnet/install")
 def read_birefnet_install(
     context: RequestContext = Depends(get_request_context),
     birefnet: BiRefNetService = Depends(get_birefnet_service),
 ) -> dict[str, object]:
-    _require_settings_manage(context, "read_birefnet_install")
+    _require_model_status_read(context, "read_birefnet_install")
     return birefnet.install_status()
 
 
@@ -1094,7 +1100,7 @@ def read_upscale_model_install(
     context: RequestContext = Depends(get_request_context),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
 ) -> dict[str, object]:
-    _require_settings_manage(context, "read_upscale_models_install")
+    _require_model_status_read(context, "read_upscale_models_install")
     return upscale_models.install_status()
 
 
@@ -1112,7 +1118,7 @@ def read_stable_audio_install(
     context: RequestContext = Depends(get_request_context),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
 ) -> dict[str, object]:
-    _require_settings_manage(context, "read_stable_audio_install")
+    _require_model_status_read(context, "read_stable_audio_install")
     return stable_audio.install_status()
 
 
