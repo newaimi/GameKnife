@@ -5,11 +5,6 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from gameknife_api.job_service import (
-    run_sequence_clean_job,
-    run_sequence_from_video_job,
-    run_sequence_generate_video_job,
-)
 from gameknife_core import JobRecord, RequestContext
 from gameknife_jobs import JOB_TYPE_REGISTRY, GameKnifeRepository, JobExecutionHandler
 from gameknife_workflows import (
@@ -18,6 +13,7 @@ from gameknife_workflows import (
     run_asset_board_refine_workflow,
     run_asset_board_region_workflow,
     run_background_remove_workflow,
+    run_project_export_workflow,
     run_sequence_frames_export_workflow,
     run_sequence_spine_export_workflow,
     run_sound_effect_workflow,
@@ -27,6 +23,11 @@ from gameknife_workflows.background_remove import BackgroundRemoveModel
 from gameknife_workflows.sound_effect import SoundEffectService
 from gameknife_workflows.upscale import UpscaleModel
 
+from gameknife_api.job_service import (
+    run_sequence_clean_job,
+    run_sequence_from_video_job,
+    run_sequence_generate_video_job,
+)
 
 ContextResolver = Callable[[], RequestContext]
 BackgroundRemoveModelResolver = Callable[[], BackgroundRemoveModel]
@@ -143,6 +144,15 @@ def build_job_execution_handlers(
                 repository,
                 context,
                 stable_audio_resolver(),
+                job.id,
+            ),
+        ),
+        "project_export_package": _bind_persisted_job(
+            repository,
+            context_resolver,
+            lambda job, context, _parameters: run_project_export_workflow(
+                repository,
+                context,
                 job.id,
             ),
         ),

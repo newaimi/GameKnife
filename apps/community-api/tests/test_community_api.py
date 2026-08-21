@@ -2,26 +2,25 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import zipfile
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory as RealTemporaryDirectory
 from threading import get_ident
 from types import SimpleNamespace
-import zipfile
 
 import cv2
+import gameknife_api.job_service as job_service
+import gameknife_api.routes as api_routes
 import numpy as np
 import pytest
+from community_api.main import create_app
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from PIL import Image
-
-import gameknife_api.routes as api_routes
-import gameknife_api.job_service as job_service
-from community_api.main import create_app
 from gameknife_api.deps import CommunitySettings
 from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
 from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord
+from PIL import Image
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -530,10 +529,14 @@ def test_manual_edit_save_creates_new_asset_and_preserves_alpha(tmp_path: Path) 
         )
         saved = response.json()
         saved_file = client.get(saved["url"])
+        metadata = client.get(f"/api/assets/{saved['id']}/metadata").json()
 
     assert response.status_code == 200
     assert saved["filename"] == "edited-zombie.png"
     assert saved["mime_type"] == "image/png"
+    assert metadata["relations"][0]["direction"] == "source"
+    assert metadata["relations"][0]["relation_type"] == "manual_edit"
+    assert metadata["relations"][0]["asset"]["id"] == source["id"]
     with Image.open(BytesIO(saved_file.content)) as image:
         assert image.mode == "RGBA"
         assert image.getpixel((0, 0))[3] == 0
@@ -1724,3 +1727,79 @@ def test_video_generation_job_creates_video_asset(tmp_path: Path, monkeypatch) -
             (job["result"]["video_asset_id"],),
         ).fetchone()
     assert row == ("sequence_video", "video/mp4")
+
+
+def test_asset_page_and_project_export_preserve_manifest_and_provenance(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        hero = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        enemy = client.post(
+            "/api/assets/images",
+            files={"file": ("enemy.png", make_transparent_png_bytes(), "image/png")},
+        ).json()
+        asset_page = client.get("/api/assets", params={"category": "image", "search": "hero"})
+        created = client.post(
+            "/api/jobs/project-export",
+            json={
+                "asset_ids": [hero["id"], enemy["id"]],
+                "preset": "unity",
+                "package_name": "characters",
+            },
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        export_asset = job["result"]["output_assets"][0]
+        archive_response = client.get(export_asset["url"])
+        export_metadata = client.get(f"/api/assets/{export_asset['id']}/metadata").json()
+        blocked_delete = client.delete(hero["url"])
+
+    assert asset_page.status_code == 200
+    assert asset_page.json()["total"] == 1
+    assert asset_page.json()["items"][0]["id"] == hero["id"]
+    assert created.status_code == 200
+    assert job["status"] == "success"
+    assert job["type"] == "project_export_package"
+    assert job["result"]["preset"] == "unity"
+    assert blocked_delete.status_code == 409
+    assert export_metadata["kind"] == "project_export"
+    assert {relation["asset"]["id"] for relation in export_metadata["relations"] if relation["direction"] == "source"} == {
+        hero["id"],
+        enemy["id"],
+    }
+
+    with zipfile.ZipFile(BytesIO(archive_response.content)) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("gameknife-manifest.json"))
+    assert "Assets/GameKnife/images/hero.png" in names
+    assert "Assets/GameKnife/images/enemy.png" in names
+    assert manifest["schema_version"] == 1
+    assert manifest["preset"] == "unity"
+    assert [item["id"] for item in manifest["assets"]] == [hero["id"], enemy["id"]]
+
+
+def test_asset_metadata_actions_follow_media_type(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        video = client.post(
+            "/api/assets/videos",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        ).json()
+        image_metadata = client.get(f"/api/assets/{image['id']}/metadata").json()
+        video_metadata = client.get(f"/api/assets/{video['id']}/metadata").json()
+
+    assert {action["id"] for action in image_metadata["available_actions"]} == {
+        "download",
+        "background_remove",
+        "image_upscale",
+        "asset_board",
+        "sequence_generate_video",
+        "manual_edit",
+    }
+    assert {action["id"] for action in video_metadata["available_actions"]} == {
+        "download",
+        "sequence_video_to_frames",
+    }

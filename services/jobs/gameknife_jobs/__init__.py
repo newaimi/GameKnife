@@ -19,6 +19,7 @@ from .job_types import (
     JobQueue,
     JobTypeRegistry,
     JobTypeSpec,
+    canonical_project_export_parameters,
 )
 from .repository import GameKnifeRepository
 from .sqlite import SQLITE_SCHEMA_VERSION, SQLiteGameKnifeRepository, init_sqlite_schema
@@ -46,6 +47,7 @@ __all__ = [
     "JobSubmissionResult",
     "JobTypeRegistry",
     "JobTypeSpec",
+    "canonical_project_export_parameters",
     "ResourceReferenceError",
     "SQLiteGameKnifeRepository",
     "SequenceActiveJobError",

@@ -3,7 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from gameknife_core import AssetRecord, AssetReferenceSummary, JobOutputAssetRecord, JobRecord
+from gameknife_core import (
+    AssetRecord,
+    AssetReferenceSummary,
+    AssetRelationRecord,
+    JobOutputAssetRecord,
+    JobRecord,
+)
 
 from .submission import JobSubmissionResult, TaskSubmission
 
@@ -49,6 +55,36 @@ class GameKnifeRepository(Protocol):
         ...
 
     def list_assets_by_ids_for_workspace(self, asset_ids: list[str], workspace_id: str) -> list[AssetRecord]:
+        ...
+
+    def list_asset_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        limit: int,
+        offset: int,
+        kinds: list[str] | None = None,
+        search: str | None = None,
+    ) -> list[AssetRecord]:
+        ...
+
+    def count_asset_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        kinds: list[str] | None = None,
+        search: str | None = None,
+    ) -> int:
+        ...
+
+    def create_asset_relation(self, relation: AssetRelationRecord) -> None:
+        ...
+
+    def list_asset_relations_for_workspace(
+        self,
+        asset_id: str,
+        workspace_id: str,
+    ) -> list[AssetRelationRecord]:
         ...
 
     def delete_assets_for_workspace(self, asset_ids: list[str], workspace_id: str) -> None:

@@ -11,6 +11,7 @@ from .context import (
 from .models import (
     AssetRecord,
     AssetReferenceSummary,
+    AssetRelationRecord,
     ComponentCandidate,
     JobOutputAssetRecord,
     JobRecord,
@@ -21,6 +22,7 @@ __all__ = [
     "AllowAllPermissionChecker",
     "AssetRecord",
     "AssetReferenceSummary",
+    "AssetRelationRecord",
     "CapabilitySet",
     "ComponentCandidate",
     "JobRecord",

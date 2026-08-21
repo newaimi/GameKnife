@@ -9,7 +9,14 @@ from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 from uuid import uuid4
 
-from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord, ProcessResult, RequestContext
+from gameknife_core import (
+    AssetRecord,
+    AssetRelationRecord,
+    JobOutputAssetRecord,
+    JobRecord,
+    ProcessResult,
+    RequestContext,
+)
 from gameknife_jobs import JobSubmissionResult, TaskSubmission
 
 from .asset_persistence import AssetPersistenceRepository, persist_asset_file
@@ -26,6 +33,9 @@ class WorkflowRepository(AssetPersistenceRepository, Protocol):
         ...
 
     def list_assets_by_ids_for_workspace(self, asset_ids: list[str], workspace_id: str) -> list[AssetRecord]:
+        ...
+
+    def create_asset_relation(self, relation: AssetRelationRecord) -> None:
         ...
 
     def create_job(

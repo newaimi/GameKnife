@@ -30,9 +30,39 @@ export interface AppContext {
 export interface AssetResponse {
   id: string;
   filename: string;
+  kind?: string;
   mime_type: string;
   size_bytes: number;
+  storage_state?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
   url: string;
+}
+
+export interface AssetActionResponse {
+  id: string;
+  label: string;
+  route: string;
+}
+
+export interface AssetRelationResponse {
+  direction: "source" | "derived";
+  relation_type: string;
+  job_id?: string | null;
+  asset: AssetResponse;
+}
+
+export interface AssetDetailResponse extends AssetResponse {
+  relations: AssetRelationResponse[];
+  available_actions: AssetActionResponse[];
+}
+
+export interface AssetPageResponse {
+  items: AssetResponse[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface ComponentCandidate {
@@ -59,6 +89,7 @@ export interface JobResponse {
   device?: string | null;
   duration_ms: number;
   error_message?: string | null;
+  error_code?: string | null;
   created_at: string;
   updated_at: string;
 }

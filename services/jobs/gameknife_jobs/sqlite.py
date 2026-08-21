@@ -7,14 +7,24 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from gameknife_core import AssetRecord, AssetReferenceSummary, JobOutputAssetRecord, JobRecord
+from gameknife_core import (
+    AssetRecord,
+    AssetReferenceSummary,
+    AssetRelationRecord,
+    JobOutputAssetRecord,
+    JobRecord,
+)
 
-from .errors import InvalidJobStateTransitionError, JobDeliveryRequirementError, ResourceReferenceError, SequenceActiveJobError
+from .errors import (
+    InvalidJobStateTransitionError,
+    JobDeliveryRequirementError,
+    ResourceReferenceError,
+    SequenceActiveJobError,
+)
 from .job_types import JOB_TYPE_REGISTRY, JobDeliveryRequirement
 from .submission import JobSubmissionResult, TaskSubmission
 
-
-SQLITE_SCHEMA_VERSION = 1
+SQLITE_SCHEMA_VERSION = 2
 
 
 _JOBS_COLUMNS_SQL = """(
@@ -45,6 +55,22 @@ _JOB_OUTPUT_ASSETS_COLUMNS_SQL = """(
     UNIQUE(job_id, asset_id),
     FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE RESTRICT
+)"""
+
+_ASSET_RELATIONS_COLUMNS_SQL = """(
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    source_asset_id TEXT NOT NULL,
+    derived_asset_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    job_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_asset_id, derived_asset_id, relation_type),
+    CHECK(source_asset_id <> derived_asset_id),
+    FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+    FOREIGN KEY(derived_asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE SET NULL
 )"""
 
 _SEQUENCES_COLUMNS_SQL = """(
@@ -110,6 +136,8 @@ CREATE TABLE IF NOT EXISTS jobs {_JOBS_COLUMNS_SQL};
 
 CREATE TABLE IF NOT EXISTS job_output_assets {_JOB_OUTPUT_ASSETS_COLUMNS_SQL};
 
+CREATE TABLE IF NOT EXISTS asset_relations {_ASSET_RELATIONS_COLUMNS_SQL};
+
 CREATE TABLE IF NOT EXISTS sequences {_SEQUENCES_COLUMNS_SQL};
 
 CREATE TABLE IF NOT EXISTS sequence_frames {_SEQUENCE_FRAMES_COLUMNS_SQL};
@@ -124,6 +152,9 @@ CREATE INDEX IF NOT EXISTS idx_assets_workspace ON assets(workspace_id, created_
 CREATE INDEX IF NOT EXISTS idx_jobs_workspace ON jobs(workspace_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_job_output_assets_workspace_job ON job_output_assets(workspace_id, job_id);
 CREATE INDEX IF NOT EXISTS idx_job_output_assets_asset ON job_output_assets(asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_relations_workspace_source ON asset_relations(workspace_id, source_asset_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_asset_relations_workspace_derived ON asset_relations(workspace_id, derived_asset_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_asset_relations_job ON asset_relations(job_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sequences_active_job ON sequences(active_job_id) WHERE active_job_id IS NOT NULL;
 """
 
@@ -150,6 +181,10 @@ def init_sqlite_schema(database_path: Path) -> None:
             )
         elif current_version == 0:
             _migrate_v0_to_v1(connection)
+            current_version = 1
+
+        if current_version == 1:
+            _migrate_v1_to_v2(connection)
 
         connection.execute("PRAGMA foreign_keys = ON")
         _assert_foreign_keys(connection)
@@ -260,6 +295,69 @@ class SQLiteGameKnifeRepository:
             ).fetchall()
         return [_asset_from_row(row) for row in rows]
 
+    def list_asset_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        limit: int,
+        offset: int,
+        kinds: list[str] | None = None,
+        search: str | None = None,
+    ) -> list[AssetRecord]:
+        where_sql, values = _asset_page_filter(workspace_id, kinds, search)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, workspace_id, created_by, kind, original_name, path,
+                       mime_type, size_bytes, created_at, updated_at
+                FROM assets
+                WHERE {where_sql}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (*values, limit, offset),
+            ).fetchall()
+        return [_asset_from_row(row) for row in rows]
+
+    def count_asset_page_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        kinds: list[str] | None = None,
+        search: str | None = None,
+    ) -> int:
+        where_sql, values = _asset_page_filter(workspace_id, kinds, search)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) AS total FROM assets WHERE {where_sql}",
+                values,
+            ).fetchone()
+        return int(row["total"])
+
+    def create_asset_relation(self, relation: AssetRelationRecord) -> None:
+        if relation.source_asset_id == relation.derived_asset_id:
+            raise ValueError("An asset cannot be derived from itself.")
+        with self._connect() as connection:
+            _insert_asset_relation(connection, relation)
+
+    def list_asset_relations_for_workspace(
+        self,
+        asset_id: str,
+        workspace_id: str,
+    ) -> list[AssetRelationRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, workspace_id, created_by, source_asset_id, derived_asset_id,
+                       relation_type, job_id, created_at
+                FROM asset_relations
+                WHERE workspace_id = ? AND (source_asset_id = ? OR derived_asset_id = ?)
+                ORDER BY created_at ASC, id ASC
+                """,
+                (workspace_id, asset_id, asset_id),
+            ).fetchall()
+        return [AssetRelationRecord(**dict(row)) for row in rows]
+
     def delete_assets_for_workspace(self, asset_ids: list[str], workspace_id: str) -> None:
         if not asset_ids:
             return
@@ -349,7 +447,7 @@ class SQLiteGameKnifeRepository:
         with self._connect() as connection:
             job_and_asset = connection.execute(
                 """
-                SELECT j.id AS job_id, a.id AS asset_id
+                SELECT j.id AS job_id, j.input_asset_id, j.job_type, j.created_by, a.id AS asset_id
                 FROM jobs j
                 JOIN assets a ON a.id = ? AND a.workspace_id = ?
                 WHERE j.id = ? AND j.workspace_id = ?
@@ -375,6 +473,25 @@ class SQLiteGameKnifeRepository:
                     output.created_at,
                 ),
             )
+            source_asset_id = str(job_and_asset["input_asset_id"])
+            if source_asset_id != output.asset_id:
+                _insert_asset_relation(
+                    connection,
+                    AssetRelationRecord(
+                        id=uuid4().hex,
+                        workspace_id=output.workspace_id,
+                        created_by=output.created_by,
+                        source_asset_id=source_asset_id,
+                        derived_asset_id=output.asset_id,
+                        relation_type=(
+                            "export"
+                            if str(job_and_asset["job_type"]) == "project_export_package"
+                            else "derived"
+                        ),
+                        job_id=output.job_id,
+                        created_at=output.created_at,
+                    ),
+                )
 
     def list_job_output_assets_for_workspace(
         self,
@@ -1646,7 +1763,7 @@ def _migrate_v0_to_v1(connection: sqlite3.Connection) -> None:
         violations = connection.execute("PRAGMA foreign_key_check").fetchall()
         if violations:
             raise RuntimeError("SQLite migration found invalid asset references and was rolled back.")
-        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+        connection.execute("PRAGMA user_version = 1")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -1701,11 +1818,95 @@ def _backfill_job_output_assets(connection: sqlite3.Connection) -> None:
             )
 
 
+def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(f"CREATE TABLE asset_relations {_ASSET_RELATIONS_COLUMNS_SQL}")
+        connection.execute(
+            "CREATE INDEX idx_asset_relations_workspace_source ON asset_relations(workspace_id, source_asset_id, created_at)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_asset_relations_workspace_derived ON asset_relations(workspace_id, derived_asset_id, created_at)"
+        )
+        connection.execute("CREATE INDEX idx_asset_relations_job ON asset_relations(job_id)")
+        rows = connection.execute(
+            """
+            SELECT output.workspace_id, output.created_by, output.job_id, output.asset_id,
+                   output.created_at, job.input_asset_id
+            FROM job_output_assets output
+            JOIN jobs job ON job.id = output.job_id AND job.workspace_id = output.workspace_id
+            WHERE job.input_asset_id <> output.asset_id
+            """
+        ).fetchall()
+        for row in rows:
+            _insert_asset_relation(
+                connection,
+                AssetRelationRecord(
+                    id=uuid4().hex,
+                    workspace_id=str(row["workspace_id"]),
+                    created_by=str(row["created_by"]),
+                    source_asset_id=str(row["input_asset_id"]),
+                    derived_asset_id=str(row["asset_id"]),
+                    relation_type="derived",
+                    job_id=str(row["job_id"]),
+                    created_at=str(row["created_at"]),
+                ),
+            )
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError("SQLite asset-relation migration found invalid references and was rolled back.")
+        connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
 def _assert_foreign_keys(connection: sqlite3.Connection) -> None:
     if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != 1:
         raise RuntimeError("SQLite foreign-key enforcement is disabled.")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise RuntimeError("SQLite schema contains invalid foreign-key references.")
+
+
+def _insert_asset_relation(connection: sqlite3.Connection, relation: AssetRelationRecord) -> None:
+    source = connection.execute(
+        "SELECT id FROM assets WHERE id = ? AND workspace_id = ?",
+        (relation.source_asset_id, relation.workspace_id),
+    ).fetchone()
+    derived = connection.execute(
+        "SELECT id FROM assets WHERE id = ? AND workspace_id = ?",
+        (relation.derived_asset_id, relation.workspace_id),
+    ).fetchone()
+    if source is None or derived is None:
+        raise ValueError("Asset relations require source and derived assets in the same workspace.")
+    if relation.job_id is not None:
+        job = connection.execute(
+            "SELECT id FROM jobs WHERE id = ? AND workspace_id = ?",
+            (relation.job_id, relation.workspace_id),
+        ).fetchone()
+        if job is None:
+            raise ValueError("Asset relation job must belong to the same workspace.")
+    connection.execute(
+        """
+        INSERT INTO asset_relations (
+            id, workspace_id, created_by, source_asset_id, derived_asset_id,
+            relation_type, job_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_asset_id, derived_asset_id, relation_type) DO NOTHING
+        """,
+        (
+            relation.id,
+            relation.workspace_id,
+            relation.created_by,
+            relation.source_asset_id,
+            relation.derived_asset_id,
+            relation.relation_type,
+            relation.job_id,
+            relation.created_at,
+        ),
+    )
 
 
 def _asset_reference_summaries(
@@ -1730,6 +1931,7 @@ def _asset_reference_summaries(
             "output_job_ids": [],
             "source_sequence_frame_ids": [],
             "processed_sequence_frame_ids": [],
+            "derived_asset_ids": [],
         }
         for asset_id in unique_asset_ids
         if asset_id in existing_ids
@@ -1779,6 +1981,16 @@ def _asset_reference_summaries(
         if processed_asset_id is not None and str(processed_asset_id) in references:
             references[str(processed_asset_id)]["processed_sequence_frame_ids"].append(str(row["id"]))
 
+    for row in connection.execute(
+        f"""
+        SELECT source_asset_id, derived_asset_id
+        FROM asset_relations
+        WHERE workspace_id = ? AND source_asset_id IN ({reference_placeholders})
+        """,
+        (workspace_id, *reference_ids),
+    ).fetchall():
+        references[str(row["source_asset_id"])]["derived_asset_ids"].append(str(row["derived_asset_id"]))
+
     return [
         AssetReferenceSummary(
             asset_id=asset_id,
@@ -1786,6 +1998,7 @@ def _asset_reference_summaries(
             output_job_ids=tuple(sorted(values["output_job_ids"])),
             source_sequence_frame_ids=tuple(sorted(values["source_sequence_frame_ids"])),
             processed_sequence_frame_ids=tuple(sorted(values["processed_sequence_frame_ids"])),
+            derived_asset_ids=tuple(sorted(values["derived_asset_ids"])),
         )
         for asset_id, values in references.items()
     ]
@@ -1798,6 +2011,7 @@ def _without_job_reference(summary: AssetReferenceSummary, job_id: str) -> Asset
         output_job_ids=tuple(reference_id for reference_id in summary.output_job_ids if reference_id != job_id),
         source_sequence_frame_ids=summary.source_sequence_frame_ids,
         processed_sequence_frame_ids=summary.processed_sequence_frame_ids,
+        derived_asset_ids=summary.derived_asset_ids,
     )
 
 
@@ -1809,6 +2023,21 @@ def _asset_from_row(row: sqlite3.Row) -> AssetRecord:
 def _job_from_row(row: sqlite3.Row) -> JobRecord:
     data: dict[str, Any] = dict(row)
     return JobRecord(**data)
+
+
+def _asset_page_filter(workspace_id: str, kinds: list[str] | None, search: str | None) -> tuple[str, list[Any]]:
+    conditions = ["workspace_id = ?", "kind <> 'sound_prompt'"]
+    values: list[Any] = [workspace_id]
+    normalized_kinds = list(dict.fromkeys(item.strip() for item in (kinds or []) if item.strip()))
+    if normalized_kinds:
+        placeholders = ",".join("?" for _ in normalized_kinds)
+        conditions.append(f"kind IN ({placeholders})")
+        values.extend(normalized_kinds)
+    normalized_search = (search or "").strip().lower()
+    if normalized_search:
+        conditions.append("LOWER(original_name) LIKE ?")
+        values.append(f"%{normalized_search}%")
+    return " AND ".join(conditions), values
 
 
 def _job_page_filter(

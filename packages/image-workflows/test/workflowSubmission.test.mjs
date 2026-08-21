@@ -49,7 +49,7 @@ test("WorkflowSubmissionProvider exposes an injected implementation to public wo
   assert.equal(captured, custom);
 });
 
-test("workspace submission descriptors cover all twelve public job types exactly once", () => {
+test("tool workspace submission descriptors stay complete while project export remains an asset-page job", () => {
   const workspaceRoot = resolve(packageRoot, "src/workspaces");
   const files = [
     "background/BackgroundRemoveWorkspace.tsx",
@@ -83,7 +83,7 @@ test("workspace submission descriptors cover all twelve public job types exactly
 
   assert.equal(jobTypes.length, expected.size);
   assert.deepEqual(new Set(jobTypes), expected);
-  assert.deepEqual(new Set(jobTypes), registered);
+  assert.deepEqual(registered, new Set([...expected, "project_export_package"]));
 });
 
 test("useWorkflowJob delegates creation and terminal notification to the injected provider", () => {

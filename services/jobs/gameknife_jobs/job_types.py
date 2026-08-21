@@ -143,6 +143,51 @@ def _estimate_sound_effect_output(parameters: Mapping[str, Any]) -> int:
     return math.ceil(duration_seconds * 44_100 * 2 * 2) + 44
 
 
+def _estimate_project_export_output(parameters: Mapping[str, Any]) -> int:
+    canonical = canonical_project_export_parameters(
+        asset_ids=parameters.get("asset_ids"),
+        preset=parameters.get("preset"),
+        package_name=parameters.get("package_name"),
+        input_total_bytes=parameters.get("input_total_bytes"),
+    )
+    input_total_bytes = int(canonical["input_total_bytes"])
+    # Deflate can expand already-compressed media slightly. The fixed headroom also covers central-directory
+    # records and the manifest without making capacity depend on archive implementation details.
+    return input_total_bytes + max(16 * _MIB, math.ceil(input_total_bytes * 0.05))
+
+
+def canonical_project_export_parameters(
+    *,
+    asset_ids: object,
+    preset: object,
+    package_name: object,
+    input_total_bytes: object,
+) -> dict[str, Any]:
+    if not isinstance(asset_ids, list):
+        raise JobParameterValidationError("asset_ids must be a list")
+    normalized_ids = list(dict.fromkeys(str(item).strip() for item in asset_ids if str(item).strip()))
+    if not 1 <= len(normalized_ids) <= 100:
+        raise JobParameterValidationError("asset_ids must contain between 1 and 100 items")
+    normalized_preset = str(preset or "").strip().lower()
+    if normalized_preset not in {"generic", "unity", "godot"}:
+        raise JobParameterValidationError("preset must be generic, unity, or godot")
+    total_bytes = _read_int(
+        {"input_total_bytes": input_total_bytes},
+        "input_total_bytes",
+        minimum=1,
+        maximum=10 * 1024 * 1024 * 1024,
+    )
+    raw_name = str(package_name or "").strip()
+    stem = raw_name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+    safe_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in stem)
+    return {
+        "asset_ids": normalized_ids,
+        "preset": normalized_preset,
+        "package_name": safe_name[:80] or "gameknife-export",
+        "input_total_bytes": total_bytes,
+    }
+
+
 def _read_int(
     parameters: Mapping[str, Any],
     key: str,
@@ -277,6 +322,13 @@ JOB_TYPE_REGISTRY = JobTypeRegistry(
             commercial_queue=JobQueue.EXTERNAL,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_sound_effect_output,
+        ),
+        JobTypeSpec(
+            job_type="project_export_package",
+            executor="project_export_package",
+            commercial_queue=JobQueue.CPU,
+            delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
+            max_output_bytes_estimator=_estimate_project_export_output,
         ),
     )
 )

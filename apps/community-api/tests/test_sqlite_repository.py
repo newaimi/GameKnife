@@ -8,8 +8,12 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-
-from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord
+from gameknife_core import (
+    AssetRecord,
+    AssetRelationRecord,
+    JobOutputAssetRecord,
+    JobRecord,
+)
 from gameknife_jobs import (
     SQLITE_SCHEMA_VERSION,
     InvalidJobStateTransitionError,
@@ -20,7 +24,6 @@ from gameknife_jobs import (
     TaskSubmission,
     init_sqlite_schema,
 )
-
 
 LEGACY_SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -166,6 +169,7 @@ def test_legacy_schema_migration_preserves_rows_and_backfills_job_outputs(tmp_pa
     job = repository.get_job_for_workspace("job-1", "local")
     frames = repository.list_sequence_frames("sequence-1", "local")
     outputs = repository.list_job_output_assets_for_workspace("job-1", "local")
+    relations = repository.list_asset_relations_for_workspace("output", "local")
     with sqlite3.connect(database_path) as connection:
         version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         violations = connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -180,7 +184,55 @@ def test_legacy_schema_migration_preserves_rows_and_backfills_job_outputs(tmp_pa
     assert migrated_sequence["active_job_id"] is None
     assert migrated_sequence["revision"] == 0
     assert [output.asset_id for output in outputs] == ["output"]
+    assert [(relation.source_asset_id, relation.derived_asset_id, relation.relation_type) for relation in relations] == [
+        ("input", "output", "derived")
+    ]
     assert repository.read_setting("theme") == "dark"
+
+
+def test_asset_relations_block_source_deletion_and_allow_derived_cleanup(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    source = _create_asset(repository, "source")
+    derived = _create_asset(repository, "derived")
+    repository.create_asset_relation(
+        AssetRelationRecord(
+            id="relation-1",
+            workspace_id="local",
+            created_by="anonymous",
+            source_asset_id=source.id,
+            derived_asset_id=derived.id,
+            relation_type="manual_edit",
+            job_id=None,
+            created_at=_timestamp(),
+        )
+    )
+
+    summary = repository.get_asset_reference_summaries([source.id], "local")[0]
+    assert summary.derived_asset_ids == (derived.id,)
+    with pytest.raises(ResourceReferenceError):
+        repository.delete_assets_for_workspace([source.id], "local")
+
+    repository.delete_assets_for_workspace([derived.id], "local")
+    assert repository.list_asset_relations_for_workspace(source.id, "local") == []
+    repository.delete_assets_for_workspace([source.id], "local")
+    assert repository.get_asset_for_workspace(source.id, "local") is None
+
+
+def test_asset_page_filters_by_kind_and_filename(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    _create_asset(repository, "hero", kind="image", original_name="Hero Idle.png")
+    _create_asset(repository, "walk", kind="sequence_video", original_name="Walk.mp4")
+    _create_asset(repository, "enemy", kind="image", original_name="Enemy.png")
+
+    assert repository.count_asset_page_for_workspace("local", kinds=["image"], search="hero") == 1
+    page = repository.list_asset_page_for_workspace(
+        "local",
+        limit=10,
+        offset=0,
+        kinds=["image"],
+        search="hero",
+    )
+    assert [asset.id for asset in page] == ["hero"]
 
 
 def test_asset_references_block_job_deletion_but_sequence_deletion_preserves_shared_assets(tmp_path: Path) -> None:
@@ -910,13 +962,19 @@ def _repository(tmp_path: Path) -> SQLiteGameKnifeRepository:
     return SQLiteGameKnifeRepository(database_path)
 
 
-def _create_asset(repository: SQLiteGameKnifeRepository, asset_id: str) -> AssetRecord:
+def _create_asset(
+    repository: SQLiteGameKnifeRepository,
+    asset_id: str,
+    *,
+    kind: str = "image",
+    original_name: str | None = None,
+) -> AssetRecord:
     asset = AssetRecord(
         id=asset_id,
         workspace_id="local",
         created_by="anonymous",
-        kind="image",
-        original_name=f"{asset_id}.png",
+        kind=kind,
+        original_name=original_name or f"{asset_id}.png",
         path=f"uploads/{asset_id}.png",
         mime_type="image/png",
         size_bytes=1,

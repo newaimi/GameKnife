@@ -15,12 +15,13 @@ export {
 export const JOB_LIST_PAGE_SIZE = 12;
 
 export const JOB_CATEGORY_OPTIONS: Array<{ value: string; label: string; note: string }> = [
-  { value: "all", label: "全部", note: "所有可下载结果" },
+  { value: "all", label: "全部", note: "项目任务" },
   { value: "background", label: "抠图任务", note: "AI 去背景结果" },
   { value: "upscale", label: "图片放大", note: "超分和像素放大" },
   { value: "sound", label: "声效生成", note: "文字生成 WAV" },
   { value: "asset_board", label: "素材拆分", note: "素材板抠图和导出" },
   { value: "sequence", label: "序列帧", note: "PNG 序列和 Spine 工程" },
+  { value: "export", label: "项目导出", note: "通用、Unity 和 Godot" },
 ];
 
 export const DATE_PICKER_WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];

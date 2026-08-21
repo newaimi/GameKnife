@@ -8,9 +8,39 @@ from pydantic import BaseModel, ConfigDict, Field
 class AssetResponse(BaseModel):
     id: str
     filename: str
+    kind: str
     mime_type: str
     size_bytes: int
+    storage_state: str
+    created_by: str
+    created_at: str
+    updated_at: str
     url: str
+
+
+class AssetActionResponse(BaseModel):
+    id: str
+    label: str
+    route: str
+
+
+class AssetRelationResponse(BaseModel):
+    direction: Literal["source", "derived"]
+    relation_type: str
+    job_id: str | None = None
+    asset: AssetResponse
+
+
+class AssetDetailResponse(AssetResponse):
+    relations: list[AssetRelationResponse] = Field(default_factory=list)
+    available_actions: list[AssetActionResponse] = Field(default_factory=list)
+
+
+class AssetPageResponse(BaseModel):
+    items: list[AssetResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 class JobResponse(BaseModel):
@@ -26,6 +56,7 @@ class JobResponse(BaseModel):
     device: str | None = None
     duration_ms: int = 0
     error_message: str | None = None
+    error_code: str | None = None
     created_at: str
     updated_at: str
 
@@ -40,6 +71,12 @@ class JobPageResponse(BaseModel):
 class AssetJobRequest(BaseModel):
     input_asset_id: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectExportRequest(BaseModel):
+    asset_ids: list[str] = Field(min_length=1, max_length=100)
+    preset: Literal["generic", "unity", "godot"] = "generic"
+    package_name: str = Field(default="gameknife-export", min_length=1, max_length=120)
 
 
 class AssetBoardRefineRequest(BaseModel):

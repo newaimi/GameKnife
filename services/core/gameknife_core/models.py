@@ -68,6 +68,20 @@ class JobOutputAssetRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AssetRelationRecord:
+    """Stable provenance edge from one source asset to a derived asset."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    source_asset_id: str
+    derived_asset_id: str
+    relation_type: str
+    job_id: str | None
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class AssetReferenceSummary:
     """References that must be resolved before an asset can be deleted safely."""
 
@@ -76,6 +90,7 @@ class AssetReferenceSummary:
     output_job_ids: tuple[str, ...] = ()
     source_sequence_frame_ids: tuple[str, ...] = ()
     processed_sequence_frame_ids: tuple[str, ...] = ()
+    derived_asset_ids: tuple[str, ...] = ()
 
     @property
     def is_referenced(self) -> bool:
@@ -85,5 +100,6 @@ class AssetReferenceSummary:
                 self.output_job_ids,
                 self.source_sequence_frame_ids,
                 self.processed_sequence_frame_ids,
+                self.derived_asset_ids,
             )
         )

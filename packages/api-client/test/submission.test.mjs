@@ -17,9 +17,10 @@ const jobCases = [
   ["sequence_export_spine", "/api/sequences/sequence-1/export/spine", (client, options) => client.createSequenceSpineExportJob("sequence-1", {}, options)],
   ["sequence_video_to_frames", "/api/sequences/from-video", (client, options) => client.createSequenceFromVideoJob({ video_asset_id: "video-1", fps: 12, max_frames: 24 }, options)],
   ["sequence_generate_video", "/api/sequences/generate-from-image", (client, options) => client.createVideoGenerationJob({ input_asset_id: "asset-1", action: "walk", prompt: "", duration: 5, resolution: "720P", confirmed_external_api: true }, options)],
+  ["project_export_package", "/api/jobs/project-export", (client, options) => client.createProjectExportJob({ asset_ids: ["asset-1"], preset: "unity", package_name: "characters" }, options)],
 ];
 
-test("all twelve job creation methods attach commercial submission headers only when provided", async () => {
+test("all thirteen job creation methods attach commercial submission headers only when provided", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -61,6 +62,7 @@ test("the submission test matrix covers each public job type exactly once", () =
     "sequence_export_frames",
     "sequence_export_spine",
     "sound_effect_generate",
+    "project_export_package",
   ]);
   assert.deepEqual(new Set(jobCases.map(([jobType]) => jobType)), expected);
   assert.equal(jobCases.length, expected.size);
@@ -76,6 +78,7 @@ test("ordinary uploads and CRUD requests never receive task submission headers",
   try {
     const client = new GameKnifeApiClient({ baseUrl: "https://studio.test" });
     await client.uploadImage(new File(["image"], "sprite.png", { type: "image/png" }));
+    await client.listAssets({ category: "image", search: "sprite" });
     await client.updateSequence("sequence-1", { name: "walk" });
     for (const call of calls) {
       const headers = new Headers(call.init.headers);

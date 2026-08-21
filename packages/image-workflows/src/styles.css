@@ -2182,6 +2182,24 @@
   gap: 12px;
 }
 
+.task-status-filter {
+  min-width: 132px;
+  display: grid;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.task-status-filter select {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--field);
+  font-weight: 900;
+}
+
 .task-scope-toggle {
   height: 42px;
   padding: 4px;
@@ -2429,6 +2447,22 @@
   font-size: 12px;
 }
 
+.task-row-main .task-row-billing {
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.task-row-main .task-row-error {
+  color: var(--gk-color-danger, #d33f49);
+}
+
+.task-row-actions,
+.task-row-actions .job-asset-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .task-empty {
   min-height: 220px;
   display: grid;
@@ -2661,6 +2695,10 @@
     flex-direction: column;
   }
 
+  .task-status-filter {
+    width: 100%;
+  }
+
   .task-scope-toggle {
     width: 100%;
   }
@@ -2674,7 +2712,8 @@
   }
 
   .task-row > .gk-status-badge,
-  .task-row .job-asset-actions {
+  .task-row .job-asset-actions,
+  .task-row .task-row-actions {
     grid-column: 2;
     justify-self: start;
   }

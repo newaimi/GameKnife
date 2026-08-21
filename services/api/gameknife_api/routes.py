@@ -21,7 +21,13 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, RedirectResponse
-from gameknife_core import AssetRecord, JobRecord, RequestContext
+from gameknife_core import (
+    AssetRecord,
+    AssetRelationRecord,
+    JobRecord,
+    RequestContext,
+    StorageProvider,
+)
 from gameknife_jobs import (
     GameKnifeRepository,
     JobDispatcher,
@@ -40,6 +46,7 @@ from gameknife_workflows import (
     create_asset_board_refine_workflow,
     create_asset_board_region_workflow,
     create_background_remove_workflow,
+    create_project_export_workflow,
     create_sequence_frames_export_workflow,
     create_sequence_spine_export_workflow,
     create_sound_effect_workflow,
@@ -70,11 +77,14 @@ from gameknife_api.job_service import (
 from gameknife_api.schemas import (
     AssetBoardExportRequest,
     AssetBoardRefineRequest,
+    AssetDetailResponse,
     AssetJobRequest,
+    AssetPageResponse,
     AssetResponse,
     ContextResponse,
     JobPageResponse,
     JobResponse,
+    ProjectExportRequest,
     SequenceFrameResponse,
     SequenceFramesUpdateRequest,
     SequenceResponse,
@@ -97,17 +107,47 @@ DOWNLOADABLE_JOB_TYPES = [
     "background_remove",
     "asset_board_cutout",
     "asset_board_export",
+    "sequence_generate_video",
     "sequence_export_frames",
     "sequence_export_spine",
     "image_upscale",
     "sound_effect_generate",
+    "project_export_package",
 ]
+TASK_CENTER_JOB_TYPES = [
+    "background_remove",
+    "asset_board_cutout",
+    "asset_board_export",
+    "image_upscale",
+    "sequence_clean",
+    "sequence_generate_video",
+    "sequence_video_to_frames",
+    "sequence_export_frames",
+    "sequence_export_spine",
+    "sound_effect_generate",
+    "project_export_package",
+]
+ASSET_CATEGORY_KINDS = {
+    "image": [
+        "image",
+        "manual_edit",
+        "background_remove",
+        "upscale_result",
+        "asset_cutout",
+        "sequence_frame",
+        "sequence_frame_processed",
+    ],
+    "video": ["video", "sequence_video"],
+    "audio": ["sound_effect"],
+    "export": ["asset_export", "sequence_export", "sequence_spine", "project_export"],
+}
 JOB_CATEGORY_TYPES = {
     "background": ["background_remove"],
     "upscale": ["image_upscale"],
     "sound": ["sound_effect_generate"],
     "asset_board": ["asset_board_region_detect", "asset_board_cutout", "asset_board_region_refine", "asset_board_export"],
     "sequence": ["sequence_clean", "sequence_generate_video", "sequence_video_to_frames", "sequence_export_frames", "sequence_export_spine"],
+    "export": ["project_export_package"],
 }
 PROJECT_WORKFLOW_PERMISSION = "jobs.create"
 SETTINGS_MANAGE_PERMISSION = "settings.manage"
@@ -229,14 +269,18 @@ def list_job_history(
     created_from: str | None = Query(None),
     created_to: str | None = Query(None),
     downloadable: bool = Query(False),
+    delivery_only: bool = Query(False),
+    job_status: str | None = Query(None, alias="status"),
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> JobPageResponse:
-    job_types = _resolve_history_job_types(category, downloadable)
+    if job_status is not None and job_status not in {"pending", "running", "success", "failed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的任务状态。")
+    job_types = _resolve_history_job_types(category, downloadable, delivery_only)
     if job_types == []:
         return JobPageResponse(items=[], total=0, page=page, page_size=page_size)
 
-    status_filter = "success" if downloadable else None
+    status_filter = "success" if downloadable else job_status
     total = repository.count_job_page_for_workspace(
         context.workspace.id,
         job_types=job_types,
@@ -887,6 +931,35 @@ def create_sequence_spine_export_task(
     return _job_response(job, context, repository)
 
 
+@router.post("/jobs/project-export", response_model=JobResponse)
+def create_project_export_job(
+    payload: ProjectExportRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(get_job_submission_replay),
+) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
+    try:
+        submitted, _runner = create_project_export_workflow(
+            repository,
+            context,
+            asset_ids=payload.asset_ids,
+            preset=payload.preset,
+            package_name=payload.package_name,
+            submission=submission,
+        )
+    except WorkflowInputNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkflowValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not submitted.replayed:
+        dispatcher.dispatch(submitted.job.id, submitted.job.workspace_id)
+    return _job_response(submitted.job, context, repository)
+
+
 @router.post("/assets/images", response_model=AssetResponse)
 async def upload_image_asset(
     file: UploadFile = File(...),
@@ -961,6 +1034,76 @@ async def upload_video_asset(
             source_path,
         )
     return _asset_response(asset)
+
+
+@router.get("/assets", response_model=AssetPageResponse)
+def list_asset_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=100),
+    category: str = Query("all"),
+    search: str | None = Query(None, max_length=200),
+    context: RequestContext = Depends(get_request_context),
+    repository: GameKnifeRepository = Depends(get_repository),
+) -> AssetPageResponse:
+    if category != "all" and category not in ASSET_CATEGORY_KINDS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的素材类型。")
+    kinds = ASSET_CATEGORY_KINDS.get(category)
+    total = repository.count_asset_page_for_workspace(
+        context.workspace.id,
+        kinds=kinds,
+        search=search,
+    )
+    assets = repository.list_asset_page_for_workspace(
+        context.workspace.id,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+        kinds=kinds,
+        search=search,
+    )
+    return AssetPageResponse(
+        items=[_asset_response(asset) for asset in assets],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/assets/{asset_id}/metadata", response_model=AssetDetailResponse)
+def get_asset_metadata(
+    asset_id: str,
+    context: RequestContext = Depends(get_request_context),
+    repository: GameKnifeRepository = Depends(get_repository),
+) -> AssetDetailResponse:
+    asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
+    if asset is None or asset.storage_state != "ready":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="素材不存在或尚未就绪。")
+    relations = repository.list_asset_relations_for_workspace(asset.id, context.workspace.id)
+    related_ids = list(
+        dict.fromkeys(
+            relation.source_asset_id if relation.derived_asset_id == asset.id else relation.derived_asset_id
+            for relation in relations
+        )
+    )
+    related_assets = {
+        related.id: related
+        for related in repository.list_assets_by_ids_for_workspace(related_ids, context.workspace.id)
+        if related.storage_state == "ready"
+    }
+    return AssetDetailResponse(
+        **_asset_response(asset).model_dump(),
+        relations=[
+            {
+                "direction": "source" if relation.derived_asset_id == asset.id else "derived",
+                "relation_type": relation.relation_type,
+                "job_id": relation.job_id,
+                "asset": _asset_response(related_assets[related_id]),
+            }
+            for relation in relations
+            if (related_id := relation.source_asset_id if relation.derived_asset_id == asset.id else relation.derived_asset_id)
+            in related_assets
+        ],
+        available_actions=_asset_actions(asset, context),
+    )
 
 
 @router.get("/assets/{asset_id}")
@@ -1049,7 +1192,7 @@ async def save_manual_edit_asset(
         source_path, size_bytes = await _stage_upload(file, Path(directory), filename)
         _verify_image_path(source_path)
         asset = await run_in_threadpool(
-            persist_asset_file,
+            _persist_manual_edit_asset,
             repository,
             context.storage,
             AssetRecord(
@@ -1065,6 +1208,7 @@ async def save_manual_edit_asset(
                 updated_at=now,
             ),
             source_path,
+            source_asset_id,
         )
     return _asset_response(asset)
 
@@ -1109,16 +1253,77 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
     return AssetResponse(
         id=asset.id,
         filename=asset.original_name,
+        kind=asset.kind,
         mime_type=asset.mime_type,
         size_bytes=asset.size_bytes,
+        storage_state=asset.storage_state,
+        created_by=asset.created_by,
+        created_at=asset.created_at,
+        updated_at=asset.updated_at,
         url=f"/api/assets/{asset.id}",
     )
+
+
+def _asset_actions(asset: AssetRecord, context: RequestContext) -> list[dict[str, str]]:
+    actions: list[dict[str, str]] = [
+        {"id": "download", "label": "下载", "route": f"/api/assets/{asset.id}"}
+    ]
+    if not context.permissions.can(PROJECT_WORKFLOW_PERMISSION, {"asset_id": asset.id}):
+        return actions
+    if asset.mime_type.startswith("image/"):
+        actions.extend(
+            [
+                {"id": "background_remove", "label": "去背景", "route": "/tools/background-remove"},
+                {"id": "image_upscale", "label": "图片放大", "route": "/tools/upscale"},
+                {"id": "asset_board", "label": "素材板", "route": "/tools/asset-board"},
+                {"id": "sequence_generate_video", "label": "生成视频", "route": "/tools/video-generate"},
+                {"id": "manual_edit", "label": "手动编辑", "route": "/manual-edit"},
+            ]
+        )
+    elif asset.mime_type.startswith("video/"):
+        actions.append({"id": "sequence_video_to_frames", "label": "视频转帧", "route": "/tools/video-to-sequence"})
+    return actions
+
+
+def _persist_manual_edit_asset(
+    repository: GameKnifeRepository,
+    storage: StorageProvider,
+    asset: AssetRecord,
+    source_path: Path,
+    source_asset_id: str | None,
+) -> AssetRecord:
+    stored = persist_asset_file(repository, storage, asset, source_path)
+    if not source_asset_id:
+        return stored
+    try:
+        repository.create_asset_relation(
+            AssetRelationRecord(
+                id=uuid4().hex,
+                workspace_id=stored.workspace_id,
+                created_by=stored.created_by,
+                source_asset_id=source_asset_id,
+                derived_asset_id=stored.id,
+                relation_type="manual_edit",
+                job_id=None,
+                created_at=stored.created_at,
+            )
+        )
+        return stored
+    except Exception:
+        try:
+            repository.delete_assets_for_workspace([stored.id], stored.workspace_id)
+        finally:
+            try:
+                storage.delete_object(stored.path)
+            except Exception:  # noqa: BLE001
+                pass
+        raise
 
 
 def _resource_reference_detail(exc: ResourceReferenceError) -> dict[str, object]:
     return {
         "code": "RESOURCE_REFERENCED",
-        "message": "资源仍被其他任务或序列使用，无法删除。",
+        "message": "资源仍被任务、序列或派生素材使用，无法删除。",
         "resource": {"kind": exc.resource_kind, "id": exc.resource_id},
         "references": [
             {
@@ -1127,6 +1332,7 @@ def _resource_reference_detail(exc: ResourceReferenceError) -> dict[str, object]
                 "output_job_ids": list(reference.output_job_ids),
                 "source_sequence_frame_ids": list(reference.source_sequence_frame_ids),
                 "processed_sequence_frame_ids": list(reference.processed_sequence_frame_ids),
+                "derived_asset_ids": list(reference.derived_asset_ids),
             }
             for reference in exc.references
         ],
@@ -1428,6 +1634,11 @@ def _job_response(job: JobRecord, context: RequestContext, repository: GameKnife
         device=job.device,
         duration_ms=job.duration_ms,
         error_message=job.error_message,
+        error_code=(
+            str(result["error_code"])
+            if isinstance(result.get("error_code"), str) and result["error_code"]
+            else "JOB_EXECUTION_FAILED" if job.status == "failed" else None
+        ),
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -1521,15 +1732,14 @@ def _runtime_device_label(runtime: dict[str, object]) -> str:
     return "CPU"
 
 
-def _resolve_history_job_types(category: str, downloadable: bool) -> list[str] | None:
+def _resolve_history_job_types(category: str, downloadable: bool, delivery_only: bool) -> list[str] | None:
     category_types = None if category == "all" else JOB_CATEGORY_TYPES.get(category, [category])
-    if not downloadable:
+    if not downloadable and not delivery_only:
         return category_types
-
-    downloadable_types = set(DOWNLOADABLE_JOB_TYPES)
+    allowed_types = set(DOWNLOADABLE_JOB_TYPES if downloadable else TASK_CENTER_JOB_TYPES)
     if category_types is None:
-        return DOWNLOADABLE_JOB_TYPES
-    return [job_type for job_type in category_types if job_type in downloadable_types]
+        return DOWNLOADABLE_JOB_TYPES if downloadable else TASK_CENTER_JOB_TYPES
+    return [job_type for job_type in category_types if job_type in allowed_types]
 
 
 def _now() -> str:

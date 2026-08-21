@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobPageResponse, JobResponse, OutputAssetRef } from "@gameknife/shared-types";
@@ -7,9 +8,24 @@ import { readMessage } from "../../utils/errors";
 import { DatePickerField } from "./DatePickerField";
 import { JobHistoryRow } from "./JobHistoryRow";
 import { JOB_CATEGORY_OPTIONS, JOB_LIST_PAGE_SIZE, dateInputToEndIso, dateInputToStartIso, downloadJobAsset } from "./jobHistory";
+import { readJobRetryRoute } from "../../utils/jobRetry";
+import { useImageAssetSession } from "../../context/ImageAssetSession";
+import { saveVideoToSequenceTransfer } from "../../workspaces/sequence/videoToSequenceTransfer";
 
-export function CommunityJobsPage() {
+export interface JobListMetadata {
+  credits: number;
+  reservation_status: "frozen" | "charged" | "released";
+}
+
+export function CommunityJobsPage({
+  loadJobMetadata,
+}: {
+  loadJobMetadata?: (jobIds: string[]) => Promise<Record<string, JobListMetadata>>;
+} = {}) {
+  const navigate = useNavigate();
+  const imageSession = useImageAssetSession();
   const [category, setCategory] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | JobResponse["status"]>("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
@@ -19,11 +35,12 @@ export function CommunityJobsPage() {
   const [downloadingAssetId, setDownloadingAssetId] = useState("");
   const [deletingJobId, setDeletingJobId] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [metadata, setMetadata] = useState<Record<string, JobListMetadata>>({});
   const totalPages = Math.max(1, Math.ceil((jobPage?.total ?? 0) / JOB_LIST_PAGE_SIZE));
 
   useEffect(() => {
     setPage(1);
-  }, [category, startDate, endDate]);
+  }, [category, startDate, endDate, statusFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,11 +54,28 @@ export function CommunityJobsPage() {
         category,
         createdFrom: dateInputToStartIso(startDate),
         createdTo: dateInputToEndIso(endDate),
-        downloadable: true,
+        deliveryOnly: true,
+        status: statusFilter === "all" ? undefined : statusFilter,
       })
-      .then((result) => {
+      .then(async (result) => {
         if (!cancelled) {
           setJobPage(result);
+          if (loadJobMetadata && result.items.length) {
+            try {
+              const nextMetadata = await loadJobMetadata(result.items.map((job) => job.id));
+              if (!cancelled) {
+                setMetadata(nextMetadata);
+              }
+            } catch {
+              // Billing metadata is an optional Commercial enrichment. A transient billing read must not hide the
+              // authoritative public Job list or its retry actions.
+              if (!cancelled) {
+                setMetadata({});
+              }
+            }
+          } else {
+            setMetadata({});
+          }
         }
       })
       .catch((exc) => {
@@ -59,7 +93,7 @@ export function CommunityJobsPage() {
     return () => {
       cancelled = true;
     };
-  }, [category, endDate, page, reloadKey, startDate]);
+  }, [category, endDate, loadJobMetadata, page, reloadKey, startDate, statusFilter]);
 
   async function handleDownload(job: JobResponse, asset: OutputAssetRef) {
     setError("");
@@ -90,13 +124,42 @@ export function CommunityJobsPage() {
     }
   }
 
+  function handleRetry(job: JobResponse) {
+    const route = readJobRetryRoute(job);
+    if (!route) {
+      return;
+    }
+    if (job.input_mime_type?.startsWith("image/") && job.input_filename && job.input_size_bytes != null) {
+      imageSession?.setImageAsset({
+        id: job.input_asset_id,
+        filename: job.input_filename,
+        mime_type: job.input_mime_type,
+        size_bytes: job.input_size_bytes,
+        url: `/api/assets/${job.input_asset_id}`,
+      });
+    }
+    if (job.type === "sequence_video_to_frames" && job.input_filename && job.input_mime_type && job.input_size_bytes != null) {
+      saveVideoToSequenceTransfer({
+        asset: {
+          id: job.input_asset_id,
+          filename: job.input_filename,
+          mime_type: job.input_mime_type,
+          size_bytes: job.input_size_bytes,
+          url: `/api/assets/${job.input_asset_id}`,
+        },
+        action: "walk_down",
+      });
+    }
+    navigate(route);
+  }
+
   return (
     <section className="task-list-page">
       <div className="page-heading task-list-heading">
         <div>
-          <p className="eyebrow">任务历史</p>
-          <h1>可下载结果</h1>
-          <p>这里只展示已经生成文件的任务，识别素材框、刷新框选这类中间步骤不会混进来。</p>
+          <p className="eyebrow">任务中心</p>
+          <h1>项目任务</h1>
+          <p>查看任务输入、输出和失败原因，并回到对应工具继续处理。</p>
         </div>
         <Button onClick={() => setReloadKey((current) => current + 1)}>
           <RefreshCw size={18} />
@@ -114,6 +177,16 @@ export function CommunityJobsPage() {
           ))}
         </div>
         <div className="task-date-filters">
+          <label className="task-status-filter">
+            <span>状态</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+              <option value="all">全部</option>
+              <option value="pending">排队中</option>
+              <option value="running">处理中</option>
+              <option value="success">成功</option>
+              <option value="failed">失败</option>
+            </select>
+          </label>
           <DatePickerField label="开始时间" value={startDate} onChange={setStartDate} />
           <DatePickerField label="结束时间" value={endDate} onChange={setEndDate} />
           <Button
@@ -130,7 +203,7 @@ export function CommunityJobsPage() {
 
       <section className="task-table-card">
         <div className="task-table-summary">
-          <span>{loading ? "正在加载..." : `共 ${jobPage?.total ?? 0} 个可下载结果`}</span>
+          <span>{loading ? "正在加载..." : `共 ${jobPage?.total ?? 0} 个任务`}</span>
           <span>
             第 {Math.min(page, totalPages)} / {totalPages} 页
           </span>
@@ -138,7 +211,18 @@ export function CommunityJobsPage() {
         {error ? <FeedbackMessage tone="danger">{error}</FeedbackMessage> : null}
         <div className="task-table">
           {jobPage?.items.length ? (
-            jobPage.items.map((job) => <JobHistoryRow deletingJobId={deletingJobId} downloadingAssetId={downloadingAssetId} job={job} key={job.id} onDelete={handleDelete} onDownload={handleDownload} />)
+            jobPage.items.map((job) => (
+              <JobHistoryRow
+                deletingJobId={deletingJobId}
+                downloadingAssetId={downloadingAssetId}
+                job={job}
+                key={job.id}
+                metadata={metadata[job.id]}
+                onDelete={handleDelete}
+                onDownload={handleDownload}
+                onRetry={handleRetry}
+              />
+            ))
           ) : (
             <div className="task-empty">
               <strong>{loading ? "正在加载任务..." : "没有符合条件的任务"}</strong>

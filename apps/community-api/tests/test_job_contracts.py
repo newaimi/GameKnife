@@ -30,6 +30,7 @@ EXPECTED_JOB_TYPES = {
     "sequence_export_frames",
     "sequence_export_spine",
     "sound_effect_generate",
+    "project_export_package",
 }
 
 
@@ -77,6 +78,16 @@ def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
     sequence_clean = JOB_TYPE_REGISTRY["sequence_clean"]
     assert sequence_clean.estimate_max_output_bytes({"frame_count": 3, "canvas_width": 128, "canvas_height": 256}) == 393_216
 
+    project_export = JOB_TYPE_REGISTRY["project_export_package"]
+    assert project_export.estimate_max_output_bytes(
+        {
+            "asset_ids": ["a", "b"],
+            "preset": "unity",
+            "package_name": "characters",
+            "input_total_bytes": 1024,
+        }
+    ) == 16 * 1024 * 1024 + 1024
+
 
 @pytest.mark.parametrize(
     ("job_type", "parameters", "message"),
@@ -87,6 +98,7 @@ def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
         ("image_upscale", {"scale": 3}, "scale must be one of 2, 4, 8"),
         ("sequence_clean", {"frame_count": 3, "canvas_width": 128}, "canvas_height is required"),
         ("sound_effect_generate", {"duration_seconds": True}, "duration_seconds must be a number"),
+        ("project_export_package", {"asset_ids": [], "preset": "unity", "input_total_bytes": 1}, "asset_ids must contain"),
     ),
 )
 def test_output_estimators_reject_invalid_parameters(job_type: str, parameters: dict[str, object], message: str) -> None:

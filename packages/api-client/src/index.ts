@@ -1,6 +1,8 @@
 import type {
   AppContext,
   AssetResponse,
+  AssetDetailResponse,
+  AssetPageResponse,
   BiRefNetInstallStatus,
   JobPageResponse,
   JobResponse,
@@ -71,6 +73,28 @@ export class GameKnifeApiClient {
     });
   }
 
+  async listAssets(
+    params: { page?: number; pageSize?: number; category?: "all" | "image" | "video" | "audio" | "export"; search?: string } = {},
+  ): Promise<AssetPageResponse> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      page_size: String(params.pageSize ?? 24),
+      category: params.category ?? "all",
+    });
+    if (params.search?.trim()) {
+      search.set("search", params.search.trim());
+    }
+    return this.requestJson<AssetPageResponse>(`/api/assets?${search.toString()}`);
+  }
+
+  async getAssetMetadata(assetId: string): Promise<AssetDetailResponse> {
+    return this.requestJson<AssetDetailResponse>(`/api/assets/${assetId}/metadata`);
+  }
+
+  async deleteAsset(assetId: string): Promise<void> {
+    await this.requestVoid(`/api/assets/${assetId}`, { method: "DELETE" });
+  }
+
   async saveManualEditAsset(file: File, name?: string, sourceAssetId?: string, sourceContext?: string): Promise<AssetResponse> {
     const form = new FormData();
     form.append("file", file);
@@ -98,7 +122,16 @@ export class GameKnifeApiClient {
   }
 
   async listJobHistory(
-    params: { page?: number; pageSize?: number; category?: string; createdFrom?: string; createdTo?: string; downloadable?: boolean } = {},
+    params: {
+      page?: number;
+      pageSize?: number;
+      category?: string;
+      createdFrom?: string;
+      createdTo?: string;
+      downloadable?: boolean;
+      deliveryOnly?: boolean;
+      status?: "pending" | "running" | "success" | "failed";
+    } = {},
   ): Promise<JobPageResponse> {
     const search = new URLSearchParams();
     search.set("page", String(params.page ?? 1));
@@ -112,6 +145,12 @@ export class GameKnifeApiClient {
     }
     if (params.downloadable) {
       search.set("downloadable", "true");
+    }
+    if (params.deliveryOnly) {
+      search.set("delivery_only", "true");
+    }
+    if (params.status) {
+      search.set("status", params.status);
     }
     return this.requestJson<JobPageResponse>(`/api/jobs/history?${search.toString()}`);
   }
@@ -136,6 +175,17 @@ export class GameKnifeApiClient {
     cfg_scale: number;
   }, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/sound-effect", {
+      method: "POST",
+      headers: jobJsonHeaders(submission),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createProjectExportJob(
+    payload: { asset_ids: string[]; preset: "generic" | "unity" | "godot"; package_name: string },
+    submission?: TaskSubmissionOptions,
+  ): Promise<JobResponse> {
+    return this.requestJson<JobResponse>("/api/jobs/project-export", {
       method: "POST",
       headers: jobJsonHeaders(submission),
       body: JSON.stringify(payload),
