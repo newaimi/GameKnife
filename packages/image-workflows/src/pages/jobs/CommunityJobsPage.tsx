@@ -7,7 +7,15 @@ import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import { readMessage } from "../../utils/errors";
 import { DatePickerField } from "./DatePickerField";
 import { JobHistoryRow } from "./JobHistoryRow";
-import { JOB_CATEGORY_OPTIONS, JOB_LIST_PAGE_SIZE, dateInputToEndIso, dateInputToStartIso, downloadJobAsset } from "./jobHistory";
+import {
+  JOB_CATEGORY_OPTIONS,
+  JOB_LIST_PAGE_SIZE,
+  dateInputToEndIso,
+  dateInputToStartIso,
+  downloadJobAsset,
+  type JobCategoryOption,
+  type JobPresentationResolver,
+} from "./jobHistory";
 import { readJobRetryRoute } from "../../utils/jobRetry";
 import { useImageAssetSession } from "../../context/ImageAssetSession";
 import { saveVideoToSequenceTransfer } from "../../workspaces/sequence/videoToSequenceTransfer";
@@ -18,8 +26,12 @@ export interface JobListMetadata {
 }
 
 export function CommunityJobsPage({
+  jobCategoryOptions = JOB_CATEGORY_OPTIONS,
+  jobPresentationResolver,
   loadJobMetadata,
 }: {
+  jobCategoryOptions?: JobCategoryOption[];
+  jobPresentationResolver?: JobPresentationResolver;
   loadJobMetadata?: (jobIds: string[]) => Promise<Record<string, JobListMetadata>>;
 } = {}) {
   const navigate = useNavigate();
@@ -125,11 +137,12 @@ export function CommunityJobsPage({
   }
 
   function handleRetry(job: JobResponse) {
-    const route = readJobRetryRoute(job);
+    const presentation = jobPresentationResolver?.(job);
+    const route = presentation?.retryRoute ?? readJobRetryRoute(job);
     if (!route) {
       return;
     }
-    if (job.input_mime_type?.startsWith("image/") && job.input_filename && job.input_size_bytes != null) {
+    if (job.input_asset_id && job.input_mime_type?.startsWith("image/") && job.input_filename && job.input_size_bytes != null) {
       imageSession?.setImageAsset({
         id: job.input_asset_id,
         filename: job.input_filename,
@@ -138,7 +151,7 @@ export function CommunityJobsPage({
         url: `/api/assets/${job.input_asset_id}`,
       });
     }
-    if (job.type === "sequence_video_to_frames" && job.input_filename && job.input_mime_type && job.input_size_bytes != null) {
+    if (job.input_asset_id && job.type === "sequence_video_to_frames" && job.input_filename && job.input_mime_type && job.input_size_bytes != null) {
       saveVideoToSequenceTransfer({
         asset: {
           id: job.input_asset_id,
@@ -169,7 +182,7 @@ export function CommunityJobsPage({
 
       <section className="task-filter-card">
         <div className="task-filter-tabs" aria-label="任务类型筛选">
-          {JOB_CATEGORY_OPTIONS.map((option) => (
+          {jobCategoryOptions.map((option) => (
             <button key={option.value} className={category === option.value ? "active" : ""} type="button" onClick={() => setCategory(option.value)}>
               <strong>{option.label}</strong>
               <span>{option.note}</span>
@@ -216,6 +229,7 @@ export function CommunityJobsPage({
                 deletingJobId={deletingJobId}
                 downloadingAssetId={downloadingAssetId}
                 job={job}
+                jobPresentationResolver={jobPresentationResolver}
                 key={job.id}
                 metadata={metadata[job.id]}
                 onDelete={handleDelete}

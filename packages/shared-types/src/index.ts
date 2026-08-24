@@ -56,6 +56,22 @@ export interface AssetRelationResponse {
 export interface AssetDetailResponse extends AssetResponse {
   relations: AssetRelationResponse[];
   available_actions: AssetActionResponse[];
+  quality_check?: AssetQualityCheckResponse | null;
+}
+
+export interface AssetQualityCheckResponse {
+  id: string;
+  status: "unchecked" | "passed" | "warning" | "failed";
+  rules_version: string;
+  content_sha256: string;
+  parameters: Record<string, unknown>;
+  checks: Array<{
+    code: string;
+    status: "passed" | "warning" | "failed" | "not_checked";
+    message: string;
+    metrics?: Record<string, unknown>;
+  }>;
+  created_at: string;
 }
 
 export interface AssetPageResponse {
@@ -70,6 +86,9 @@ export interface ComponentCandidate {
   bbox: [number, number, number, number];
   area: number;
   selected: boolean;
+  name?: string;
+  state?: "normal" | "hover" | "pressed" | "disabled" | "selected";
+  nine_slice?: [number, number, number, number] | null;
   preview_asset_id?: string | null;
   preview_url?: string;
 }
@@ -80,7 +99,12 @@ export interface JobResponse {
   id: string;
   type: string;
   status: JobStatus;
-  input_asset_id: string;
+  input_asset_id?: string | null;
+  input_assets: Array<{
+    role: string;
+    position: number;
+    asset: AssetResponse;
+  }>;
   input_filename?: string | null;
   input_mime_type?: string | null;
   input_size_bytes?: number | null;

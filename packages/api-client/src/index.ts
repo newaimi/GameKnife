@@ -74,7 +74,7 @@ export class GameKnifeApiClient {
   }
 
   async listAssets(
-    params: { page?: number; pageSize?: number; category?: "all" | "image" | "video" | "audio" | "export"; search?: string } = {},
+    params: { page?: number; pageSize?: number; category?: "all" | "image" | "video" | "audio" | "model" | "export"; search?: string } = {},
   ): Promise<AssetPageResponse> {
     const search = new URLSearchParams({
       page: String(params.page ?? 1),
@@ -190,6 +190,21 @@ export class GameKnifeApiClient {
       headers: jobJsonHeaders(submission),
       body: JSON.stringify(payload),
     });
+  }
+
+  async createAssetQualityCheckJob(
+    assetId: string,
+    payload: { source_quality_check_id?: string | null },
+    submission?: TaskSubmissionOptions,
+  ): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(
+      `/api/assets/${encodeURIComponent(assetId)}/quality-check`,
+      {
+        method: "POST",
+        headers: jobJsonHeaders(submission),
+        body: JSON.stringify(payload),
+      },
+    );
   }
 
   async createAssetBoardRegionJob(inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {

@@ -11,15 +11,26 @@ export {
   readJobThumbnailPath,
   readJobTitle,
 } from "../../utils/jobPresentation";
+export type {
+  JobPresentationOverride,
+  JobPresentationResolver,
+} from "../../utils/jobPresentation";
 
 export const JOB_LIST_PAGE_SIZE = 12;
 
-export const JOB_CATEGORY_OPTIONS: Array<{ value: string; label: string; note: string }> = [
+export interface JobCategoryOption {
+  value: string;
+  label: string;
+  note: string;
+}
+
+export const JOB_CATEGORY_OPTIONS: JobCategoryOption[] = [
   { value: "all", label: "全部", note: "项目任务" },
   { value: "background", label: "抠图任务", note: "AI 去背景结果" },
   { value: "upscale", label: "图片放大", note: "超分和像素放大" },
   { value: "sound", label: "声效生成", note: "文字生成 WAV" },
   { value: "asset_board", label: "素材拆分", note: "素材板抠图和导出" },
+  { value: "quality", label: "质量检查", note: "图片、UI、音频和 3D" },
   { value: "sequence", label: "序列帧", note: "PNG 序列和 Spine 工程" },
   { value: "export", label: "项目导出", note: "通用、Unity 和 Godot" },
 ];

@@ -10,9 +10,11 @@ from .context import (
 )
 from .models import (
     AssetRecord,
+    AssetQualityCheckRecord,
     AssetReferenceSummary,
     AssetRelationRecord,
     ComponentCandidate,
+    JobInputAssetRecord,
     JobOutputAssetRecord,
     JobRecord,
     ProcessResult,
@@ -21,10 +23,12 @@ from .models import (
 __all__ = [
     "AllowAllPermissionChecker",
     "AssetRecord",
+    "AssetQualityCheckRecord",
     "AssetReferenceSummary",
     "AssetRelationRecord",
     "CapabilitySet",
     "ComponentCandidate",
+    "JobInputAssetRecord",
     "JobRecord",
     "JobOutputAssetRecord",
     "PermissionChecker",

@@ -11,6 +11,11 @@ from uuid import uuid4
 
 from gameknife_core import AssetRecord, ProcessResult, RequestContext
 from gameknife_jobs import AssetWriteInProgressError, JobSubmissionResult, TaskSubmission
+from gameknife_processors import (
+    AUDIO_QUALITY_RULES_VERSION,
+    check_audio_asset,
+    unavailable_quality_result,
+)
 
 from .errors import WorkflowModelNotInstalledError, WorkflowServiceUnavailableError, WorkflowValidationError
 from .asset_persistence import persist_asset_file
@@ -26,6 +31,7 @@ from .job_helpers import (
     register_output_assets,
     temporary_job_directory,
 )
+from .quality import persist_asset_quality_result
 
 
 class SoundEffectService(Protocol):
@@ -109,6 +115,7 @@ def run_sound_effect_workflow(
         return
 
     output_assets: list[dict[str, str]] = []
+    quality_result: dict[str, str] = {}
     try:
         with temporary_job_directory(job.id) as working_directory:
             prompt_path = download_object(
@@ -138,7 +145,54 @@ def run_sound_effect_workflow(
                 device=str(metadata.get("device") or ""),
             )
             output_assets = register_output_assets(repository, context, job.id, result.output_paths, "sound_effect", "audio/wav")
-        mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
+            output_asset = repository.get_asset_for_workspace(
+                output_assets[0]["id"],
+                context.workspace.id,
+            )
+            if output_asset is None:
+                raise RuntimeError("声效输出素材未能持久化。")
+            quality_parameters = {
+                "check_type": "audio",
+                "asset_type": "sound_effect",
+                "expected_duration_seconds": float(
+                    parameters.get("duration_seconds", 4)
+                ),
+                "expect_loop": False,
+            }
+            try:
+                quality = check_audio_asset(
+                    target_path,
+                    expected_duration_seconds=quality_parameters[
+                        "expected_duration_seconds"
+                    ],
+                    asset_type="sound_effect",
+                )
+            except Exception:  # noqa: BLE001
+                # The delivered sound remains usable when measurement fails. Persisting an unchecked fact keeps
+                # export and retry policy explicit instead of treating the checker outage as an artistic failure.
+                quality = unavailable_quality_result(
+                    target_path,
+                    rules_version=AUDIO_QUALITY_RULES_VERSION,
+                    parameters=quality_parameters,
+                )
+            stored_quality = persist_asset_quality_result(
+                repository,
+                context,
+                output_asset,
+                quality,
+            )
+            quality_result = {
+                "quality_check_id": stored_quality.id,
+                "quality_status": stored_quality.status,
+                "quality_rules_version": stored_quality.rules_version,
+            }
+        mark_success(
+            repository,
+            context,
+            job_id,
+            result,
+            {**result.result, **quality_result, "output_assets": output_assets},
+        )
     except Exception as exc:  # noqa: BLE001
         cleanup_registered_output_assets(repository, context, job_id, output_assets)
         mark_failed(repository, context, job_id, str(exc))

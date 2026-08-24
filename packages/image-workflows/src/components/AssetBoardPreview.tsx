@@ -157,6 +157,7 @@ export function AssetBoardPreview({
                   title={`组件 #${component.id}`}
                 >
                   #{component.id}
+                  {component.nine_slice ? <NineSliceGuides component={component} /> : null}
                   <span className="resize-handle nw" onPointerDown={(event) => startEdit(event, component, "nw")} />
                   <span className="resize-handle ne" onPointerDown={(event) => startEdit(event, component, "ne")} />
                   <span className="resize-handle sw" onPointerDown={(event) => startEdit(event, component, "sw")} />
@@ -333,5 +334,24 @@ export function cloneComponent(component: ComponentCandidate): ComponentCandidat
   return {
     ...component,
     bbox: [...component.bbox] as [number, number, number, number],
+    nine_slice: component.nine_slice
+      ? [...component.nine_slice] as [number, number, number, number]
+      : null,
   };
+}
+
+function NineSliceGuides({ component }: { component: ComponentCandidate }) {
+  const nineSlice = component.nine_slice;
+  if (!nineSlice) return null;
+  const [left, top, right, bottom] = nineSlice;
+  const width = Math.max(1, component.bbox[2]);
+  const height = Math.max(1, component.bbox[3]);
+  return (
+    <span aria-hidden="true" className="nine-slice-guides">
+      <i className="vertical start" style={{ left: `${Math.min(100, (left / width) * 100)}%` }} />
+      <i className="vertical end" style={{ right: `${Math.min(100, (right / width) * 100)}%` }} />
+      <i className="horizontal start" style={{ top: `${Math.min(100, (top / height) * 100)}%` }} />
+      <i className="horizontal end" style={{ bottom: `${Math.min(100, (bottom / height) * 100)}%` }} />
+    </span>
+  );
 }

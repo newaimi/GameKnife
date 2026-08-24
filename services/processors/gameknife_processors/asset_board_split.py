@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import json
+import re
 import time
 import zipfile
 from pathlib import Path
@@ -94,6 +96,7 @@ class AssetBoardSplitProcessor:
         cutout = Image.open(cutout_path).convert("RGBA")
         cutout.load()
         components = self._components_from_payloads(component_payloads or [])
+        component_metadata = self._component_metadata_by_id(component_payloads or [])
         if not components:
             alpha = np.asarray(cutout.getchannel("A"), dtype=np.uint8)
             components = [component for component, _ in self._extract_components(alpha, parameters)]
@@ -101,22 +104,72 @@ class AssetBoardSplitProcessor:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         export_index = 1
-        export_name_stem = str(parameters.get("export_name_stem") or cutout_path.stem)
+        export_name_stem = self._safe_name(
+            parameters.get("export_name_stem") or cutout_path.stem,
+            "asset_board",
+        )
+        manifest_components: list[dict[str, Any]] = []
+        used_names: set[str] = set()
         with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for component in components:
                 if component.id not in selected_ids:
                     continue
                 component_image = self._crop_cutout_component(cutout, component, parameters)
-                # ZIP names retain the user's asset stem so game projects can map exports back to the source board.
-                filename = f"{export_name_stem}_component_{export_index:03d}.png"
+                metadata = component_metadata.get(component.id, {})
+                name = self._unique_component_name(
+                    metadata.get("name"),
+                    export_index,
+                    used_names,
+                )
+                state = self._component_state(metadata.get("state"))
+                nine_slice = self._export_nine_slice(
+                    metadata.get("nine_slice"),
+                    component,
+                    cutout,
+                    parameters,
+                )
+                # 文件名同时使用来源板名称和组件名称，组件清单可以直接映射引擎资源。
+                filename = f"{export_name_stem}_{name}.png"
                 buffer = io.BytesIO()
                 component_image.save(buffer, format="PNG")
                 archive.writestr(filename, buffer.getvalue())
+                manifest_components.append(
+                    {
+                        "id": component.id,
+                        "name": name,
+                        "state": state,
+                        "file": filename,
+                        "width": component_image.width,
+                        "height": component_image.height,
+                        "source_bbox": list(component.bbox),
+                        "nine_slice": nine_slice,
+                    }
+                )
                 export_index += 1
+            archive.writestr(
+                "component-manifest.json",
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source_size": list(cutout.size),
+                        "export_padding": max(
+                            0,
+                            int(parameters.get("export_padding", 8)),
+                        ),
+                        "components": manifest_components,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
 
         return ProcessResult(
             output_paths=[output_path],
-            result={"component_count": len(components), "selected_count": export_index - 1},
+            result={
+                "component_count": len(components),
+                "selected_count": export_index - 1,
+                "component_manifest": "component-manifest.json",
+            },
             duration_ms=int((time.perf_counter() - started) * 1000),
             device="CPU",
         )
@@ -190,6 +243,82 @@ class AssetBoardSplitProcessor:
             )
         components.sort(key=lambda component: component.id)
         return components
+
+    @staticmethod
+    def _component_metadata_by_id(
+        payloads: list[dict[str, Any]],
+    ) -> dict[int, dict[str, Any]]:
+        metadata: dict[int, dict[str, Any]] = {}
+        for index, payload in enumerate(payloads):
+            if not isinstance(payload, dict):
+                continue
+            try:
+                component_id = int(payload.get("id", index + 1))
+            except (TypeError, ValueError):
+                continue
+            metadata[component_id] = payload
+        return metadata
+
+    @staticmethod
+    def _unique_component_name(
+        raw_name: object,
+        export_index: int,
+        used_names: set[str],
+    ) -> str:
+        normalized = AssetBoardSplitProcessor._safe_name(raw_name, "")
+        base = normalized or f"component_{export_index:03d}"
+        candidate = base
+        suffix = 2
+        while candidate in used_names:
+            candidate = f"{base[:58]}_{suffix}"
+            suffix += 1
+        used_names.add(candidate)
+        return candidate
+
+    @staticmethod
+    def _safe_name(raw_name: object, fallback: str) -> str:
+        source = str(raw_name or "").strip().lower()
+        normalized = re.sub(r"[^a-z0-9_-]+", "_", source).strip("_-")[:64]
+        return normalized or fallback
+
+    @staticmethod
+    def _component_state(raw_state: object) -> str:
+        state = str(raw_state or "normal").strip().lower()
+        if state not in {"normal", "hover", "pressed", "disabled", "selected"}:
+            raise ValueError("组件状态无效。")
+        return state
+
+    @staticmethod
+    def _export_nine_slice(
+        raw_value: object,
+        component: ComponentCandidate,
+        cutout: Image.Image,
+        parameters: dict[str, Any],
+    ) -> dict[str, int] | None:
+        if raw_value is None:
+            return None
+        if not isinstance(raw_value, (list, tuple)) or len(raw_value) != 4:
+            raise ValueError("九宫格边界必须包含左、上、右、下四个值。")
+        try:
+            left, top, right, bottom = (int(value) for value in raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("九宫格边界必须是整数。") from exc
+        if min(left, top, right, bottom) < 0:
+            raise ValueError("九宫格边界不能小于 0。")
+        x, y, width, height = component.bbox
+        if left + right >= width or top + bottom >= height:
+            raise ValueError("九宫格边界必须保留可拉伸的中心区域。")
+        padding = max(0, int(parameters.get("export_padding", 8)))
+        crop_left = max(0, x - padding)
+        crop_top = max(0, y - padding)
+        crop_right = min(cutout.width, x + width + padding)
+        crop_bottom = min(cutout.height, y + height + padding)
+        return {
+            "left": left + (x - crop_left),
+            "top": top + (y - crop_top),
+            "right": right + (crop_right - (x + width)),
+            "bottom": bottom + (crop_bottom - (y + height)),
+        }
 
     def _crop_cutout_component(
         self,

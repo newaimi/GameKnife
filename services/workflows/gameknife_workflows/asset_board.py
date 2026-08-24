@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import uuid4
 
 from PIL import Image
 
-from gameknife_core import RequestContext
+from gameknife_core import AssetQualityCheckRecord, RequestContext
 from gameknife_jobs import JobSubmissionResult, TaskSubmission
-from gameknife_processors import AssetBoardSplitProcessor
+from gameknife_processors import AssetBoardSplitProcessor, check_component_archive
 
 from .errors import WorkflowInputNotFoundError, WorkflowModelNotInstalledError
 from .job_helpers import (
@@ -276,6 +278,26 @@ def run_asset_board_export_workflow(repository: WorkflowRepository, context: Req
                 parameters.get("components") if isinstance(parameters.get("components"), list) else None,
             )
             output_assets = register_output_assets(repository, context, job.id, result.output_paths, "asset_component", "application/zip")
+            if output_assets:
+                try:
+                    quality = check_component_archive(target_path)
+                    repository.create_asset_quality_check(
+                        AssetQualityCheckRecord(
+                            id=uuid4().hex,
+                            workspace_id=context.workspace.id,
+                            created_by=context.principal.id,
+                            asset_id=output_assets[0]["id"],
+                            content_sha256=quality.content_sha256,
+                            rules_version=quality.rules_version,
+                            status=quality.status,
+                            checks_json=quality.checks_json(),
+                            created_at=datetime.now(UTC).isoformat(),
+                        )
+                    )
+                except Exception:  # noqa: BLE001, S110
+                    # Quality inspection is recorded independently from the valid ZIP delivery. If the checker
+                    # runtime is unavailable, Asset metadata remains unchecked and the export itself stays usable.
+                    pass
         mark_success(repository, context, job_id, result, {**result.result, "output_assets": output_assets})
     except Exception as exc:  # noqa: BLE001
         cleanup_registered_output_assets(repository, context, job_id, output_assets)

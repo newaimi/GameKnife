@@ -1,6 +1,19 @@
 import type { JobResponse } from "@gameknife/shared-types";
 import { readFirstJobOutputAsset } from "./jobs";
 
+export interface JobPresentationOverride {
+  title?: string;
+  initial?: string;
+  displayName?: string;
+  thumbnailPath?: string;
+  fileMeta?: string;
+  retryRoute?: string | null;
+}
+
+export type JobPresentationResolver = (
+  job: JobResponse,
+) => JobPresentationOverride | null;
+
 export function readJobTitle(job: JobResponse) {
   const titleMap: Record<string, string> = {
     background_remove: "AI 去背景",
@@ -9,6 +22,7 @@ export function readJobTitle(job: JobResponse) {
     asset_board_cutout: "素材板抠图",
     asset_board_region_refine: "素材板框选刷新",
     asset_board_export: "素材板导出",
+    asset_quality_check: "自动质量检查",
     sequence_clean: "序列帧清洗",
     sequence_generate_video: "视频生成",
     sequence_video_to_frames: "视频转序列帧",
@@ -20,6 +34,7 @@ export function readJobTitle(job: JobResponse) {
 }
 
 export function readJobInitial(job: JobResponse) {
+  if (job.type === "asset_quality_check") return "检";
   if (job.type === "sound_effect_generate") return "声";
   if (job.type === "sequence_generate_video" || job.type === "sequence_video_to_frames") return "视";
   if (job.type.includes("sequence")) return "帧";
@@ -46,6 +61,9 @@ export function readJobThumbnailPath(job: JobResponse) {
 }
 
 export function formatJobFileMeta(job: JobResponse) {
+  if (job.type === "asset_quality_check") {
+    return `${formatJobFileType(job)} · ${formatFileSize(job.input_size_bytes ?? 0)}`;
+  }
   if (job.type === "sound_effect_generate") {
     return `WAV · ${job.result.duration_seconds ?? job.parameters.duration_seconds ?? "-"}s`;
   }

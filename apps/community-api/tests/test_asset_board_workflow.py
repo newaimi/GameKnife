@@ -185,10 +185,92 @@ def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
     assert output_asset is not None
     assert output_asset.kind == "asset_component"
     assert output_asset.mime_type == "application/zip"
+    quality = repository.get_current_asset_quality_check(
+        output_asset.id,
+        context.workspace.id,
+    )
+    assert quality is not None
+    assert quality.status == "passed"
+    assert quality.rules_version == "ui-components-v1"
     output_path = context.storage.local_path(output_asset.path)
     assert output_path is not None
     with zipfile.ZipFile(output_path) as archive:
-        assert len(archive.namelist()) == 2
+        assert len(archive.namelist()) == 3
+        assert "component-manifest.json" in archive.namelist()
+
+
+def test_asset_board_export_writes_component_names_states_and_nine_slice(
+    tmp_path: Path,
+) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+    components = [
+        {
+            "id": 1,
+            "bbox": [2, 2, 6, 6],
+            "area": 36,
+            "selected": True,
+            "name": "primary_button",
+            "state": "pressed",
+            "nine_slice": [1, 1, 1, 1],
+        }
+    ]
+    submitted, runner = create_asset_board_export_workflow(
+        repository,
+        context,
+        cutout_asset_id=asset.id,
+        selected_component_ids=[1],
+        components=components,
+        parameters={
+            "min_component_area": 4,
+            "alpha_threshold": 16,
+            "export_padding": 2,
+            "export_name_stem": "hud",
+        },
+    )
+
+    runner()
+
+    stored = repository.get_job_for_workspace(
+        submitted.job.id,
+        context.workspace.id,
+    )
+    assert stored is not None and stored.status == "success"
+    result = json.loads(stored.result_json)
+    output_asset = repository.get_asset_for_workspace(
+        result["output_assets"][0]["id"],
+        context.workspace.id,
+    )
+    assert output_asset is not None
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
+        assert archive.namelist() == [
+            "hud_primary_button.png",
+            "component-manifest.json",
+        ]
+        manifest = json.loads(archive.read("component-manifest.json"))
+    assert manifest == {
+        "schema_version": 1,
+        "source_size": [32, 16],
+        "export_padding": 2,
+        "components": [
+            {
+                "id": 1,
+                "name": "primary_button",
+                "state": "pressed",
+                "file": "hud_primary_button.png",
+                "width": 10,
+                "height": 10,
+                "source_bbox": [2, 2, 6, 6],
+                "nine_slice": {
+                    "left": 3,
+                    "top": 3,
+                    "right": 3,
+                    "bottom": 3,
+                },
+            }
+        ],
+    }
 
 
 def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext, AssetRecord]:

@@ -1,4 +1,10 @@
 export { CommunityJobsPage, type JobListMetadata } from "./pages/jobs/CommunityJobsPage";
+export {
+  JOB_CATEGORY_OPTIONS as communityJobCategoryOptions,
+  type JobCategoryOption,
+  type JobPresentationOverride,
+  type JobPresentationResolver,
+} from "./pages/jobs/jobHistory";
 export { CommunityHelpPage } from "./pages/CommunityHelpPage";
 export { CommunitySettingsPage } from "./pages/settings/CommunitySettingsPage";
 export { ImageAssetSessionProvider, useImageAssetSession } from "./context/ImageAssetSession";

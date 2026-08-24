@@ -12,6 +12,7 @@ from gameknife_workflows import (
     run_asset_board_export_workflow,
     run_asset_board_refine_workflow,
     run_asset_board_region_workflow,
+    run_asset_quality_check_workflow,
     run_background_remove_workflow,
     run_project_export_workflow,
     run_sequence_frames_export_workflow,
@@ -81,6 +82,15 @@ def build_job_execution_handlers(
             repository,
             context_resolver,
             lambda job, context, _parameters: run_asset_board_export_workflow(repository, context, job.id),
+        ),
+        "asset_quality_check": _bind_persisted_job(
+            repository,
+            context_resolver,
+            lambda job, context, _parameters: run_asset_quality_check_workflow(
+                repository,
+                context,
+                job.id,
+            ),
         ),
         "image_upscale": _bind_persisted_job(
             repository,

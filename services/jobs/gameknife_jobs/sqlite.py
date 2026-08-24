@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from gameknife_core import (
+    AssetQualityCheckRecord,
     AssetRecord,
     AssetReferenceSummary,
     AssetRelationRecord,
+    JobInputAssetRecord,
     JobOutputAssetRecord,
     JobRecord,
 )
@@ -21,10 +24,11 @@ from .errors import (
     ResourceReferenceError,
     SequenceActiveJobError,
 )
-from .job_types import JOB_TYPE_REGISTRY, JobDeliveryRequirement
+from .job_types import JOB_TYPE_REGISTRY, JobDeliveryRequirement, JobTypeRegistry
+from .repository import prune_job_output_assets_result
 from .submission import JobSubmissionResult, TaskSubmission
 
-SQLITE_SCHEMA_VERSION = 2
+SQLITE_SCHEMA_VERSION = 4
 
 
 _JOBS_COLUMNS_SQL = """(
@@ -33,7 +37,7 @@ _JOBS_COLUMNS_SQL = """(
     created_by TEXT NOT NULL,
     job_type TEXT NOT NULL,
     status TEXT NOT NULL,
-    input_asset_id TEXT NOT NULL,
+    input_asset_id TEXT,
     parameters_json TEXT NOT NULL,
     result_json TEXT NOT NULL,
     device TEXT,
@@ -43,6 +47,21 @@ _JOBS_COLUMNS_SQL = """(
     updated_at TEXT NOT NULL,
     CHECK(status IN ('pending', 'running', 'success', 'failed')),
     FOREIGN KEY(input_asset_id) REFERENCES assets(id) ON DELETE RESTRICT
+)"""
+
+_JOB_INPUT_ASSETS_COLUMNS_SQL = """(
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    input_role TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(job_id, input_role, position),
+    CHECK(position >= 0),
+    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+    FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE RESTRICT
 )"""
 
 _JOB_OUTPUT_ASSETS_COLUMNS_SQL = """(
@@ -71,6 +90,21 @@ _ASSET_RELATIONS_COLUMNS_SQL = """(
     FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
     FOREIGN KEY(derived_asset_id) REFERENCES assets(id) ON DELETE CASCADE,
     FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE SET NULL
+)"""
+
+_ASSET_QUALITY_CHECKS_COLUMNS_SQL = """(
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL,
+    rules_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    checks_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(asset_id, content_sha256, rules_version),
+    CHECK(status IN ('unchecked', 'passed', 'warning', 'failed')),
+    FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
 )"""
 
 _SEQUENCES_COLUMNS_SQL = """(
@@ -134,9 +168,13 @@ CREATE TABLE IF NOT EXISTS assets (
 
 CREATE TABLE IF NOT EXISTS jobs {_JOBS_COLUMNS_SQL};
 
+CREATE TABLE IF NOT EXISTS job_input_assets {_JOB_INPUT_ASSETS_COLUMNS_SQL};
+
 CREATE TABLE IF NOT EXISTS job_output_assets {_JOB_OUTPUT_ASSETS_COLUMNS_SQL};
 
 CREATE TABLE IF NOT EXISTS asset_relations {_ASSET_RELATIONS_COLUMNS_SQL};
+
+CREATE TABLE IF NOT EXISTS asset_quality_checks {_ASSET_QUALITY_CHECKS_COLUMNS_SQL};
 
 CREATE TABLE IF NOT EXISTS sequences {_SEQUENCES_COLUMNS_SQL};
 
@@ -150,11 +188,14 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 CREATE INDEX IF NOT EXISTS idx_assets_workspace ON assets(workspace_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_workspace ON jobs(workspace_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_job_input_assets_workspace_job ON job_input_assets(workspace_id, job_id, input_role, position);
+CREATE INDEX IF NOT EXISTS idx_job_input_assets_asset ON job_input_assets(asset_id);
 CREATE INDEX IF NOT EXISTS idx_job_output_assets_workspace_job ON job_output_assets(workspace_id, job_id);
 CREATE INDEX IF NOT EXISTS idx_job_output_assets_asset ON job_output_assets(asset_id);
 CREATE INDEX IF NOT EXISTS idx_asset_relations_workspace_source ON asset_relations(workspace_id, source_asset_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_asset_relations_workspace_derived ON asset_relations(workspace_id, derived_asset_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_asset_relations_job ON asset_relations(job_id);
+CREATE INDEX IF NOT EXISTS idx_asset_quality_checks_workspace_asset ON asset_quality_checks(workspace_id, asset_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sequences_active_job ON sequences(active_job_id) WHERE active_job_id IS NOT NULL;
 """
 
@@ -185,6 +226,14 @@ def init_sqlite_schema(database_path: Path) -> None:
 
         if current_version == 1:
             _migrate_v1_to_v2(connection)
+            current_version = 2
+
+        if current_version == 2:
+            _migrate_v2_to_v3(connection)
+            current_version = 3
+
+        if current_version == 3:
+            _migrate_v3_to_v4(connection)
 
         connection.execute("PRAGMA foreign_keys = ON")
         _assert_foreign_keys(connection)
@@ -193,8 +242,13 @@ def init_sqlite_schema(database_path: Path) -> None:
 
 
 class SQLiteGameKnifeRepository:
-    def __init__(self, database_path: Path):
+    def __init__(
+        self,
+        database_path: Path,
+        job_type_registry: JobTypeRegistry = JOB_TYPE_REGISTRY,
+    ):
         self.database_path = database_path
+        self.job_type_registry = job_type_registry
 
     def create_asset(self, asset: AssetRecord) -> None:
         with self._connect() as connection:
@@ -334,6 +388,90 @@ class SQLiteGameKnifeRepository:
             ).fetchone()
         return int(row["total"])
 
+    def create_asset_quality_check(
+        self,
+        quality_check: AssetQualityCheckRecord,
+    ) -> None:
+        with self._connect() as connection:
+            asset = connection.execute(
+                "SELECT id FROM assets WHERE id = ? AND workspace_id = ?",
+                (quality_check.asset_id, quality_check.workspace_id),
+            ).fetchone()
+            if asset is None:
+                raise ValueError("Quality checks must reference an Asset in the same workspace.")
+            connection.execute(
+                """
+                INSERT INTO asset_quality_checks (
+                    id, workspace_id, created_by, asset_id, content_sha256,
+                    rules_version, status, checks_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(asset_id, content_sha256, rules_version) DO UPDATE SET
+                    status = excluded.status,
+                    checks_json = excluded.checks_json,
+                    created_at = excluded.created_at
+                """,
+                (
+                    quality_check.id,
+                    quality_check.workspace_id,
+                    quality_check.created_by,
+                    quality_check.asset_id,
+                    quality_check.content_sha256,
+                    quality_check.rules_version,
+                    quality_check.status,
+                    quality_check.checks_json,
+                    quality_check.created_at,
+                ),
+            )
+
+    def get_current_asset_quality_check(
+        self,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT quality.id, quality.workspace_id, quality.created_by,
+                       quality.asset_id, quality.content_sha256,
+                       quality.rules_version, quality.status,
+                       quality.checks_json, quality.created_at
+                FROM asset_quality_checks quality
+                JOIN assets asset
+                  ON asset.id = quality.asset_id
+                 AND asset.workspace_id = quality.workspace_id
+                WHERE quality.asset_id = ? AND quality.workspace_id = ?
+                ORDER BY quality.created_at DESC, quality.id DESC
+                LIMIT 1
+                """,
+                (asset_id, workspace_id),
+            ).fetchone()
+        return AssetQualityCheckRecord(**dict(row)) if row is not None else None
+
+    def get_asset_quality_check_for_workspace(
+        self,
+        quality_check_id: str,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT quality.id, quality.workspace_id, quality.created_by,
+                       quality.asset_id, quality.content_sha256,
+                       quality.rules_version, quality.status,
+                       quality.checks_json, quality.created_at
+                FROM asset_quality_checks quality
+                JOIN assets asset
+                  ON asset.id = quality.asset_id
+                 AND asset.workspace_id = quality.workspace_id
+                WHERE quality.id = ? AND quality.asset_id = ? AND quality.workspace_id = ?
+                LIMIT 1
+                """,
+                (quality_check_id, asset_id, workspace_id),
+            ).fetchone()
+        return AssetQualityCheckRecord(**dict(row)) if row is not None else None
+
     def create_asset_relation(self, relation: AssetRelationRecord) -> None:
         if relation.source_asset_id == relation.derived_asset_id:
             raise ValueError("An asset cannot be derived from itself.")
@@ -388,13 +526,17 @@ class SQLiteGameKnifeRepository:
         self,
         job: JobRecord,
         submission: TaskSubmission | None = None,
+        input_assets: list[JobInputAssetRecord] | None = None,
     ) -> JobSubmissionResult:
         if submission is not None and not isinstance(submission, TaskSubmission):
             raise TypeError("submission must be a TaskSubmission")
-        JOB_TYPE_REGISTRY.require(job.job_type)
+        self.job_type_registry.require(job.job_type)
         if job.status != "pending":
             raise ValueError("New jobs must start in the pending state.")
+        normalized_inputs = list(input_assets or [])
+        _validate_job_input_records(job, normalized_inputs)
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 INSERT INTO jobs (
@@ -420,7 +562,51 @@ class SQLiteGameKnifeRepository:
                     job.updated_at,
                 ),
             )
+            for input_asset in normalized_inputs:
+                asset = connection.execute(
+                    "SELECT id FROM assets WHERE id = ? AND workspace_id = ?",
+                    (input_asset.asset_id, job.workspace_id),
+                ).fetchone()
+                if asset is None:
+                    raise ValueError("Job input assets must belong to the same workspace as the job.")
+                connection.execute(
+                    """
+                    INSERT INTO job_input_assets (
+                        id, workspace_id, created_by, job_id, asset_id,
+                        input_role, position, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        input_asset.id,
+                        input_asset.workspace_id,
+                        input_asset.created_by,
+                        input_asset.job_id,
+                        input_asset.asset_id,
+                        input_asset.input_role,
+                        input_asset.position,
+                        input_asset.created_at,
+                    ),
+                )
         return JobSubmissionResult(job=job, replayed=False)
+
+    def list_job_input_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+    ) -> list[JobInputAssetRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, workspace_id, created_by, job_id, asset_id,
+                       input_role, position, created_at
+                FROM job_input_assets
+                WHERE job_id = ? AND workspace_id = ?
+                ORDER BY input_role ASC, position ASC, id ASC
+                """,
+                (job_id, workspace_id),
+            ).fetchall()
+        return [_job_input_asset_from_row(row) for row in rows]
 
     def claim_job_for_workspace(
         self,
@@ -473,8 +659,28 @@ class SQLiteGameKnifeRepository:
                     output.created_at,
                 ),
             )
-            source_asset_id = str(job_and_asset["input_asset_id"])
-            if source_asset_id != output.asset_id:
+            source_roles: dict[str, set[str]] = {}
+            for row in connection.execute(
+                """
+                SELECT asset_id, input_role
+                FROM job_input_assets
+                WHERE job_id = ? AND workspace_id = ?
+                """,
+                (output.job_id, output.workspace_id),
+            ).fetchall():
+                source_roles.setdefault(str(row["asset_id"]), set()).add(
+                    str(row["input_role"])
+                )
+            if job_and_asset["input_asset_id"] is not None:
+                source_roles.setdefault(
+                    str(job_and_asset["input_asset_id"]), set()
+                ).add("primary")
+            for source_asset_id in sorted(set(source_roles) - {output.asset_id}):
+                relation_type = "derived"
+                if str(job_and_asset["job_type"]) == "project_export_package":
+                    relation_type = "export"
+                elif "variant_source" in source_roles[source_asset_id]:
+                    relation_type = "variant"
                 _insert_asset_relation(
                     connection,
                     AssetRelationRecord(
@@ -483,11 +689,7 @@ class SQLiteGameKnifeRepository:
                         created_by=output.created_by,
                         source_asset_id=source_asset_id,
                         derived_asset_id=output.asset_id,
-                        relation_type=(
-                            "export"
-                            if str(job_and_asset["job_type"]) == "project_export_package"
-                            else "derived"
-                        ),
+                        relation_type=relation_type,
                         job_id=output.job_id,
                         created_at=output.created_at,
                     ),
@@ -543,6 +745,85 @@ class SQLiteGameKnifeRepository:
             )
             return _delete_unreferenced_candidate_assets(connection, candidates, workspace_id)
 
+    def delete_job_output_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+        asset_ids: list[str],
+    ) -> list[AssetRecord]:
+        unique_asset_ids = list(dict.fromkeys(asset_ids))
+        if not unique_asset_ids:
+            return []
+        placeholders = ",".join("?" for _ in unique_asset_ids)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = connection.execute(
+                """
+                SELECT status, job_type, result_json
+                FROM jobs
+                WHERE id = ? AND workspace_id = ?
+                """,
+                (job_id, workspace_id),
+            ).fetchone()
+            if job is None:
+                raise ValueError("Job does not exist in this workspace.")
+            if str(job["status"]) != "success":
+                raise ValueError("Only output assets from successful jobs can be deleted.")
+            rows = connection.execute(
+                f"""
+                SELECT asset.id, asset.workspace_id, asset.created_by, asset.kind,
+                       asset.original_name, asset.path, asset.mime_type,
+                       asset.size_bytes, asset.created_at, asset.updated_at
+                FROM job_output_assets output
+                JOIN assets asset
+                  ON asset.id = output.asset_id
+                 AND asset.workspace_id = output.workspace_id
+                WHERE output.job_id = ?
+                  AND output.workspace_id = ?
+                  AND output.asset_id IN ({placeholders})
+                """,
+                (job_id, workspace_id, *unique_asset_ids),
+            ).fetchall()
+            candidates = [_asset_from_row(row) for row in rows]
+            if {asset.id for asset in candidates} != set(unique_asset_ids):
+                raise ValueError("Some assets do not belong to this job output.")
+            summaries = [
+                _without_job_reference(summary, job_id)
+                for summary in _asset_reference_summaries(
+                    connection,
+                    unique_asset_ids,
+                    workspace_id,
+                )
+            ]
+            blocked = tuple(summary for summary in summaries if summary.is_referenced)
+            if blocked:
+                raise ResourceReferenceError("asset", blocked[0].asset_id, blocked)
+            connection.execute(
+                f"""
+                DELETE FROM job_output_assets
+                WHERE job_id = ? AND workspace_id = ?
+                  AND asset_id IN ({placeholders})
+                """,
+                (job_id, workspace_id, *unique_asset_ids),
+            )
+            connection.execute(
+                "UPDATE jobs SET result_json = ?, updated_at = ? WHERE id = ? AND workspace_id = ?",
+                (
+                    prune_job_output_assets_result(
+                        str(job["result_json"]),
+                        unique_asset_ids,
+                    ),
+                    datetime.now(UTC).isoformat(),
+                    job_id,
+                    workspace_id,
+                ),
+            )
+            connection.execute(
+                f"DELETE FROM assets WHERE workspace_id = ? AND id IN ({placeholders})",
+                (workspace_id, *unique_asset_ids),
+            )
+            return candidates
+
     def update_job(
         self,
         job_id: str,
@@ -581,7 +862,7 @@ class SQLiteGameKnifeRepository:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
-                "SELECT status, job_type, result_json FROM jobs WHERE id = ? AND workspace_id = ?",
+                "SELECT status, job_type, input_asset_id, result_json FROM jobs WHERE id = ? AND workspace_id = ?",
                 (job_id, workspace_id),
             ).fetchone()
             if current is None:
@@ -601,7 +882,7 @@ class SQLiteGameKnifeRepository:
                 if status not in allowed_targets.get(current_status, set()):
                     raise InvalidJobStateTransitionError(job_id, current_status, status)
                 if status == "success":
-                    spec = JOB_TYPE_REGISTRY.require(str(current["job_type"]))
+                    spec = self.job_type_registry.require(str(current["job_type"]))
                     if spec.delivery_requirement == JobDeliveryRequirement.OUTPUT_ASSET:
                         delivered = connection.execute(
                             """
@@ -621,6 +902,17 @@ class SQLiteGameKnifeRepository:
                         _require_non_empty_json_result(
                             result_json if result_json is not None else str(current["result_json"]),
                             job_id,
+                            spec.job_type,
+                        )
+                    elif spec.delivery_requirement == JobDeliveryRequirement.QUALITY_CHECK:
+                        _require_quality_check_delivery(
+                            connection,
+                            current,
+                            result_json
+                            if result_json is not None
+                            else str(current["result_json"]),
+                            job_id,
+                            workspace_id,
                             spec.job_type,
                         )
                     elif spec.delivery_requirement == JobDeliveryRequirement.STATE_CHANGE:
@@ -1678,6 +1970,45 @@ def _require_non_empty_json_result(result_json: str, job_id: str, job_type: str)
     return result
 
 
+def _require_quality_check_delivery(
+    connection: sqlite3.Connection,
+    job: sqlite3.Row,
+    result_json: str,
+    job_id: str,
+    workspace_id: str,
+    job_type: str,
+) -> None:
+    result = _require_non_empty_json_result(result_json, job_id, job_type)
+    if not isinstance(result, dict):
+        raise JobDeliveryRequirementError(job_id, job_type)
+    quality_check_id = str(result.get("quality_check_id") or "")
+    asset_id = str(result.get("asset_id") or "")
+    content_sha256 = str(result.get("content_sha256") or "")
+    rules_version = str(result.get("rules_version") or "")
+    quality_status = str(result.get("quality_status") or "")
+    if not quality_check_id or asset_id != str(job["input_asset_id"] or ""):
+        raise JobDeliveryRequirementError(job_id, job_type)
+    delivered = connection.execute(
+        """
+        SELECT 1
+        FROM asset_quality_checks
+        WHERE id = ? AND workspace_id = ? AND asset_id = ?
+          AND content_sha256 = ? AND rules_version = ? AND status = ?
+        LIMIT 1
+        """,
+        (
+            quality_check_id,
+            workspace_id,
+            asset_id,
+            content_sha256,
+            rules_version,
+            quality_status,
+        ),
+    ).fetchone()
+    if delivered is None:
+        raise JobDeliveryRequirementError(job_id, job_type)
+
+
 def _has_application_tables(connection: sqlite3.Connection) -> bool:
     row = connection.execute(
         """
@@ -1862,6 +2193,70 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+    # Text-only generation has no primary file input. SQLite cannot relax the existing NOT NULL constraint in
+    # place, so the jobs table is rebuilt while foreign-key enforcement is temporarily disabled for the migration.
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("DROP TABLE IF EXISTS jobs_v3")
+        connection.execute(f"CREATE TABLE jobs_v3 {_JOBS_COLUMNS_SQL}")
+        connection.execute(
+            """
+            INSERT INTO jobs_v3 (
+                id, workspace_id, created_by, job_type, status, input_asset_id,
+                parameters_json, result_json, device, duration_ms, error_message,
+                created_at, updated_at
+            )
+            SELECT id, workspace_id, created_by, job_type, status, input_asset_id,
+                   parameters_json, result_json, device, duration_ms, error_message,
+                   created_at, updated_at
+            FROM jobs
+            """
+        )
+        connection.execute("DROP TABLE jobs")
+        connection.execute("ALTER TABLE jobs_v3 RENAME TO jobs")
+        connection.execute(f"CREATE TABLE job_input_assets {_JOB_INPUT_ASSETS_COLUMNS_SQL}")
+        connection.execute("CREATE INDEX idx_jobs_workspace ON jobs(workspace_id, created_at)")
+        connection.execute(
+            "CREATE INDEX idx_job_input_assets_workspace_job "
+            "ON job_input_assets(workspace_id, job_id, input_role, position)"
+        )
+        connection.execute("CREATE INDEX idx_job_input_assets_asset ON job_input_assets(asset_id)")
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError("SQLite multi-input migration found invalid references and was rolled back.")
+        connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            f"CREATE TABLE asset_quality_checks {_ASSET_QUALITY_CHECKS_COLUMNS_SQL}"
+        )
+        connection.execute(
+            "CREATE INDEX idx_asset_quality_checks_workspace_asset "
+            "ON asset_quality_checks(workspace_id, asset_id, created_at)"
+        )
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(
+                "SQLite quality-check migration found invalid references and was rolled back."
+            )
+        connection.execute("PRAGMA user_version = 4")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
 def _assert_foreign_keys(connection: sqlite3.Connection) -> None:
     if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != 1:
         raise RuntimeError("SQLite foreign-key enforcement is disabled.")
@@ -1954,6 +2349,18 @@ def _asset_reference_summaries(
     for row in connection.execute(
         f"""
         SELECT job_id, asset_id
+        FROM job_input_assets
+        WHERE workspace_id = ? AND asset_id IN ({reference_placeholders})
+        """,
+        (workspace_id, *reference_ids),
+    ).fetchall():
+        job_ids = references[str(row["asset_id"])]["input_job_ids"]
+        if str(row["job_id"]) not in job_ids:
+            job_ids.append(str(row["job_id"]))
+
+    for row in connection.execute(
+        f"""
+        SELECT job_id, asset_id
         FROM job_output_assets
         WHERE workspace_id = ? AND asset_id IN ({reference_placeholders})
         """,
@@ -2012,6 +2419,7 @@ def _without_job_reference(summary: AssetReferenceSummary, job_id: str) -> Asset
         source_sequence_frame_ids=summary.source_sequence_frame_ids,
         processed_sequence_frame_ids=summary.processed_sequence_frame_ids,
         derived_asset_ids=summary.derived_asset_ids,
+        style_profile_ids=summary.style_profile_ids,
     )
 
 
@@ -2023,6 +2431,28 @@ def _asset_from_row(row: sqlite3.Row) -> AssetRecord:
 def _job_from_row(row: sqlite3.Row) -> JobRecord:
     data: dict[str, Any] = dict(row)
     return JobRecord(**data)
+
+
+def _job_input_asset_from_row(row: sqlite3.Row) -> JobInputAssetRecord:
+    data: dict[str, Any] = dict(row)
+    return JobInputAssetRecord(**data)
+
+
+def _validate_job_input_records(job: JobRecord, inputs: list[JobInputAssetRecord]) -> None:
+    occupied: set[tuple[str, int]] = set()
+    for item in inputs:
+        if (
+            item.job_id != job.id
+            or item.workspace_id != job.workspace_id
+            or item.created_by != job.created_by
+        ):
+            raise ValueError("Job input records must match their job scope and creator.")
+        role = item.input_role.strip()
+        if not role or len(role) > 64 or role != item.input_role:
+            raise ValueError("Job input roles must be normalized non-empty values.")
+        if item.position < 0 or (role, item.position) in occupied:
+            raise ValueError("Job input positions must be unique and non-negative within each role.")
+        occupied.add((role, item.position))
 
 
 def _asset_page_filter(workspace_id: str, kinds: list[str] | None, search: str | None) -> tuple[str, list[Any]]:

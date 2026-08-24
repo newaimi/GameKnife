@@ -836,6 +836,32 @@
   box-shadow: 0 0 0 3px rgba(23, 103, 255, 0.22);
 }
 
+.nine-slice-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.nine-slice-guides i {
+  position: absolute;
+  display: block;
+  background: color-mix(in srgb, var(--blue) 78%, white);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--panel-solid) 72%, transparent);
+}
+
+.nine-slice-guides .vertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.nine-slice-guides .horizontal {
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
 .resize-handle {
   position: absolute;
   width: 13px;
@@ -879,6 +905,81 @@
   right: -8px;
   bottom: -8px;
   cursor: nwse-resize;
+}
+
+.ui-component-settings {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.ui-component-settings h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.ui-component-editor {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-solid);
+}
+
+.ui-component-editor > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ui-component-editor > header strong,
+.ui-component-editor > header span,
+.ui-component-editor > label,
+.ui-nine-slice-grid label {
+  font-size: 12px;
+}
+
+.ui-component-editor > header span {
+  color: var(--muted);
+}
+
+.ui-component-editor > label:not(.ui-nine-slice-toggle),
+.ui-nine-slice-grid label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.ui-component-editor input:not([type="checkbox"]),
+.ui-component-editor select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  font: inherit;
+}
+
+.ui-nine-slice-toggle {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.ui-nine-slice-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .component-preview-backdrop,

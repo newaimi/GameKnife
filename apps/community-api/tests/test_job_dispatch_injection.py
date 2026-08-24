@@ -12,7 +12,8 @@ from gameknife_api.deps import (
     get_job_submission_replay,
     get_task_submission,
 )
-from gameknife_core import JobRecord
+from gameknife_api.routes import router
+from gameknife_core import AssetRecord, JobRecord
 from gameknife_jobs import (
     JOB_TYPE_REGISTRY,
     InProcessJobDispatcher,
@@ -36,6 +37,7 @@ JOB_CREATION_PATHS = {
     "/api/sequences/{sequence_id}/export/frames",
     "/api/sequences/{sequence_id}/export/spine",
     "/api/jobs/project-export",
+    "/api/assets/{asset_id}/quality-check",
 }
 
 
@@ -54,13 +56,19 @@ def test_community_runtime_registers_every_public_executor(tmp_path: Path) -> No
         handlers = app.state.job_execution_handlers
 
     assert set(handlers) == {spec.executor for spec in JOB_TYPE_REGISTRY.values()}
-    assert len(handlers) == 13
+    assert len(handlers) == 14
 
 
 def test_every_public_job_creation_route_injects_dispatcher(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
-    job_routes = {route.path: route for route in app.routes if getattr(route, "path", None) in JOB_CREATION_PATHS}
+    public_paths = set(app.openapi()["paths"])
+    job_routes = {
+        f"/api{route.path}": route
+        for route in router.routes
+        if f"/api{route.path}" in JOB_CREATION_PATHS
+    }
 
+    assert JOB_CREATION_PATHS <= public_paths
     assert set(job_routes) == JOB_CREATION_PATHS
     for route in job_routes.values():
         dependencies = {dependency.call for dependency in route.dependant.dependencies}
@@ -102,6 +110,54 @@ def test_job_creation_route_calls_injected_dispatcher_with_persisted_ids(tmp_pat
     assert submissions[0].idempotency_key is None
     assert submissions[0].quote_id is None
     assert submissions[0].request_digest is not None
+
+
+def test_community_openapi_does_not_publish_downstream_generation_routes(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path))
+
+    paths = set(app.openapi()["paths"])
+
+    assert "/api/jobs/image-generation" not in paths
+    assert "/api/jobs/model-3d-generation" not in paths
+    assert "/api/jobs/{job_id}/candidates/cleanup" not in paths
+
+
+def test_glb_quality_check_route_preserves_model_asset_and_dispatches_once(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path))
+    dispatcher = RecordingJobDispatcher()
+    app.dependency_overrides[get_job_dispatcher] = lambda: dispatcher
+    now = datetime.now(UTC).isoformat()
+    with TestClient(app) as client:
+        app.state.repository.create_asset(
+            AssetRecord(
+                id="model-glb",
+                workspace_id="local",
+                created_by="anonymous",
+                kind="model_3d_glb",
+                original_name="model.glb",
+                path="assets/model.glb",
+                mime_type="model/gltf-binary",
+                size_bytes=64,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        response = client.post(
+            "/api/assets/model-glb/quality-check",
+            json={"source_quality_check_id": None},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["input_asset_id"] == "model-glb"
+    assert response.json()["parameters"] == {
+        "asset_id": "model-glb",
+        "source_quality_check_id": None,
+    }
+    assert dispatcher.calls == [(response.json()["id"], "local")]
 
 
 def test_replayed_workflow_submission_is_not_dispatched_again(tmp_path: Path) -> None:

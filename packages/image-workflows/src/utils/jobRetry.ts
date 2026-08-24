@@ -8,6 +8,11 @@ export function readJobRetryRoute(job: JobResponse): string | null {
   if (job.type === "sequence_video_to_frames") return "/tools/video-to-sequence";
   if (job.type === "sound_effect_generate") return "/tools/sound-effect";
   if (job.type === "project_export_package") return "/assets";
+  if (job.type === "asset_quality_check") {
+    return job.input_asset_id
+      ? `/assets?asset=${encodeURIComponent(job.input_asset_id)}`
+      : "/assets";
+  }
   if (job.type.startsWith("sequence_")) {
     const sequenceId = typeof job.parameters.sequence_id === "string" ? job.parameters.sequence_id : "";
     return sequenceId ? `/tools/sequence?sequence=${encodeURIComponent(sequenceId)}` : "/tools/sequence";

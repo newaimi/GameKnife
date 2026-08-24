@@ -182,8 +182,20 @@ export function AssetBoardWorkspace() {
     const nextImageSize = readTupleNumber(finished.result.image_size);
     const nextCutoutAssetId = readString(finished.result.cutout_asset_id);
     const nextCutoutUrl = readString(finished.result.cutout_url);
-    setComponents(nextComponents);
-    setSelectedComponents(new Set(nextComponents.filter((component) => component.selected).map((component) => component.id)));
+    const previousById = new Map(components.map((component) => [component.id, component]));
+    const mergedComponents = nextComponents.map((component) => {
+      const previous = previousById.get(component.id);
+      return previous
+        ? {
+            ...component,
+            name: previous.name,
+            state: previous.state,
+            nine_slice: normalizeNineSlice(previous.nine_slice, component.bbox),
+          }
+        : component;
+    });
+    setComponents(mergedComponents);
+    setSelectedComponents(new Set(mergedComponents.filter((component) => component.selected).map((component) => component.id)));
     if (nextImageSize) {
       setImageSize(nextImageSize);
     }
@@ -209,7 +221,34 @@ export function AssetBoardWorkspace() {
   }
 
   function changeComponentBbox(id: number, bbox: [number, number, number, number]) {
-    setComponents((items) => items.map((item) => (item.id === id ? { ...item, bbox } : item)));
+    setComponents((items) => items.map((item) => (
+      item.id === id
+        ? { ...item, bbox, nine_slice: normalizeNineSlice(item.nine_slice, bbox) }
+        : item
+    )));
+  }
+
+  function updateComponent(id: number, patch: Partial<ComponentCandidate>) {
+    setComponents((items) => items.map((item) => (
+      item.id === id ? { ...item, ...patch } : item
+    )));
+  }
+
+  function toggleNineSlice(id: number, enabled: boolean) {
+    updateComponent(id, { nine_slice: enabled ? [1, 1, 1, 1] : null });
+  }
+
+  function changeNineSlice(
+    component: ComponentCandidate,
+    index: number,
+    value: number,
+  ) {
+    const current = component.nine_slice ?? [1, 1, 1, 1];
+    const next = [...current] as [number, number, number, number];
+    next[index] = Math.max(0, Math.floor(value));
+    updateComponent(component.id, {
+      nine_slice: normalizeNineSlice(next, component.bbox),
+    });
   }
 
   function readRegionParameters() {
@@ -258,6 +297,32 @@ export function AssetBoardWorkspace() {
           <NumberField label="边缘柔化" value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
           <NumberField label="去边色" value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
           <NumberField label="导出留边" value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
+          {selectedCount ? (
+            <section className="ui-component-settings">
+              <h3>组件清单</h3>
+              {components.filter((component) => selectedComponents.has(component.id)).map((component) => (
+                <article className="ui-component-editor" key={component.id}>
+                  <header><strong>组件 #{component.id}</strong><span>{component.bbox[2]} × {component.bbox[3]}</span></header>
+                  <label>名称<input disabled={busy || !canWrite} maxLength={64} value={component.name ?? ""} onChange={(event) => updateComponent(component.id, { name: event.target.value })} /></label>
+                  <label>状态<select disabled={busy || !canWrite} value={component.state ?? "normal"} onChange={(event) => updateComponent(component.id, { state: event.target.value as ComponentCandidate["state"] })}>
+                    <option value="normal">正常</option>
+                    <option value="hover">悬浮</option>
+                    <option value="pressed">按下</option>
+                    <option value="disabled">禁用</option>
+                    <option value="selected">选中</option>
+                  </select></label>
+                  <label className="ui-nine-slice-toggle"><input checked={Boolean(component.nine_slice)} disabled={busy || !canWrite} type="checkbox" onChange={(event) => toggleNineSlice(component.id, event.target.checked)} />九宫格</label>
+                  {component.nine_slice ? (
+                    <div className="ui-nine-slice-grid">
+                      {(["左", "上", "右", "下"] as const).map((label, index) => (
+                        <label key={label}>{label}<input disabled={busy || !canWrite} min={0} type="number" value={component.nine_slice?.[index] ?? 0} onChange={(event) => changeNineSlice(component, index, Number(event.target.value))} /></label>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </section>
+          ) : null}
           <StatusLine error={error} job={job} />
         </aside>
 
@@ -311,9 +376,38 @@ function readComponents(value: unknown): ComponentCandidate[] {
       bbox: [Number(bbox[0]), Number(bbox[1]), Number(bbox[2]), Number(bbox[3])],
       area: Number(record.area ?? 0),
       selected: record.selected !== false,
+      name: typeof record.name === "string" ? record.name : `component_${String(Number(record.id ?? index + 1)).padStart(3, "0")}`,
+      state: readComponentState(record.state),
+      nine_slice: readNineSlice(record.nine_slice),
       preview_asset_id: typeof record.preview_asset_id === "string" ? record.preview_asset_id : null,
       preview_url: typeof record.preview_url === "string" ? record.preview_url : undefined,
     };
     return [cloneComponent(component)];
   });
+}
+
+function readComponentState(value: unknown): ComponentCandidate["state"] {
+  return ["normal", "hover", "pressed", "disabled", "selected"].includes(String(value))
+    ? String(value) as ComponentCandidate["state"]
+    : "normal";
+}
+
+function readNineSlice(value: unknown): ComponentCandidate["nine_slice"] {
+  if (!Array.isArray(value) || value.length !== 4) return null;
+  return value.map((item) => Math.max(0, Math.floor(Number(item) || 0))) as [number, number, number, number];
+}
+
+function normalizeNineSlice(
+  value: ComponentCandidate["nine_slice"],
+  bbox: [number, number, number, number],
+): ComponentCandidate["nine_slice"] {
+  if (!value) return null;
+  const width = Math.max(1, Math.floor(bbox[2]));
+  const height = Math.max(1, Math.floor(bbox[3]));
+  const next = [...value] as [number, number, number, number];
+  next[0] = Math.min(Math.max(0, next[0]), Math.max(0, width - next[2] - 1));
+  next[2] = Math.min(Math.max(0, next[2]), Math.max(0, width - next[0] - 1));
+  next[1] = Math.min(Math.max(0, next[1]), Math.max(0, height - next[3] - 1));
+  next[3] = Math.min(Math.max(0, next[3]), Math.max(0, height - next[1] - 1));
+  return next;
 }

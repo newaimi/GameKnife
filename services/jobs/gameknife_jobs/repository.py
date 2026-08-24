@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any, Protocol
 
 from gameknife_core import (
     AssetRecord,
+    AssetQualityCheckRecord,
     AssetReferenceSummary,
     AssetRelationRecord,
+    JobInputAssetRecord,
     JobOutputAssetRecord,
     JobRecord,
 )
@@ -77,6 +80,27 @@ class GameKnifeRepository(Protocol):
     ) -> int:
         ...
 
+    def create_asset_quality_check(
+        self,
+        quality_check: AssetQualityCheckRecord,
+    ) -> None:
+        ...
+
+    def get_current_asset_quality_check(
+        self,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        ...
+
+    def get_asset_quality_check_for_workspace(
+        self,
+        quality_check_id: str,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        ...
+
     def create_asset_relation(self, relation: AssetRelationRecord) -> None:
         ...
 
@@ -101,7 +125,15 @@ class GameKnifeRepository(Protocol):
         self,
         job: JobRecord,
         submission: TaskSubmission | None = None,
+        input_assets: list[JobInputAssetRecord] | None = None,
     ) -> JobSubmissionResult:
+        ...
+
+    def list_job_input_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+    ) -> list[JobInputAssetRecord]:
         ...
 
     def claim_job_for_workspace(
@@ -124,6 +156,14 @@ class GameKnifeRepository(Protocol):
         ...
 
     def cleanup_job_output_assets_for_workspace(
+        self,
+        job_id: str,
+        workspace_id: str,
+        asset_ids: list[str],
+    ) -> list[AssetRecord]:
+        ...
+
+    def delete_job_output_assets_for_workspace(
         self,
         job_id: str,
         workspace_id: str,
@@ -338,3 +378,35 @@ class GameKnifeRepository(Protocol):
 
     def table_columns(self, table_name: str) -> list[str]:
         ...
+
+
+def prune_job_output_assets_result(
+    result_json: str,
+    removed_asset_ids: list[str],
+) -> str:
+    """Remove explicitly deleted candidate locators from a persisted job result.
+
+    Candidate files remain independently owned Assets after a successful job. When a user removes an unselected
+    candidate, the output relation and the user-facing result snapshot must change together so task history never
+    advertises an Asset that no longer exists.
+    """
+
+    removed = set(removed_asset_ids)
+    if not removed:
+        return result_json
+    try:
+        payload = json.loads(result_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return result_json
+    if not isinstance(payload, dict) or not isinstance(
+        payload.get("output_assets"), list
+    ):
+        return result_json
+    output_assets = [
+        item
+        for item in payload["output_assets"]
+        if not isinstance(item, dict) or str(item.get("id") or "") not in removed
+    ]
+    payload["output_assets"] = output_assets
+    payload["candidate_count"] = len(output_assets)
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

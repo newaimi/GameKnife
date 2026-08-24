@@ -24,6 +24,7 @@ EXPECTED_JOB_TYPES = {
     "asset_board_region_refine",
     "asset_board_export",
     "image_upscale",
+    "asset_quality_check",
     "sequence_clean",
     "sequence_generate_video",
     "sequence_video_to_frames",
@@ -44,7 +45,7 @@ def test_job_type_registry_rejects_duplicate_job_types() -> None:
     spec = JobTypeSpec(
         job_type="duplicate",
         executor="duplicate",
-        commercial_queue=JobQueue.CPU,
+        queue=JobQueue.CPU,
         delivery_requirement=JobDeliveryRequirement.RESULT,
         max_output_bytes_estimator=lambda _parameters: 0,
     )
@@ -54,15 +55,21 @@ def test_job_type_registry_rejects_duplicate_job_types() -> None:
 
 
 def test_registry_declares_execution_and_delivery_boundaries() -> None:
-    assert JOB_TYPE_REGISTRY["background_remove"].commercial_queue is JobQueue.GPU
+    assert JOB_TYPE_REGISTRY["background_remove"].queue is JobQueue.GPU
     assert JOB_TYPE_REGISTRY["background_remove"].delivery_requirement is JobDeliveryRequirement.OUTPUT_ASSET
     assert JOB_TYPE_REGISTRY["sequence_clean"].delivery_requirement is JobDeliveryRequirement.STATE_CHANGE
     assert JOB_TYPE_REGISTRY["asset_board_region_detect"].delivery_requirement is JobDeliveryRequirement.RESULT
 
     provider_spec = JOB_TYPE_REGISTRY["sequence_generate_video"]
-    assert provider_spec.commercial_queue is JobQueue.EXTERNAL
+    assert provider_spec.queue is JobQueue.EXTERNAL
     assert provider_spec.external_provider is True
     assert JOB_TYPE_REGISTRY["sound_effect_generate"].external_provider is False
+    quality_spec = JOB_TYPE_REGISTRY["asset_quality_check"]
+    assert quality_spec.queue is JobQueue.CPU
+    assert quality_spec.delivery_requirement is JobDeliveryRequirement.QUALITY_CHECK
+    assert quality_spec.estimate_max_output_bytes(
+        {"asset_id": "asset-1", "source_quality_check_id": None}
+    ) == 0
 
 
 def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
@@ -88,7 +95,6 @@ def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
         }
     ) == 16 * 1024 * 1024 + 1024
 
-
 @pytest.mark.parametrize(
     ("job_type", "parameters", "message"),
     (
@@ -99,6 +105,7 @@ def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
         ("sequence_clean", {"frame_count": 3, "canvas_width": 128}, "canvas_height is required"),
         ("sound_effect_generate", {"duration_seconds": True}, "duration_seconds must be a number"),
         ("project_export_package", {"asset_ids": [], "preset": "unity", "input_total_bytes": 1}, "asset_ids must contain"),
+        ("asset_quality_check", {"asset_id": ""}, "asset_id must contain"),
     ),
 )
 def test_output_estimators_reject_invalid_parameters(job_type: str, parameters: dict[str, object], message: str) -> None:
@@ -109,6 +116,23 @@ def test_output_estimators_reject_invalid_parameters(job_type: str, parameters: 
 def test_output_estimator_rejects_non_mapping_parameters() -> None:
     with pytest.raises(JobParameterValidationError, match="Job parameters must be a mapping"):
         JOB_TYPE_REGISTRY["background_remove"].estimate_max_output_bytes(None)  # type: ignore[arg-type]
+
+
+def test_registry_extension_returns_a_new_registry_without_mutating_community() -> None:
+    downstream = JobTypeSpec(
+        job_type="downstream_generate",
+        executor="downstream_generate",
+        queue=JobQueue.EXTERNAL,
+        delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
+        max_output_bytes_estimator=lambda _parameters: 1024,
+        external_provider=True,
+    )
+
+    extended = JOB_TYPE_REGISTRY.extend((downstream,))
+
+    assert "downstream_generate" not in JOB_TYPE_REGISTRY
+    assert extended["downstream_generate"] is downstream
+    assert set(JOB_TYPE_REGISTRY) < set(extended)
 
 
 def test_task_submission_normalizes_optional_identifiers() -> None:

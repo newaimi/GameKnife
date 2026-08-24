@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,8 +10,10 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from gameknife_core import (
+    AssetQualityCheckRecord,
     AssetRecord,
     AssetRelationRecord,
+    JobInputAssetRecord,
     JobOutputAssetRecord,
     JobRecord,
     ProcessResult,
@@ -32,6 +34,27 @@ class WorkflowRepository(AssetPersistenceRepository, Protocol):
     def get_asset_for_workspace(self, asset_id: str, workspace_id: str) -> AssetRecord | None:
         ...
 
+    def create_asset_quality_check(
+        self,
+        quality_check: AssetQualityCheckRecord,
+    ) -> None:
+        ...
+
+    def get_current_asset_quality_check(
+        self,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        ...
+
+    def get_asset_quality_check_for_workspace(
+        self,
+        quality_check_id: str,
+        asset_id: str,
+        workspace_id: str,
+    ) -> AssetQualityCheckRecord | None:
+        ...
+
     def list_assets_by_ids_for_workspace(self, asset_ids: list[str], workspace_id: str) -> list[AssetRecord]:
         ...
 
@@ -42,6 +65,7 @@ class WorkflowRepository(AssetPersistenceRepository, Protocol):
         self,
         job: JobRecord,
         submission: TaskSubmission | None = None,
+        input_assets: list[JobInputAssetRecord] | None = None,
     ) -> JobSubmissionResult:
         ...
 
@@ -88,13 +112,32 @@ def create_job_record(
     context: RequestContext,
     *,
     job_type: str,
-    input_asset_id: str,
+    input_asset_id: str | None,
     parameters: dict[str, Any],
     submission: TaskSubmission | None = None,
+    input_assets: Mapping[str, list[str]] | None = None,
 ) -> JobSubmissionResult:
     # Job creation is a public workflow boundary, giving every entry point the same permission action and field semantics.
     # Callers inject permission behavior through RequestContext, so the workflow never reads account or role data.
-    context.permissions.require("jobs.create", {"job_type": job_type, "input_asset_id": input_asset_id})
+    normalized_inputs: dict[str, list[str]] = {}
+    for role, asset_ids in (input_assets or {}).items():
+        normalized_role = role.strip()
+        if not normalized_role:
+            raise ValueError("任务输入角色不能为空。")
+        normalized_asset_ids = list(
+            dict.fromkeys(asset_id.strip() for asset_id in asset_ids if asset_id.strip())
+        )
+        if not normalized_asset_ids:
+            raise ValueError(f"任务输入角色 {normalized_role} 没有关联素材。")
+        normalized_inputs[normalized_role] = normalized_asset_ids
+    context.permissions.require(
+        "jobs.create",
+        {
+            "job_type": job_type,
+            "input_asset_id": input_asset_id,
+            "input_asset_ids": [asset_id for asset_ids in normalized_inputs.values() for asset_id in asset_ids],
+        },
+    )
     now = _now()
     job = JobRecord(
         id=uuid4().hex,
@@ -111,7 +154,25 @@ def create_job_record(
         created_at=now,
         updated_at=now,
     )
-    submitted = repository.create_job(job, submission)
+    job_inputs = [
+        JobInputAssetRecord(
+            id=uuid4().hex,
+            workspace_id=context.workspace.id,
+            created_by=context.principal.id,
+            job_id=job.id,
+            asset_id=asset_id,
+            input_role=role,
+            position=position,
+            created_at=now,
+        )
+        for role, asset_ids in normalized_inputs.items()
+        for position, asset_id in enumerate(asset_ids)
+    ]
+    submitted = (
+        repository.create_job(job, submission, job_inputs)
+        if job_inputs
+        else repository.create_job(job, submission)
+    )
     stored = repository.get_job_for_workspace(submitted.job.id, context.workspace.id)
     if stored is None:
         raise RuntimeError("任务创建失败。")

@@ -83,7 +83,14 @@ test("tool workspace submission descriptors stay complete while project export r
 
   assert.equal(jobTypes.length, expected.size);
   assert.deepEqual(new Set(jobTypes), expected);
-  assert.deepEqual(registered, new Set([...expected, "project_export_package"]));
+  assert.deepEqual(
+    registered,
+    new Set([
+      ...expected,
+      "project_export_package",
+      "asset_quality_check",
+    ]),
+  );
 });
 
 test("useWorkflowJob delegates creation and terminal notification to the injected provider", () => {

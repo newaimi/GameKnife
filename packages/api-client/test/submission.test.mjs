@@ -7,6 +7,7 @@ const submission = { idempotencyKey: "request-1", quoteId: "quote-1" };
 const jobCases = [
   ["background_remove", "/api/jobs/background-remove", (client, options) => client.createBackgroundRemoveJob("asset-1", { alpha_smoothing: 0 }, options)],
   ["image_upscale", "/api/jobs/upscale", (client, options) => client.createUpscaleJob("asset-1", { scale: 4 }, options)],
+  ["asset_quality_check", "/api/assets/asset-1/quality-check", (client, options) => client.createAssetQualityCheckJob("asset-1", { source_quality_check_id: "quality-1" }, options)],
   ["sound_effect_generate", "/api/jobs/sound-effect", (client, options) => client.createSoundEffectJob({ prompt: "step", duration_seconds: 4, steps: 100, cfg_scale: 7 }, options)],
   ["asset_board_region_detect", "/api/jobs/asset-board/regions", (client, options) => client.createAssetBoardRegionJob("asset-1", { alpha_threshold: 16 }, options)],
   ["asset_board_cutout", "/api/jobs/asset-board/cutout", (client, options) => client.createAssetBoardCutoutJob("asset-1", { alpha_threshold: 16 }, options)],
@@ -20,7 +21,7 @@ const jobCases = [
   ["project_export_package", "/api/jobs/project-export", (client, options) => client.createProjectExportJob({ asset_ids: ["asset-1"], preset: "unity", package_name: "characters" }, options)],
 ];
 
-test("all thirteen job creation methods attach commercial submission headers only when provided", async () => {
+test("all public job creation methods attach optional submission headers only when provided", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -56,6 +57,7 @@ test("the submission test matrix covers each public job type exactly once", () =
     "asset_board_region_refine",
     "asset_board_export",
     "image_upscale",
+    "asset_quality_check",
     "sequence_clean",
     "sequence_generate_video",
     "sequence_video_to_frames",

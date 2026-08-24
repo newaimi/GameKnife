@@ -7,6 +7,10 @@ test("failed jobs return to the tool that owns their persisted input", () => {
   assert.equal(readJobRetryRoute(job("sequence_video_to_frames")), "/tools/video-to-sequence");
   assert.equal(readJobRetryRoute(job("project_export_package")), "/assets");
   assert.equal(
+    readJobRetryRoute(job("asset_quality_check")),
+    "/assets?asset=asset-1",
+  );
+  assert.equal(
     readJobRetryRoute(job("sequence_clean", { sequence_id: "sequence 1" })),
     "/tools/sequence?sequence=sequence%201",
   );

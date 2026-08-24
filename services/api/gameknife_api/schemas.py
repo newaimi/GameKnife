@@ -31,9 +31,20 @@ class AssetRelationResponse(BaseModel):
     asset: AssetResponse
 
 
+class AssetQualityCheckResponse(BaseModel):
+    id: str
+    status: Literal["unchecked", "passed", "warning", "failed"]
+    rules_version: str
+    content_sha256: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
+
+
 class AssetDetailResponse(AssetResponse):
     relations: list[AssetRelationResponse] = Field(default_factory=list)
     available_actions: list[AssetActionResponse] = Field(default_factory=list)
+    quality_check: AssetQualityCheckResponse | None = None
 
 
 class AssetPageResponse(BaseModel):
@@ -43,11 +54,18 @@ class AssetPageResponse(BaseModel):
     page_size: int
 
 
+class JobInputAssetResponse(BaseModel):
+    role: str
+    position: int
+    asset: AssetResponse
+
+
 class JobResponse(BaseModel):
     id: str
     type: str
     status: Literal["pending", "running", "success", "failed"]
-    input_asset_id: str
+    input_asset_id: str | None
+    input_assets: list[JobInputAssetResponse] = Field(default_factory=list)
     input_filename: str | None = None
     input_mime_type: str | None = None
     input_size_bytes: int | None = None
@@ -77,6 +95,10 @@ class ProjectExportRequest(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=100)
     preset: Literal["generic", "unity", "godot"] = "generic"
     package_name: str = Field(default="gameknife-export", min_length=1, max_length=120)
+
+
+class AssetQualityCheckRequest(BaseModel):
+    source_quality_check_id: str | None = Field(default=None, max_length=64)
 
 
 class AssetBoardRefineRequest(BaseModel):

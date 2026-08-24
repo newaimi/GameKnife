@@ -19,9 +19,10 @@ from .job_types import (
     JobQueue,
     JobTypeRegistry,
     JobTypeSpec,
+    canonical_asset_quality_check_parameters,
     canonical_project_export_parameters,
 )
-from .repository import GameKnifeRepository
+from .repository import GameKnifeRepository, prune_job_output_assets_result
 from .sqlite import SQLITE_SCHEMA_VERSION, SQLiteGameKnifeRepository, init_sqlite_schema
 from .submission import (
     JobSubmissionResult,
@@ -34,6 +35,7 @@ __all__ = [
     "SQLITE_SCHEMA_VERSION",
     "AssetWriteInProgressError",
     "GameKnifeRepository",
+    "prune_job_output_assets_result",
     "InProcessJobDispatcher",
     "InvalidJobStateTransitionError",
     "JobDeliveryRequirement",
@@ -47,6 +49,7 @@ __all__ = [
     "JobSubmissionResult",
     "JobTypeRegistry",
     "JobTypeSpec",
+    "canonical_asset_quality_check_parameters",
     "canonical_project_export_parameters",
     "ResourceReferenceError",
     "SQLiteGameKnifeRepository",

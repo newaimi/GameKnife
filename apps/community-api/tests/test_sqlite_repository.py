@@ -9,8 +9,10 @@ from threading import Barrier
 
 import pytest
 from gameknife_core import (
+    AssetQualityCheckRecord,
     AssetRecord,
     AssetRelationRecord,
+    JobInputAssetRecord,
     JobOutputAssetRecord,
     JobRecord,
 )
@@ -954,6 +956,290 @@ def test_output_job_cannot_succeed_before_an_output_relationship_is_persisted(tm
 
     stored = repository.get_job_for_workspace("job-1", "local")
     assert stored is not None and stored.status == "success"
+
+
+def test_text_only_job_persists_ordered_reference_assets_and_output_provenance(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    first = _create_asset(repository, "reference-a")
+    second = _create_asset(repository, "reference-b")
+    output = _create_asset(repository, "generated")
+    job = JobRecord(
+        id="text-job",
+        workspace_id="local",
+        created_by="anonymous",
+        job_type="sound_effect_generate",
+        status="pending",
+        input_asset_id=None,
+        parameters_json='{"prompt":"impact"}',
+        result_json="{}",
+        device=None,
+        duration_ms=0,
+        error_message=None,
+        created_at=_timestamp(),
+        updated_at=_timestamp(),
+    )
+    inputs = [
+        JobInputAssetRecord(
+            id=f"input-{index}",
+            workspace_id="local",
+            created_by="anonymous",
+            job_id=job.id,
+            asset_id=asset.id,
+            input_role="reference",
+            position=index,
+            created_at=_timestamp(),
+        )
+        for index, asset in enumerate((first, second))
+    ]
+
+    repository.create_job(job, input_assets=inputs)
+    assert repository.list_job_input_assets_for_workspace(job.id, "local") == inputs
+    assert repository.claim_job_for_workspace(job.id, "local", updated_at=_timestamp())
+    repository.create_job_output_asset(
+        JobOutputAssetRecord(
+            id="generated-output",
+            workspace_id="local",
+            created_by="anonymous",
+            job_id=job.id,
+            asset_id=output.id,
+            created_at=_timestamp(),
+        )
+    )
+
+    relations = repository.list_asset_relations_for_workspace(output.id, "local")
+    assert {relation.source_asset_id for relation in relations} == {first.id, second.id}
+    references = repository.get_asset_reference_summaries([first.id, second.id], "local")
+    assert all(summary.input_job_ids == (job.id,) for summary in references)
+    with pytest.raises(ResourceReferenceError):
+        repository.delete_assets_for_workspace([first.id], "local")
+
+    with sqlite3.connect(repository.database_path) as connection:
+        input_column = next(
+            row for row in connection.execute("PRAGMA table_info(jobs)") if row[1] == "input_asset_id"
+        )
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    assert input_column[3] == 0
+    assert version == SQLITE_SCHEMA_VERSION
+
+
+def test_asset_quality_check_is_bound_to_hash_and_rules_version(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    asset = _create_asset(repository, "quality-asset")
+    quality = AssetQualityCheckRecord(
+        id="quality-v1",
+        workspace_id="local",
+        created_by="anonymous",
+        asset_id=asset.id,
+        content_sha256="a" * 64,
+        rules_version="image-v1",
+        status="warning",
+        checks_json='{"checks":[{"code":"IMAGE_DIMENSIONS","status":"warning"}]}',
+        created_at=_timestamp(),
+    )
+
+    repository.create_asset_quality_check(quality)
+
+    assert repository.get_current_asset_quality_check(asset.id, "local") == quality
+    with sqlite3.connect(repository.database_path) as connection:
+        assert int(connection.execute("PRAGMA user_version").fetchone()[0]) == 4
+
+
+def test_quality_check_job_requires_the_exact_persisted_delivery(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    asset = _create_asset(repository, "quality-input")
+    _create_job(
+        repository,
+        "quality-job",
+        asset.id,
+        job_type="asset_quality_check",
+    )
+    repository.update_job(
+        "quality-job",
+        "local",
+        status="running",
+        updated_at="2026-01-01T00:00:01+00:00",
+    )
+    quality = AssetQualityCheckRecord(
+        id="quality-delivery",
+        workspace_id="local",
+        created_by="anonymous",
+        asset_id=asset.id,
+        content_sha256="b" * 64,
+        rules_version="image-v1",
+        status="warning",
+        checks_json='{"parameters":{"check_type":"image"},"checks":[]}',
+        created_at=_timestamp(),
+    )
+    repository.create_asset_quality_check(quality)
+
+    with pytest.raises(JobDeliveryRequirementError):
+        repository.update_job(
+            "quality-job",
+            "local",
+            status="success",
+            result_json=json.dumps(
+                {
+                    "asset_id": asset.id,
+                    "quality_check_id": "other-check",
+                    "content_sha256": quality.content_sha256,
+                    "rules_version": quality.rules_version,
+                    "quality_status": quality.status,
+                }
+            ),
+            updated_at="2026-01-01T00:00:02+00:00",
+        )
+
+    repository.update_job(
+        "quality-job",
+        "local",
+        status="success",
+        result_json=json.dumps(
+            {
+                "asset_id": asset.id,
+                "quality_check_id": quality.id,
+                "content_sha256": quality.content_sha256,
+                "rules_version": quality.rules_version,
+                "quality_status": quality.status,
+            }
+        ),
+        updated_at="2026-01-01T00:00:03+00:00",
+    )
+
+    stored = repository.get_job_for_workspace("quality-job", "local")
+    assert stored is not None and stored.status == "success"
+
+
+def test_successful_job_deletes_only_unreferenced_outputs_and_updates_result(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    variant_source = _create_asset(repository, "variant-source")
+    first = _create_asset(repository, "candidate-a", kind="image_generated")
+    second = _create_asset(repository, "candidate-b", kind="image_generated")
+    job = JobRecord(
+        id="image-job",
+        workspace_id="local",
+        created_by="anonymous",
+        job_type="background_remove",
+        status="pending",
+        input_asset_id=None,
+        parameters_json=json.dumps(
+            {
+                "prompt": "character variant",
+                "negative_prompt": "",
+                "asset_type": "character",
+                "size": "2K",
+                "output_count": 2,
+                "reference_count": 1,
+                "style_profile_id": None,
+                "variant_asset_id": variant_source.id,
+            }
+        ),
+        result_json="{}",
+        device=None,
+        duration_ms=0,
+        error_message=None,
+        created_at=_timestamp(),
+        updated_at=_timestamp(),
+    )
+    repository.create_job(
+        job,
+        input_assets=[
+            JobInputAssetRecord(
+                id="variant-input",
+                workspace_id="local",
+                created_by="anonymous",
+                job_id=job.id,
+                asset_id=variant_source.id,
+                input_role="variant_source",
+                position=0,
+                created_at=_timestamp(),
+            )
+        ],
+    )
+    assert repository.claim_job_for_workspace(job.id, "local", updated_at=_timestamp())
+    for index, asset in enumerate((first, second)):
+        repository.create_job_output_asset(
+            JobOutputAssetRecord(
+                id=f"candidate-output-{index}",
+                workspace_id="local",
+                created_by="anonymous",
+                job_id=job.id,
+                asset_id=asset.id,
+                created_at=_timestamp(),
+            )
+        )
+    repository.update_job(
+        job.id,
+        "local",
+        status="success",
+        result_json=json.dumps(
+            {
+                "candidate_count": 2,
+                "output_assets": [
+                    {"id": first.id, "url": f"/api/assets/{first.id}"},
+                    {"id": second.id, "url": f"/api/assets/{second.id}"},
+                ],
+            }
+        ),
+        updated_at=_timestamp(),
+    )
+
+    removed = repository.delete_job_output_assets_for_workspace(
+        job.id,
+        "local",
+        [second.id],
+    )
+
+    assert [asset.id for asset in removed] == [second.id]
+    assert repository.get_asset_for_workspace(second.id, "local") is None
+    stored = repository.get_job_for_workspace(job.id, "local")
+    assert stored is not None
+    assert json.loads(stored.result_json)["output_assets"] == [
+        {"id": first.id, "url": f"/api/assets/{first.id}"}
+    ]
+    assert json.loads(stored.result_json)["candidate_count"] == 1
+    relations = repository.list_asset_relations_for_workspace(first.id, "local")
+    assert [(relation.source_asset_id, relation.relation_type) for relation in relations] == [
+        (variant_source.id, "variant")
+    ]
+
+    downstream = JobRecord(
+        id="downstream-job",
+        workspace_id="local",
+        created_by="anonymous",
+        job_type="background_remove",
+        status="pending",
+        input_asset_id=None,
+        parameters_json=job.parameters_json,
+        result_json="{}",
+        device=None,
+        duration_ms=0,
+        error_message=None,
+        created_at=_timestamp(),
+        updated_at=_timestamp(),
+    )
+    repository.create_job(
+        downstream,
+        input_assets=[
+            JobInputAssetRecord(
+                id="downstream-input",
+                workspace_id="local",
+                created_by="anonymous",
+                job_id=downstream.id,
+                asset_id=first.id,
+                input_role="variant_source",
+                position=0,
+                created_at=_timestamp(),
+            )
+        ],
+    )
+    with pytest.raises(ResourceReferenceError):
+        repository.delete_job_output_assets_for_workspace(
+            job.id,
+            "local",
+            [first.id],
+        )
 
 
 def _repository(tmp_path: Path) -> SQLiteGameKnifeRepository:

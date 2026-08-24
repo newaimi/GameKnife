@@ -6,12 +6,21 @@ import type { JobListMetadata } from "./CommunityJobsPage";
 import { JobStatusBadge } from "../../components/JobStatusBadge";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { readFirstJobOutputAsset } from "../../utils/jobs";
-import { formatAbsoluteTime, formatJobFileMeta, readJobDisplayName, readJobInitial, readJobThumbnailPath, readJobTitle } from "./jobHistory";
+import {
+  formatAbsoluteTime,
+  formatJobFileMeta,
+  readJobDisplayName,
+  readJobInitial,
+  readJobThumbnailPath,
+  readJobTitle,
+  type JobPresentationResolver,
+} from "./jobHistory";
 
 export function JobHistoryRow({
   deletingJobId,
   downloadingAssetId,
   job,
+  jobPresentationResolver,
   onDelete,
   onDownload,
   onRetry,
@@ -20,12 +29,17 @@ export function JobHistoryRow({
   deletingJobId: string;
   downloadingAssetId: string;
   job: JobResponse;
+  jobPresentationResolver?: JobPresentationResolver;
   onDelete: (job: JobResponse) => void | Promise<void>;
   onDownload: (job: JobResponse, asset: OutputAssetRef) => void | Promise<void>;
   onRetry: (job: JobResponse) => void;
   metadata?: JobListMetadata;
 }) {
-  const thumbnailUrl = useObjectUrl(readJobThumbnailPath(job));
+  const presentation = jobPresentationResolver?.(job);
+  const displayName = presentation?.displayName ?? readJobDisplayName(job);
+  const thumbnailUrl = useObjectUrl(
+    presentation?.thumbnailPath ?? readJobThumbnailPath(job),
+  );
   const outputAsset = readFirstJobOutputAsset(job);
   const isDownloading = outputAsset ? downloadingAssetId === outputAsset.id : false;
   const isDeleting = deletingJobId === job.id;
@@ -33,15 +47,15 @@ export function JobHistoryRow({
   return (
     <article className="task-row">
       <div className="job-thumb task-row-thumb">
-        {thumbnailUrl ? <img src={thumbnailUrl} alt={readJobDisplayName(job)} /> : <span>{readJobInitial(job)}</span>}
+        {thumbnailUrl ? <img src={thumbnailUrl} alt={displayName} /> : <span>{presentation?.initial ?? readJobInitial(job)}</span>}
       </div>
       <div className="task-row-main">
         <div>
-          <strong title={readJobDisplayName(job)}>{readJobDisplayName(job)}</strong>
-          <span>{readJobTitle(job)}</span>
+          <strong title={displayName}>{displayName}</strong>
+          <span>{presentation?.title ?? readJobTitle(job)}</span>
         </div>
         <p>
-          {formatJobFileMeta(job)} · {formatAbsoluteTime(job.updated_at)}
+          {presentation?.fileMeta ?? formatJobFileMeta(job)} · {formatAbsoluteTime(job.updated_at)}
         </p>
         {metadata ? <p className="task-row-billing">{billingLabel(metadata)}</p> : null}
         {job.status === "failed" ? (

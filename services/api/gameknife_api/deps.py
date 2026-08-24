@@ -25,6 +25,10 @@ from gameknife_jobs import (
 from gameknife_storage import LocalStorageProvider
 
 from gameknife_api.birefnet import BiRefNetService
+from gameknife_api.history import (
+    COMMUNITY_JOB_HISTORY_CONFIGURATION,
+    JobHistoryConfiguration,
+)
 from gameknife_api.job_dispatch import build_job_execution_handlers
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
@@ -143,6 +147,10 @@ def recover_community_runtime(app) -> None:
 
 def get_repository(request: Request) -> GameKnifeRepository:
     return request.app.state.repository
+
+
+def get_job_history_configuration() -> JobHistoryConfiguration:
+    return COMMUNITY_JOB_HISTORY_CONFIGURATION
 
 
 def get_stable_audio_service(request: Request) -> StableAudioService:

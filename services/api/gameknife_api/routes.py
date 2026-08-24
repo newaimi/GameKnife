@@ -31,10 +31,12 @@ from gameknife_core import (
 from gameknife_jobs import (
     GameKnifeRepository,
     JobDispatcher,
+    JobParameterValidationError,
     JobSubmissionResult,
     ResourceReferenceError,
     SequenceActiveJobError,
     TaskSubmission,
+    canonical_asset_quality_check_parameters,
 )
 from gameknife_workflows import (
     WorkflowInputNotFoundError,
@@ -46,6 +48,7 @@ from gameknife_workflows import (
     create_asset_board_refine_workflow,
     create_asset_board_region_workflow,
     create_background_remove_workflow,
+    create_job_record,
     create_project_export_workflow,
     create_sequence_frames_export_workflow,
     create_sequence_spine_export_workflow,
@@ -62,6 +65,7 @@ from gameknife_api.deps import (
     get_birefnet_service,
     get_community_settings,
     get_job_dispatcher,
+    get_job_history_configuration,
     get_job_submission_replay,
     get_repository,
     get_request_context,
@@ -70,9 +74,15 @@ from gameknife_api.deps import (
     get_upscale_model_service,
     get_video_generation_client,
 )
+from gameknife_api.history import JobHistoryConfiguration
 from gameknife_api.job_service import (
     create_job,
     delete_job,
+)
+from gameknife_api.responses import (
+    build_asset_response,
+    build_job_response,
+    build_resource_reference_detail,
 )
 from gameknife_api.schemas import (
     AssetBoardExportRequest,
@@ -80,6 +90,7 @@ from gameknife_api.schemas import (
     AssetDetailResponse,
     AssetJobRequest,
     AssetPageResponse,
+    AssetQualityCheckRequest,
     AssetResponse,
     ContextResponse,
     JobPageResponse,
@@ -103,30 +114,6 @@ from gameknife_api.video_generation import VideoGenerationClient
 
 router = APIRouter()
 
-DOWNLOADABLE_JOB_TYPES = [
-    "background_remove",
-    "asset_board_cutout",
-    "asset_board_export",
-    "sequence_generate_video",
-    "sequence_export_frames",
-    "sequence_export_spine",
-    "image_upscale",
-    "sound_effect_generate",
-    "project_export_package",
-]
-TASK_CENTER_JOB_TYPES = [
-    "background_remove",
-    "asset_board_cutout",
-    "asset_board_export",
-    "image_upscale",
-    "sequence_clean",
-    "sequence_generate_video",
-    "sequence_video_to_frames",
-    "sequence_export_frames",
-    "sequence_export_spine",
-    "sound_effect_generate",
-    "project_export_package",
-]
 ASSET_CATEGORY_KINDS = {
     "image": [
         "image",
@@ -134,20 +121,14 @@ ASSET_CATEGORY_KINDS = {
         "background_remove",
         "upscale_result",
         "asset_cutout",
+        "image_generated",
         "sequence_frame",
         "sequence_frame_processed",
     ],
     "video": ["video", "sequence_video"],
     "audio": ["sound_effect"],
+    "model": ["model_3d_glb", "model_3d_fbx", "model_3d_obj"],
     "export": ["asset_export", "sequence_export", "sequence_spine", "project_export"],
-}
-JOB_CATEGORY_TYPES = {
-    "background": ["background_remove"],
-    "upscale": ["image_upscale"],
-    "sound": ["sound_effect_generate"],
-    "asset_board": ["asset_board_region_detect", "asset_board_cutout", "asset_board_region_refine", "asset_board_export"],
-    "sequence": ["sequence_clean", "sequence_generate_video", "sequence_video_to_frames", "sequence_export_frames", "sequence_export_spine"],
-    "export": ["project_export_package"],
 }
 PROJECT_WORKFLOW_PERMISSION = "jobs.create"
 SETTINGS_MANAGE_PERMISSION = "settings.manage"
@@ -273,10 +254,18 @@ def list_job_history(
     job_status: str | None = Query(None, alias="status"),
     context: RequestContext = Depends(get_request_context),
     repository: GameKnifeRepository = Depends(get_repository),
+    history_configuration: JobHistoryConfiguration = Depends(
+        get_job_history_configuration
+    ),
 ) -> JobPageResponse:
     if job_status is not None and job_status not in {"pending", "running", "success", "failed"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的任务状态。")
-    job_types = _resolve_history_job_types(category, downloadable, delivery_only)
+    job_types = _resolve_history_job_types(
+        category,
+        downloadable,
+        delivery_only,
+        history_configuration,
+    )
     if job_types == []:
         return JobPageResponse(items=[], total=0, page=page, page_size=page_size)
 
@@ -1089,6 +1078,10 @@ def get_asset_metadata(
         for related in repository.list_assets_by_ids_for_workspace(related_ids, context.workspace.id)
         if related.storage_state == "ready"
     }
+    quality_check = repository.get_current_asset_quality_check(
+        asset.id,
+        context.workspace.id,
+    )
     return AssetDetailResponse(
         **_asset_response(asset).model_dump(),
         relations=[
@@ -1103,7 +1096,95 @@ def get_asset_metadata(
             in related_assets
         ],
         available_actions=_asset_actions(asset, context),
+        quality_check=(
+            {
+                "id": quality_check.id,
+                "status": quality_check.status,
+                "rules_version": quality_check.rules_version,
+                "content_sha256": quality_check.content_sha256,
+                "parameters": _quality_parameters(quality_check.checks_json),
+                "checks": _quality_checks(quality_check.checks_json),
+                "created_at": quality_check.created_at,
+            }
+            if quality_check is not None
+            else None
+        ),
     )
+
+
+@router.post("/assets/{asset_id}/quality-check", response_model=JobResponse)
+def create_asset_quality_check_job(
+    asset_id: str,
+    payload: AssetQualityCheckRequest,
+    context: RequestContext = Depends(get_request_context),
+    repository: GameKnifeRepository = Depends(get_repository),
+    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
+    submission: TaskSubmission = Depends(get_task_submission),
+    replayed_submission: JobSubmissionResult | None = Depends(
+        get_job_submission_replay
+    ),
+) -> JobResponse:
+    if replayed_submission is not None:
+        return _job_response(replayed_submission.job, context, repository)
+    asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
+    if asset is None or asset.storage_state != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="素材不存在或尚未就绪。",
+        )
+    supports_image = asset.mime_type.startswith("image/")
+    supports_components = (
+        asset.kind == "asset_component"
+        and asset.mime_type == "application/zip"
+    )
+    supports_audio = asset.mime_type in {"audio/wav", "audio/x-wav"}
+    supports_model = (
+        asset.kind == "model_3d_glb"
+        and asset.mime_type == "model/gltf-binary"
+    )
+    if (
+        not supports_image
+        and not supports_components
+        and not supports_audio
+        and not supports_model
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前素材类型不支持自动质量检查。",
+        )
+    source_quality_check_id = str(payload.source_quality_check_id or "").strip()
+    if source_quality_check_id and repository.get_asset_quality_check_for_workspace(
+        source_quality_check_id,
+        asset.id,
+        context.workspace.id,
+    ) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="质量规则快照不存在，请重新打开素材详情。",
+        )
+    try:
+        parameters = canonical_asset_quality_check_parameters(
+            {
+                "asset_id": asset.id,
+                "source_quality_check_id": source_quality_check_id or None,
+            }
+        )
+    except JobParameterValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="质量检查参数无效。",
+        ) from exc
+    submitted = create_job_record(
+        repository,
+        context,
+        job_type="asset_quality_check",
+        input_asset_id=asset.id,
+        parameters=parameters,
+        submission=submission,
+    )
+    if not submitted.replayed:
+        dispatcher.dispatch(submitted.job.id, submitted.job.workspace_id)
+    return _job_response(submitted.job, context, repository)
 
 
 @router.get("/assets/{asset_id}")
@@ -1250,18 +1331,7 @@ def _manual_edit_name(name: str | None, filename: str | None, fallback: str, suf
 
 
 def _asset_response(asset: AssetRecord) -> AssetResponse:
-    return AssetResponse(
-        id=asset.id,
-        filename=asset.original_name,
-        kind=asset.kind,
-        mime_type=asset.mime_type,
-        size_bytes=asset.size_bytes,
-        storage_state=asset.storage_state,
-        created_by=asset.created_by,
-        created_at=asset.created_at,
-        updated_at=asset.updated_at,
-        url=f"/api/assets/{asset.id}",
-    )
+    return build_asset_response(asset)
 
 
 def _asset_actions(asset: AssetRecord, context: RequestContext) -> list[dict[str, str]]:
@@ -1321,22 +1391,25 @@ def _persist_manual_edit_asset(
 
 
 def _resource_reference_detail(exc: ResourceReferenceError) -> dict[str, object]:
-    return {
-        "code": "RESOURCE_REFERENCED",
-        "message": "资源仍被任务、序列或派生素材使用，无法删除。",
-        "resource": {"kind": exc.resource_kind, "id": exc.resource_id},
-        "references": [
-            {
-                "asset_id": reference.asset_id,
-                "input_job_ids": list(reference.input_job_ids),
-                "output_job_ids": list(reference.output_job_ids),
-                "source_sequence_frame_ids": list(reference.source_sequence_frame_ids),
-                "processed_sequence_frame_ids": list(reference.processed_sequence_frame_ids),
-                "derived_asset_ids": list(reference.derived_asset_ids),
-            }
-            for reference in exc.references
-        ],
-    }
+    return build_resource_reference_detail(exc)
+
+
+def _quality_checks(value: str) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    checks = payload.get("checks") if isinstance(payload, dict) else None
+    return [item for item in checks if isinstance(item, dict)] if isinstance(checks, list) else []
+
+
+def _quality_parameters(value: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    parameters = payload.get("parameters") if isinstance(payload, dict) else None
+    return dict(parameters) if isinstance(parameters, dict) else {}
 
 
 def _require_project_workflow_write(context: RequestContext, operation: str, resource: dict[str, object] | None = None) -> None:
@@ -1616,32 +1689,7 @@ def _cleanup_created_assets(repository: GameKnifeRepository, context: RequestCon
 
 
 def _job_response(job: JobRecord, context: RequestContext, repository: GameKnifeRepository) -> JobResponse:
-    result = json.loads(job.result_json)
-    input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if input_asset is not None:
-        result.setdefault("input_asset_url", f"/api/assets/{input_asset.id}")
-
-    return JobResponse(
-        id=job.id,
-        type=job.job_type,
-        status=job.status,  # type: ignore[arg-type]
-        input_asset_id=job.input_asset_id,
-        input_filename=input_asset.original_name if input_asset is not None else None,
-        input_mime_type=input_asset.mime_type if input_asset is not None else None,
-        input_size_bytes=input_asset.size_bytes if input_asset is not None else None,
-        parameters=json.loads(job.parameters_json),
-        result=result,
-        device=job.device,
-        duration_ms=job.duration_ms,
-        error_message=job.error_message,
-        error_code=(
-            str(result["error_code"])
-            if isinstance(result.get("error_code"), str) and result["error_code"]
-            else "JOB_EXECUTION_FAILED" if job.status == "failed" else None
-        ),
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-    )
+    return build_job_response(job, context, repository)
 
 
 def _ensure_asset_exists(repository: GameKnifeRepository, context: RequestContext, asset_id: str) -> AssetRecord:
@@ -1732,13 +1780,27 @@ def _runtime_device_label(runtime: dict[str, object]) -> str:
     return "CPU"
 
 
-def _resolve_history_job_types(category: str, downloadable: bool, delivery_only: bool) -> list[str] | None:
-    category_types = None if category == "all" else JOB_CATEGORY_TYPES.get(category, [category])
+def _resolve_history_job_types(
+    category: str,
+    downloadable: bool,
+    delivery_only: bool,
+    configuration: JobHistoryConfiguration,
+) -> list[str] | None:
+    category_types = (
+        None
+        if category == "all"
+        else list(configuration.category_job_types.get(category, (category,)))
+    )
     if not downloadable and not delivery_only:
         return category_types
-    allowed_types = set(DOWNLOADABLE_JOB_TYPES if downloadable else TASK_CENTER_JOB_TYPES)
+    allowed_job_types = (
+        configuration.downloadable_job_types
+        if downloadable
+        else configuration.task_center_job_types
+    )
+    allowed_types = set(allowed_job_types)
     if category_types is None:
-        return DOWNLOADABLE_JOB_TYPES if downloadable else TASK_CENTER_JOB_TYPES
+        return list(allowed_job_types)
     return [job_type for job_type in category_types if job_type in allowed_types]
 
 

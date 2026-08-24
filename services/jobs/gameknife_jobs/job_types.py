@@ -9,7 +9,7 @@ from typing import Any
 
 
 class JobQueue(StrEnum):
-    """Commercial execution queues exposed without coupling public jobs to a broker."""
+    """Execution lanes exposed without coupling registered jobs to a broker."""
 
     CPU = "cpu"
     GPU = "gpu"
@@ -21,6 +21,7 @@ class JobDeliveryRequirement(StrEnum):
 
     OUTPUT_ASSET = "output_asset"
     STATE_CHANGE = "state_change"
+    QUALITY_CHECK = "quality_check"
     RESULT = "result"
 
 
@@ -35,11 +36,11 @@ OutputSizeEstimator = Callable[[Mapping[str, Any]], int]
 
 @dataclass(frozen=True, slots=True)
 class JobTypeSpec:
-    """Stable execution, delivery, and capacity metadata for one public job type."""
+    """Stable execution, delivery, and capacity metadata for one job type."""
 
     job_type: str
     executor: str
-    commercial_queue: JobQueue
+    queue: JobQueue
     delivery_requirement: JobDeliveryRequirement
     max_output_bytes_estimator: OutputSizeEstimator
     external_provider: bool = False
@@ -84,6 +85,11 @@ class JobTypeRegistry(Mapping[str, JobTypeSpec]):
             return self._specs[job_type]
         except KeyError as exc:
             raise ValueError(f"Unsupported job type: {job_type}") from exc
+
+    def extend(self, specs: Iterable[JobTypeSpec]) -> JobTypeRegistry:
+        """Return a new registry that keeps the current registrations unchanged."""
+
+        return JobTypeRegistry((*self._specs.values(), *specs))
 
 
 _MIB = 1024 * 1024
@@ -154,6 +160,30 @@ def _estimate_project_export_output(parameters: Mapping[str, Any]) -> int:
     # Deflate can expand already-compressed media slightly. The fixed headroom also covers central-directory
     # records and the manifest without making capacity depend on archive implementation details.
     return input_total_bytes + max(16 * _MIB, math.ceil(input_total_bytes * 0.05))
+
+
+def canonical_asset_quality_check_parameters(
+    parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    asset_id = str(parameters.get("asset_id") or "").strip()
+    if not 1 <= len(asset_id) <= 64:
+        raise JobParameterValidationError("asset_id must contain between 1 and 64 characters")
+    source_quality_check_id = str(
+        parameters.get("source_quality_check_id") or ""
+    ).strip()
+    if len(source_quality_check_id) > 64:
+        raise JobParameterValidationError(
+            "source_quality_check_id must not exceed 64 characters"
+        )
+    return {
+        "asset_id": asset_id,
+        "source_quality_check_id": source_quality_check_id or None,
+    }
+
+
+def _estimate_asset_quality_check_output(parameters: Mapping[str, Any]) -> int:
+    canonical_asset_quality_check_parameters(parameters)
+    return 0
 
 
 def canonical_project_export_parameters(
@@ -241,56 +271,63 @@ JOB_TYPE_REGISTRY = JobTypeRegistry(
         JobTypeSpec(
             job_type="background_remove",
             executor="background_remove",
-            commercial_queue=JobQueue.GPU,
+            queue=JobQueue.GPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_fixed_output_size(_MAX_RGBA_IMAGE_BYTES),
         ),
         JobTypeSpec(
             job_type="asset_board_region_detect",
             executor="asset_board_region_detect",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.RESULT,
             max_output_bytes_estimator=_no_output,
         ),
         JobTypeSpec(
             job_type="asset_board_cutout",
             executor="asset_board_cutout",
-            commercial_queue=JobQueue.GPU,
+            queue=JobQueue.GPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_fixed_output_size(_MAX_RGBA_IMAGE_BYTES),
         ),
         JobTypeSpec(
             job_type="asset_board_region_refine",
             executor="asset_board_region_refine",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.RESULT,
             max_output_bytes_estimator=_no_output,
         ),
         JobTypeSpec(
             job_type="asset_board_export",
             executor="asset_board_export",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_fixed_output_size(512 * _MIB),
         ),
         JobTypeSpec(
             job_type="image_upscale",
             executor="image_upscale",
-            commercial_queue=JobQueue.GPU,
+            queue=JobQueue.GPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_upscale_output,
         ),
         JobTypeSpec(
+            job_type="asset_quality_check",
+            executor="asset_quality_check",
+            queue=JobQueue.CPU,
+            delivery_requirement=JobDeliveryRequirement.QUALITY_CHECK,
+            max_output_bytes_estimator=_estimate_asset_quality_check_output,
+        ),
+        JobTypeSpec(
             job_type="sequence_clean",
             executor="sequence_clean",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.STATE_CHANGE,
             max_output_bytes_estimator=_estimate_sequence_clean_output,
         ),
         JobTypeSpec(
             job_type="sequence_generate_video",
             executor="sequence_generate_video",
-            commercial_queue=JobQueue.EXTERNAL,
+            queue=JobQueue.EXTERNAL,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_generated_video_output,
             external_provider=True,
@@ -298,35 +335,35 @@ JOB_TYPE_REGISTRY = JobTypeRegistry(
         JobTypeSpec(
             job_type="sequence_video_to_frames",
             executor="sequence_video_to_frames",
-            commercial_queue=JobQueue.GPU,
+            queue=JobQueue.GPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_video_frames_output,
         ),
         JobTypeSpec(
             job_type="sequence_export_frames",
             executor="sequence_export_frames",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_fixed_output_size(4 * 1024 * _MIB),
         ),
         JobTypeSpec(
             job_type="sequence_export_spine",
             executor="sequence_export_spine",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_fixed_output_size(4 * 1024 * _MIB),
         ),
         JobTypeSpec(
             job_type="sound_effect_generate",
             executor="sound_effect_generate",
-            commercial_queue=JobQueue.EXTERNAL,
+            queue=JobQueue.EXTERNAL,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_sound_effect_output,
         ),
         JobTypeSpec(
             job_type="project_export_package",
             executor="project_export_package",
-            commercial_queue=JobQueue.CPU,
+            queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
             max_output_bytes_estimator=_estimate_project_export_output,
         ),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import wave
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -50,6 +51,18 @@ def make_png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def write_test_wav(path: Path, *, duration_seconds: float) -> None:
+    frame_count = round(44_100 * duration_seconds)
+    timeline = np.arange(frame_count, dtype=np.float64) / 44_100
+    mono = np.rint(np.sin(2 * np.pi * 440 * timeline) * 12_000).astype("<i2")
+    stereo = np.column_stack((mono, mono)).astype("<i2")
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(2)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(44_100)
+        wav_file.writeframes(stereo.tobytes())
 
 
 def make_transparent_png_bytes() -> bytes:
@@ -114,7 +127,10 @@ class FakeStableAudioService:
 
     def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, object]) -> dict[str, object]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
+        write_test_wav(
+            output_path,
+            duration_seconds=float(parameters.get("duration_seconds", 1)),
+        )
         return {
             "model": "fake-stable-audio",
             "device": "cpu",
@@ -755,12 +771,33 @@ def test_sound_effect_job_creates_wav_asset(tmp_path: Path) -> None:
             json={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
         )
         job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        metadata = client.get(
+            f"/api/assets/{job['result']['output_assets'][0]['id']}/metadata"
+        ).json()
+        recheck = client.post(
+            f"/api/assets/{metadata['id']}/quality-check",
+            json={
+                "source_quality_check_id": metadata["quality_check"]["id"]
+            },
+        )
+        recheck_job = client.get(f"/api/jobs/{recheck.json()['id']}").json()
         output = client.get(job["result"]["output_assets"][0]["url"])
 
     assert created.status_code == 200
     assert job["status"] == "success"
     assert job["type"] == "sound_effect_generate"
     assert job["result"]["prompt"] == "coin pickup"
+    assert job["result"]["quality_status"] == "passed"
+    assert metadata["quality_check"]["rules_version"] == "audio-v1"
+    assert metadata["quality_check"]["parameters"] == {
+        "check_type": "audio",
+        "asset_type": "sound_effect",
+        "expected_duration_seconds": 1.0,
+        "expect_loop": False,
+    }
+    assert recheck.status_code == 200
+    assert recheck_job["status"] == "success"
+    assert recheck_job["result"]["quality_status"] == "passed"
     assert job["result"]["output_assets"][0]["url"].startswith("/api/assets/")
     assert output.status_code == 200
     assert output.content.startswith(b"RIFF")
@@ -1046,7 +1083,17 @@ def test_asset_board_export_job_creates_zip_asset(tmp_path: Path) -> None:
     assert job["result"]["selected_count"] == 2
     assert output.status_code == 200
     with zipfile.ZipFile(BytesIO(output.content)) as archive:
-        assert len(archive.namelist()) == 2
+        assert archive.namelist() == [
+            "sheet_component_001.png",
+            "sheet_component_002.png",
+            "component-manifest.json",
+        ]
+        manifest = json.loads(archive.read("component-manifest.json"))
+    assert manifest["schema_version"] == 1
+    assert [component["file"] for component in manifest["components"]] == [
+        "sheet_component_001.png",
+        "sheet_component_002.png",
+    ]
 
 
 def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
@@ -1803,3 +1850,80 @@ def test_asset_metadata_actions_follow_media_type(tmp_path: Path) -> None:
         "download",
         "sequence_video_to_frames",
     }
+
+
+def test_asset_quality_check_job_persists_retryable_snapshot(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        first = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={},
+        )
+        first_stored = client.get(f"/api/jobs/{first.json()['id']}").json()
+        first_metadata = client.get(
+            f"/api/assets/{image['id']}/metadata"
+        ).json()
+        retried = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={
+                "source_quality_check_id": first_metadata["quality_check"]["id"]
+            },
+        )
+        retried_stored = client.get(f"/api/jobs/{retried.json()['id']}").json()
+        history = client.get(
+            "/api/jobs/history",
+            params={"category": "quality", "delivery_only": "true"},
+        ).json()
+
+    assert first.status_code == 200
+    assert first.json()["type"] == "asset_quality_check"
+    assert first.json()["status"] == "pending"
+    assert first_stored["status"] == "success"
+    assert first_metadata["quality_check"]["status"] == "failed"
+    assert first_metadata["quality_check"]["parameters"] == {
+        "check_type": "image",
+        "expected_size": "ORIGINAL",
+        "palette": [],
+        "expect_no_text": False,
+        "expect_transparency": False,
+        "expect_seamless": False,
+    }
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "pending"
+    assert retried_stored["status"] == "success"
+    assert retried_stored["result"]["quality_check_id"] == (
+        first_metadata["quality_check"]["id"]
+    )
+    assert history["total"] == 2
+
+
+def test_asset_quality_check_rejects_unsupported_asset_and_foreign_snapshot(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        video = client.post(
+            "/api/assets/videos",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        ).json()
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        unsupported = client.post(
+            f"/api/assets/{video['id']}/quality-check",
+            json={},
+        )
+        missing_snapshot = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={"source_quality_check_id": "missing-quality-check"},
+        )
+
+    assert unsupported.status_code == 400
+    assert unsupported.json()["detail"] == "当前素材类型不支持自动质量检查。"
+    assert missing_snapshot.status_code == 404
+    assert missing_snapshot.json()["detail"] == (
+        "质量规则快照不存在，请重新打开素材详情。"
+    )
