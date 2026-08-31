@@ -22,7 +22,6 @@ export { ManualEditWorkspace } from "./workspaces/manual-edit/ManualEditWorkspac
 export { AssetBoardWorkspace } from "./workspaces/asset-board/AssetBoardWorkspace";
 export { SequenceWorkspace } from "./workspaces/sequence/SequenceWorkspace";
 export { VideoToSequenceWorkspace } from "./workspaces/video-to-sequence/VideoToSequenceWorkspace";
-export { VideoGenerateWorkspace } from "./workspaces/video-generate/VideoGenerateWorkspace";
 export { communityToolEntries, toolIconById } from "./tools/toolEntries";
 export { communityWorkflowRoutes } from "./tools/workflowRoutes";
 export { openManualEdit } from "./utils/manualEdit";

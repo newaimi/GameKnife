@@ -27,7 +27,6 @@ from gameknife_workflows.upscale import UpscaleModel
 from gameknife_api.job_service import (
     run_sequence_clean_job,
     run_sequence_from_video_job,
-    run_sequence_generate_video_job,
 )
 
 ContextResolver = Callable[[], RequestContext]
@@ -111,11 +110,6 @@ def build_job_execution_handlers(
                 job.id,
                 _required_string(parameters, "sequence_id"),
             ),
-        ),
-        "sequence_generate_video": _bind_persisted_job(
-            repository,
-            context_resolver,
-            lambda job, context, _parameters: run_sequence_generate_video_job(repository, context, job.id),
         ),
         "sequence_video_to_frames": _bind_persisted_job(
             repository,

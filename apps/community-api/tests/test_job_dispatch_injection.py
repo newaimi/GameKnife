@@ -32,7 +32,6 @@ JOB_CREATION_PATHS = {
     "/api/jobs/asset-board/refine",
     "/api/jobs/asset-board/export",
     "/api/sequences/{sequence_id}/clean",
-    "/api/sequences/generate-from-image",
     "/api/sequences/from-video",
     "/api/sequences/{sequence_id}/export/frames",
     "/api/sequences/{sequence_id}/export/spine",
@@ -56,7 +55,7 @@ def test_community_runtime_registers_every_public_executor(tmp_path: Path) -> No
         handlers = app.state.job_execution_handlers
 
     assert set(handlers) == {spec.executor for spec in JOB_TYPE_REGISTRY.values()}
-    assert len(handlers) == 14
+    assert len(handlers) == 13
 
 
 def test_every_public_job_creation_route_injects_dispatcher(tmp_path: Path) -> None:
@@ -122,6 +121,9 @@ def test_community_openapi_does_not_publish_downstream_generation_routes(
     assert "/api/jobs/image-generation" not in paths
     assert "/api/jobs/model-3d-generation" not in paths
     assert "/api/jobs/{job_id}/candidates/cleanup" not in paths
+    assert "/api/sequences/generate-from-image" not in paths
+    assert "/api/settings/video-generation" not in paths
+    assert "/api/settings/video-generation/test" not in paths
 
 
 def test_glb_quality_check_route_preserves_model_asset_and_dispatches_once(

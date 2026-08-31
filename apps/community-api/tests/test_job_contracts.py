@@ -26,7 +26,6 @@ EXPECTED_JOB_TYPES = {
     "image_upscale",
     "asset_quality_check",
     "sequence_clean",
-    "sequence_generate_video",
     "sequence_video_to_frames",
     "sequence_export_frames",
     "sequence_export_spine",
@@ -60,9 +59,7 @@ def test_registry_declares_execution_and_delivery_boundaries() -> None:
     assert JOB_TYPE_REGISTRY["sequence_clean"].delivery_requirement is JobDeliveryRequirement.STATE_CHANGE
     assert JOB_TYPE_REGISTRY["asset_board_region_detect"].delivery_requirement is JobDeliveryRequirement.RESULT
 
-    provider_spec = JOB_TYPE_REGISTRY["sequence_generate_video"]
-    assert provider_spec.queue is JobQueue.EXTERNAL
-    assert provider_spec.external_provider is True
+    assert all(not spec.external_provider for spec in JOB_TYPE_REGISTRY.values())
     assert JOB_TYPE_REGISTRY["sound_effect_generate"].external_provider is False
     quality_spec = JOB_TYPE_REGISTRY["asset_quality_check"]
     assert quality_spec.queue is JobQueue.CPU
@@ -73,9 +70,6 @@ def test_registry_declares_execution_and_delivery_boundaries() -> None:
 
 
 def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
-    generated_video = JOB_TYPE_REGISTRY["sequence_generate_video"]
-    assert generated_video.estimate_max_output_bytes({"duration": 5, "resolution": "720P"}) == 36 * 1024 * 1024
-
     video_frames = JOB_TYPE_REGISTRY["sequence_video_to_frames"]
     assert video_frames.estimate_max_output_bytes({"max_frames": 2, "output_size": 128, "fps": 12}) == 4 * 512 * 512 * 4
 
@@ -98,8 +92,6 @@ def test_output_estimators_validate_parameters_and_return_byte_limits() -> None:
 @pytest.mark.parametrize(
     ("job_type", "parameters", "message"),
     (
-        ("sequence_generate_video", {"duration": 16, "resolution": "720P"}, "duration must be between 2 and 15"),
-        ("sequence_generate_video", {"duration": 5, "resolution": "4K"}, "resolution must be one of"),
         ("sequence_video_to_frames", {"max_frames": 0}, "max_frames must be between 1 and 300"),
         ("image_upscale", {"scale": 3}, "scale must be one of 2, 4, 8"),
         ("sequence_clean", {"frame_count": 3, "canvas_width": 128}, "canvas_height is required"),

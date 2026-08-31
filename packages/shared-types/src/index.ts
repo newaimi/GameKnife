@@ -178,23 +178,6 @@ export interface SequenceCleanParameters {
   stabilize_strength: number;
 }
 
-export interface VideoGenerationConfig {
-  provider: "aliyun_dashscope" | "seedance";
-  base_url: string;
-  api_key_configured: boolean;
-  masked_api_key?: string | null;
-}
-
-export type VideoSequenceProvider = "aliyun_dashscope" | "seedance";
-
-export interface VideoSequenceGenerateParameters {
-  action: string;
-  prompt: string;
-  negative_prompt: string;
-  duration: number;
-  resolution: string;
-}
-
 export interface VideoToSequenceParameters {
   action: string;
   clip_start_seconds: number;
@@ -302,7 +285,6 @@ export interface RuntimeSettings {
     lazy_load: boolean;
     install_status: StableAudioInstallStatus;
   };
-  video_generation: VideoGenerationConfig;
 }
 
 export interface ModelInstallStatus {

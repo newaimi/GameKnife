@@ -14,3 +14,7 @@ test("tool links only open a new tab when the registry requests it", () => {
     rel: "noopener noreferrer",
   });
 });
+
+test("community registry exposes no third-party video generation entry", () => {
+  assert.equal(communityFeatureEntries.some((tool) => tool.id === "video-generate"), false);
+});

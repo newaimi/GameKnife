@@ -10,7 +10,6 @@ import type {
   SequenceResponse,
   StableAudioInstallStatus,
   UpscaleModelInstallStatus,
-  VideoGenerationConfig,
 } from "@gameknife/shared-types";
 
 export interface GameKnifeApiClientOptions {
@@ -328,28 +327,8 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createVideoGenerationJob(payload: {
-    input_asset_id: string;
-    action: string;
-    prompt: string;
-    negative_prompt?: string;
-    duration: number;
-    resolution: string;
-    confirmed_external_api: boolean;
-  }, submission?: TaskSubmissionOptions): Promise<JobResponse> {
-    return this.requestJson<JobResponse>("/api/sequences/generate-from-image", {
-      method: "POST",
-      headers: jobJsonHeaders(submission),
-      body: JSON.stringify(payload),
-    });
-  }
-
   async deleteSequence(sequenceId: string): Promise<void> {
     await this.requestVoid(`/api/sequences/${sequenceId}`, { method: "DELETE" });
-  }
-
-  async getVideoGenerationSettings(): Promise<VideoGenerationConfig> {
-    return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation");
   }
 
   async getBiRefNetInstallStatus(): Promise<BiRefNetInstallStatus> {
@@ -379,22 +358,6 @@ export class GameKnifeApiClient {
   async startStableAudioInstall(): Promise<StableAudioInstallStatus> {
     return this.requestJson<StableAudioInstallStatus>("/api/settings/stable-audio/install", {
       method: "POST",
-    });
-  }
-
-  async updateVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<VideoGenerationConfig> {
-    return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation", {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async testVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/video-generation/test", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
     });
   }
 

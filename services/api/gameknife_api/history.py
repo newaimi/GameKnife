@@ -53,7 +53,6 @@ COMMUNITY_JOB_HISTORY_CONFIGURATION = JobHistoryConfiguration(
         "background_remove",
         "asset_board_cutout",
         "asset_board_export",
-        "sequence_generate_video",
         "sequence_export_frames",
         "sequence_export_spine",
         "image_upscale",
@@ -67,7 +66,6 @@ COMMUNITY_JOB_HISTORY_CONFIGURATION = JobHistoryConfiguration(
         "asset_quality_check",
         "image_upscale",
         "sequence_clean",
-        "sequence_generate_video",
         "sequence_video_to_frames",
         "sequence_export_frames",
         "sequence_export_spine",
@@ -87,7 +85,6 @@ COMMUNITY_JOB_HISTORY_CONFIGURATION = JobHistoryConfiguration(
         "quality": ("asset_quality_check",),
         "sequence": (
             "sequence_clean",
-            "sequence_generate_video",
             "sequence_video_to_frames",
             "sequence_export_frames",
             "sequence_export_spine",

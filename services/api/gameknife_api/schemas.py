@@ -202,29 +202,6 @@ class VideoToSequenceRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class VideoSequenceGenerateRequest(BaseModel):
-    input_asset_id: str
-    action: str = Field(default="walk_down", max_length=64)
-    prompt: str = Field(default="", max_length=1500)
-    negative_prompt: str = Field(default="", max_length=500)
-    duration: int = Field(default=5, ge=2, le=15)
-    resolution: str = Field(default="720P", max_length=32)
-    confirmed_external_api: bool = False
-
-
-class VideoGenerationConfigRequest(BaseModel):
-    provider: Literal["aliyun_dashscope", "seedance"] = "aliyun_dashscope"
-    base_url: str = ""
-    api_key: str | None = None
-
-
-class VideoGenerationConfigResponse(BaseModel):
-    provider: Literal["aliyun_dashscope", "seedance"]
-    base_url: str
-    api_key_configured: bool
-    masked_api_key: str | None = None
-
-
 class PrincipalResponse(BaseModel):
     id: str
     kind: Literal["anonymous", "user"]
@@ -259,4 +236,3 @@ class SettingsResponse(BaseModel):
     birefnet: dict[str, Any]
     upscale_models: dict[str, Any]
     stable_audio: dict[str, Any]
-    video_generation: VideoGenerationConfigResponse

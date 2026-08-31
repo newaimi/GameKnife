@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, Save } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useGameKnifePermissions } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import { Button, FeedbackMessage } from "@gameknife/ui-kit";
@@ -8,15 +8,9 @@ import type {
   RuntimeSettings,
   StableAudioInstallStatus,
   UpscaleModelInstallStatus,
-  VideoGenerationConfig,
 } from "@gameknife/shared-types";
 import { ModelInstallStatusPanel } from "../../components/ModelInstallStatusPanel";
 import { readMessage } from "../../utils/errors";
-
-const VIDEO_PROVIDER_BASE_URL: Record<VideoGenerationConfig["provider"], string> = {
-  aliyun_dashscope: "https://dashscope.aliyuncs.com",
-  seedance: "https://ark.cn-beijing.volces.com",
-};
 
 function formatAvailable(value: boolean) {
   return value ? "可用" : "不可用";
@@ -65,27 +59,12 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   );
 }
 
-function buildVideoGenerationPayload(config: VideoGenerationConfig, apiKeyDirty: boolean, apiKey: string) {
-  const payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string } = {
-    provider: config.provider,
-    base_url: config.base_url,
-  };
-  if (apiKeyDirty) {
-    payload.api_key = apiKey;
-  }
-  return payload;
-}
-
 export function CommunitySettingsPage() {
   const permissions = useGameKnifePermissions();
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [installStatus, setInstallStatus] = useState<BiRefNetInstallStatus | null>(null);
   const [upscaleInstallStatus, setUpscaleInstallStatus] = useState<UpscaleModelInstallStatus | null>(null);
   const [stableAudioInstallStatus, setStableAudioInstallStatus] = useState<StableAudioInstallStatus | null>(null);
-  const [draftVideoConfig, setDraftVideoConfig] = useState<VideoGenerationConfig | null>(null);
-  const [videoApiKey, setVideoApiKey] = useState("");
-  const [videoApiKeyDirty, setVideoApiKeyDirty] = useState(false);
-  const [videoMessage, setVideoMessage] = useState("");
   const [error, setError] = useState("");
   const visibleInstallStatus = installStatus ?? settings?.birefnet.install_status ?? null;
   const visibleUpscaleInstallStatus = upscaleInstallStatus ?? settings?.upscale_models.install_status ?? null;
@@ -115,13 +94,6 @@ export function CommunitySettingsPage() {
     });
   }, []);
 
-  useEffect(() => {
-    const config = settings?.video_generation ?? null;
-    setDraftVideoConfig(config);
-    setVideoApiKey("");
-    setVideoApiKeyDirty(false);
-  }, [settings?.video_generation]);
-
   async function refreshSettings() {
     try {
       setError("");
@@ -137,32 +109,6 @@ export function CommunitySettingsPage() {
       setStableAudioInstallStatus(nextStableAudioStatus);
     } catch (exc) {
       setError(readMessage(exc));
-    }
-  }
-
-  async function saveVideoGenerationConfig() {
-    if (!draftVideoConfig) return;
-    setVideoMessage("正在保存视频 API 配置...");
-    try {
-      const saved = await gameKnifeApiClient.updateVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
-      setDraftVideoConfig(saved);
-      setVideoApiKey("");
-      setVideoApiKeyDirty(false);
-      await refreshSettings();
-      setVideoMessage("视频 API 配置已保存。");
-    } catch (exc) {
-      setVideoMessage(readMessage(exc));
-    }
-  }
-
-  async function testVideoGenerationConfig() {
-    if (!draftVideoConfig) return;
-    setVideoMessage("正在检查视频 API 配置...");
-    try {
-      const result = await gameKnifeApiClient.testVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
-      setVideoMessage(typeof result.message === "string" ? result.message : "视频 API 配置可用。");
-    } catch (exc) {
-      setVideoMessage(readMessage(exc));
     }
   }
 
@@ -233,70 +179,6 @@ export function CommunitySettingsPage() {
           <KeyValue label="GPU" value={gpuSummary} />
           <KeyValue label="GPU 明细" value={gpuDetails} />
         </section>
-
-        {draftVideoConfig ? (
-          <section className="config-card wide">
-            <div className="config-card-title">
-              <h2>视频生成 API</h2>
-              <span>{draftVideoConfig.api_key_configured ? "已配置密钥" : "未配置密钥"}</span>
-            </div>
-            <label className="number-field">
-              <span>供应商</span>
-              <select
-                value={draftVideoConfig.provider}
-                disabled={!canManageSettings}
-                onChange={(event) => {
-                  const provider = event.target.value as VideoGenerationConfig["provider"];
-                  setDraftVideoConfig((current) => (current ? { ...current, provider, base_url: VIDEO_PROVIDER_BASE_URL[provider] } : current));
-                }}
-              >
-                <option value="aliyun_dashscope">阿里云百炼 / HappyHorse</option>
-                <option value="seedance">火山引擎 / Seedance</option>
-              </select>
-            </label>
-            <label className="number-field">
-              <span>Base URL</span>
-              <input disabled={!canManageSettings} value={draftVideoConfig.base_url} onChange={(event) => setDraftVideoConfig((current) => (current ? { ...current, base_url: event.target.value } : current))} />
-            </label>
-            <label className="number-field">
-              <span>API Key</span>
-              <input
-                type="password"
-                value={videoApiKey}
-                disabled={!canManageSettings}
-                placeholder={draftVideoConfig.masked_api_key ?? "未配置"}
-                onChange={(event) => {
-                  setVideoApiKey(event.target.value);
-                  setVideoApiKeyDirty(true);
-                }}
-              />
-            </label>
-            <div className="settings-inline-actions">
-              <Button
-                size="small"
-                disabled={!canManageSettings}
-                onClick={() => {
-                  setVideoApiKey("");
-                  setVideoApiKeyDirty(true);
-                }}
-              >
-                清空密钥
-              </Button>
-              <span>不填写会保留当前密钥。</span>
-            </div>
-            <div className="settings-actions">
-              <Button variant="primary" disabled={!canManageSettings} onClick={() => void saveVideoGenerationConfig()}>
-                <Save size={18} />
-                保存视频 API
-              </Button>
-              <Button disabled={!canManageSettings} onClick={() => void testVideoGenerationConfig()}>
-                <RefreshCw size={18} />
-                检查配置
-              </Button>
-            </div>
-            {videoMessage ? <p className="settings-message">{videoMessage}</p> : null}
-          </section>
-        ) : null}
 
         <section className="config-card">
           <div className="config-card-title">

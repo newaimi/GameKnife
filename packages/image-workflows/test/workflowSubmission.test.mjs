@@ -56,7 +56,6 @@ test("tool workspace submission descriptors stay complete while project export r
     "upscale/UpscaleWorkspace.tsx",
     "asset-board/AssetBoardWorkspace.tsx",
     "sequence/SequenceWorkspace.tsx",
-    "video-generate/VideoGenerateWorkspace.tsx",
     "video-to-sequence/VideoToSequenceWorkspace.tsx",
     "sound-effect/SoundEffectWorkspace.tsx",
   ];
@@ -72,7 +71,6 @@ test("tool workspace submission descriptors stay complete while project export r
     "asset_board_export",
     "image_upscale",
     "sequence_clean",
-    "sequence_generate_video",
     "sequence_video_to_frames",
     "sequence_export_frames",
     "sequence_export_spine",

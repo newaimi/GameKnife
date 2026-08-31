@@ -25,6 +25,7 @@ This repository contains the Community edition and the public reusable code need
 The Community edition must stay no-login:
 
 - No login, registration, logout, user management, account roles, organizations, billing, or audit features.
+- No third-party generation APIs, supplier keys, supplier endpoints, provider catalogs, or paid external model calls. Optional model services must run as local operator-controlled services, such as the standalone Stable Audio SFX service.
 - No Authorization header, login cookie, or localStorage token requirement for Community API calls.
 - The fixed Community request context is `principal.id = "anonymous"`, `workspace.id = "local"`, and `edition = "community"`.
 - Community data is stored in SQLite and local files by default.

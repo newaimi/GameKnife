@@ -24,7 +24,6 @@ export function readJobTitle(job: JobResponse) {
     asset_board_export: "素材板导出",
     asset_quality_check: "自动质量检查",
     sequence_clean: "序列帧清洗",
-    sequence_generate_video: "视频生成",
     sequence_video_to_frames: "视频转序列帧",
     sequence_export_frames: "PNG 序列导出",
     sequence_export_spine: "Spine 导出",
@@ -36,7 +35,7 @@ export function readJobTitle(job: JobResponse) {
 export function readJobInitial(job: JobResponse) {
   if (job.type === "asset_quality_check") return "检";
   if (job.type === "sound_effect_generate") return "声";
-  if (job.type === "sequence_generate_video" || job.type === "sequence_video_to_frames") return "视";
+  if (job.type === "sequence_video_to_frames") return "视";
   if (job.type.includes("sequence")) return "帧";
   if (job.type === "image_upscale") return "放";
   return job.type.includes("asset") ? "板" : "图";

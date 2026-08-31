@@ -12,7 +12,6 @@ from gameknife_jobs import GameKnifeRepository, JobSubmissionResult, TaskSubmiss
 from gameknife_processors import SequenceFrameProcessor
 from gameknife_workflows.asset_persistence import persist_asset_file
 from gameknife_api.birefnet import BiRefNetService
-from gameknife_api.video_generation import VideoGenerationClient
 
 sequence_processor = SequenceFrameProcessor()
 DEFAULT_SEQUENCE_CLEAN_PARAMETERS = {
@@ -302,65 +301,6 @@ def run_sequence_from_video_job(repository: GameKnifeRepository, context: Reques
             _delete_asset_objects_best_effort(context, cleanup_assets)
         except Exception:  # noqa: BLE001
             return
-
-
-def run_sequence_generate_video_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> None:
-    job = repository.get_job_for_workspace(job_id, context.workspace.id)
-    if job is None:
-        return
-    if not _claim_job(repository, context, job.id):
-        return
-    input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
-    if input_asset is None:
-        _mark_failed(repository, context, job_id, "输入素材不存在。")
-        return
-
-    output_assets: list[dict[str, str]] = []
-    try:
-        with TemporaryDirectory(prefix=f"gameknife-{job.id}-") as directory:
-            working_directory = Path(directory)
-            started = datetime.now(UTC)
-            parameters = json.loads(job.parameters_json)
-            input_path = _download_object(
-                context,
-                input_asset.path,
-                working_directory / "inputs" / (Path(input_asset.original_name).name or "input.bin"),
-            )
-            output_path = _output_path(working_directory, f"{Path(input_asset.original_name).stem}_generated.mp4")
-            generated = VideoGenerationClient(repository).generate_video(
-                input_path,
-                output_path,
-                parameters,
-            )
-            result = ProcessResult(
-                output_paths=[generated.output_path],
-                result={
-                    "external_task_id": generated.external_task_id,
-                    "provider": generated.provider,
-                    "remote_video_url": generated.video_url,
-                },
-                duration_ms=round((datetime.now(UTC) - started).total_seconds() * 1000),
-                device="外部API",
-            )
-            output_assets = _register_output_assets(
-                repository,
-                context,
-                job.id,
-                result.output_paths,
-                "sequence_video",
-                "video/mp4",
-            )
-            video_asset = output_assets[0]
-            final_result = {
-                **result.result,
-                "video_asset_id": video_asset["id"],
-                "video_url": video_asset["url"],
-                "output_assets": output_assets,
-            }
-        _mark_success(repository, context, job_id, result, final_result)
-    except Exception as exc:  # noqa: BLE001
-        _cleanup_registered_output_assets(repository, context, job.id, output_assets)
-        _mark_failed(repository, context, job_id, str(exc))
 
 
 def delete_job(repository: GameKnifeRepository, context: RequestContext, job_id: str) -> bool:

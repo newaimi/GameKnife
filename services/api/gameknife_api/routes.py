@@ -72,7 +72,6 @@ from gameknife_api.deps import (
     get_stable_audio_service,
     get_task_submission,
     get_upscale_model_service,
-    get_video_generation_client,
 )
 from gameknife_api.history import JobHistoryConfiguration
 from gameknife_api.job_service import (
@@ -103,14 +102,10 @@ from gameknife_api.schemas import (
     SequenceUpdateRequest,
     SettingsResponse,
     SoundEffectRequest,
-    VideoGenerationConfigRequest,
-    VideoGenerationConfigResponse,
-    VideoSequenceGenerateRequest,
     VideoToSequenceRequest,
 )
 from gameknife_api.stable_audio import StableAudioService
 from gameknife_api.upscale_model import UpscaleModelService
-from gameknife_api.video_generation import VideoGenerationClient
 
 router = APIRouter()
 
@@ -188,7 +183,6 @@ def settings(
     birefnet: BiRefNetService = Depends(get_birefnet_service),
     upscale_models: UpscaleModelService = Depends(get_upscale_model_service),
     stable_audio: StableAudioService = Depends(get_stable_audio_service),
-    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
 ) -> SettingsResponse:
     _require_settings_manage(context, "read_settings")
     birefnet_settings = {
@@ -230,7 +224,6 @@ def settings(
         birefnet=birefnet_settings,
         upscale_models=upscale_settings,
         stable_audio=stable_audio_settings,
-        video_generation=video_generation.read_config(),
     )
 
 
@@ -762,45 +755,6 @@ def create_sequence_clean_task(
             "canvas_width": int(sequence["canvas_width"]),
             "canvas_height": int(sequence["canvas_height"]),
         },
-        submission=submission,
-    )
-    job = submitted.job
-    if not submitted.replayed:
-        dispatcher.dispatch(job.id, job.workspace_id)
-    return _job_response(job, context, repository)
-
-
-@router.post("/sequences/generate-from-image", response_model=JobResponse)
-def create_sequence_generate_video_task(
-    payload: VideoSequenceGenerateRequest,
-    context: RequestContext = Depends(get_request_context),
-    repository: GameKnifeRepository = Depends(get_repository),
-    dispatcher: JobDispatcher = Depends(get_job_dispatcher),
-    submission: TaskSubmission = Depends(get_task_submission),
-    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
-    replayed_submission: JobSubmissionResult | None = Depends(
-        get_job_submission_replay
-    ),
-) -> JobResponse:
-    if replayed_submission is not None:
-        return _job_response(replayed_submission.job, context, repository)
-    if not payload.confirmed_external_api:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先确认调用外部视频生成 API。")
-    input_asset = _ensure_asset_exists(repository, context, payload.input_asset_id)
-    if not input_asset.mime_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是图片。")
-    try:
-        video_generation.ensure_configured()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
-    parameters = payload.model_dump()
-    submitted = create_job(
-        repository,
-        context,
-        job_type="sequence_generate_video",
-        input_asset_id=input_asset.id,
-        parameters=parameters,
         submission=submission,
     )
     job = submitted.job
@@ -1346,7 +1300,6 @@ def _asset_actions(asset: AssetRecord, context: RequestContext) -> list[dict[str
                 {"id": "background_remove", "label": "去背景", "route": "/tools/background-remove"},
                 {"id": "image_upscale", "label": "图片放大", "route": "/tools/upscale"},
                 {"id": "asset_board", "label": "素材板", "route": "/tools/asset-board"},
-                {"id": "sequence_generate_video", "label": "生成视频", "route": "/tools/video-generate"},
                 {"id": "manual_edit", "label": "手动编辑", "route": "/manual-edit"},
             ]
         )
@@ -1431,13 +1384,6 @@ def _require_model_status_read(context: RequestContext, operation: str) -> None:
     context.permissions.require(PROJECT_WORKFLOW_PERMISSION, {"operation": operation})
 
 
-def _require_community_video_settings(context: RequestContext) -> None:
-    # Commercial providers are configured through platform routes that store environment references only. Keeping
-    # the Community editor reachable in Commercial would persist raw API keys in the shared settings table.
-    if context.capabilities.edition != "community":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="接口不存在。")
-
-
 @router.get("/settings/birefnet/install")
 def read_birefnet_install(
     context: RequestContext = Depends(get_request_context),
@@ -1493,42 +1439,6 @@ def start_stable_audio_install(
         return stable_audio.start_install()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-
-
-@router.get("/settings/video-generation", response_model=VideoGenerationConfigResponse)
-def read_video_generation_settings(
-    context: RequestContext = Depends(get_request_context),
-    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
-) -> VideoGenerationConfigResponse:
-    _require_community_video_settings(context)
-    _require_settings_manage(context, "read_video_generation")
-    return VideoGenerationConfigResponse(**video_generation.read_config())
-
-
-@router.patch("/settings/video-generation", response_model=VideoGenerationConfigResponse)
-def update_video_generation_settings(
-    payload: VideoGenerationConfigRequest,
-    context: RequestContext = Depends(get_request_context),
-    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
-) -> VideoGenerationConfigResponse:
-    _require_community_video_settings(context)
-    _require_settings_manage(context, "update_video_generation")
-    data = payload.model_dump()
-    return VideoGenerationConfigResponse(**video_generation.save_config(data, updated_at=_now()))
-
-
-@router.post("/settings/video-generation/test")
-def test_video_generation_settings(
-    payload: VideoGenerationConfigRequest,
-    context: RequestContext = Depends(get_request_context),
-    video_generation: VideoGenerationClient = Depends(get_video_generation_client),
-) -> dict[str, object]:
-    _require_community_video_settings(context)
-    _require_settings_manage(context, "test_video_generation")
-    try:
-        return video_generation.test_config(payload.model_dump())
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 async def _save_sequence_upload(

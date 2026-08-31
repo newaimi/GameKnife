@@ -94,12 +94,6 @@ class JobTypeRegistry(Mapping[str, JobTypeSpec]):
 
 _MIB = 1024 * 1024
 _MAX_RGBA_IMAGE_BYTES = 67_000_000 * 4
-_VIDEO_BYTES_PER_SECOND = {
-    "480P": 2 * _MIB,
-    "720P": 4 * _MIB,
-    "1080P": 8 * _MIB,
-}
-
 
 def _fixed_output_size(max_bytes: int) -> OutputSizeEstimator:
     def estimate(_parameters: Mapping[str, Any]) -> int:
@@ -122,16 +116,6 @@ def _estimate_sequence_clean_output(parameters: Mapping[str, Any]) -> int:
     canvas_width = _read_int(parameters, "canvas_width", minimum=1, maximum=4096)
     canvas_height = _read_int(parameters, "canvas_height", minimum=1, maximum=4096)
     return frame_count * canvas_width * canvas_height * 4
-
-
-def _estimate_generated_video_output(parameters: Mapping[str, Any]) -> int:
-    duration = _read_int(parameters, "duration", default=5, minimum=2, maximum=15)
-    resolution = str(parameters.get("resolution") or "720P").upper()
-    try:
-        bytes_per_second = _VIDEO_BYTES_PER_SECOND[resolution]
-    except KeyError as exc:
-        raise JobParameterValidationError("resolution must be one of 480P, 720P, or 1080P") from exc
-    return duration * bytes_per_second + 16 * _MIB
 
 
 def _estimate_video_frames_output(parameters: Mapping[str, Any]) -> int:
@@ -323,14 +307,6 @@ JOB_TYPE_REGISTRY = JobTypeRegistry(
             queue=JobQueue.CPU,
             delivery_requirement=JobDeliveryRequirement.STATE_CHANGE,
             max_output_bytes_estimator=_estimate_sequence_clean_output,
-        ),
-        JobTypeSpec(
-            job_type="sequence_generate_video",
-            executor="sequence_generate_video",
-            queue=JobQueue.EXTERNAL,
-            delivery_requirement=JobDeliveryRequirement.OUTPUT_ASSET,
-            max_output_bytes_estimator=_estimate_generated_video_output,
-            external_provider=True,
         ),
         JobTypeSpec(
             job_type="sequence_video_to_frames",

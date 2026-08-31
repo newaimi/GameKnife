@@ -17,7 +17,6 @@ const jobCases = [
   ["sequence_export_frames", "/api/sequences/sequence-1/export/frames", (client, options) => client.createSequenceFramesExportJob("sequence-1", {}, options)],
   ["sequence_export_spine", "/api/sequences/sequence-1/export/spine", (client, options) => client.createSequenceSpineExportJob("sequence-1", {}, options)],
   ["sequence_video_to_frames", "/api/sequences/from-video", (client, options) => client.createSequenceFromVideoJob({ video_asset_id: "video-1", fps: 12, max_frames: 24 }, options)],
-  ["sequence_generate_video", "/api/sequences/generate-from-image", (client, options) => client.createVideoGenerationJob({ input_asset_id: "asset-1", action: "walk", prompt: "", duration: 5, resolution: "720P", confirmed_external_api: true }, options)],
   ["project_export_package", "/api/jobs/project-export", (client, options) => client.createProjectExportJob({ asset_ids: ["asset-1"], preset: "unity", package_name: "characters" }, options)],
 ];
 
@@ -59,7 +58,6 @@ test("the submission test matrix covers each public job type exactly once", () =
     "image_upscale",
     "asset_quality_check",
     "sequence_clean",
-    "sequence_generate_video",
     "sequence_video_to_frames",
     "sequence_export_frames",
     "sequence_export_spine",
