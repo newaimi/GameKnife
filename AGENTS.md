@@ -9,6 +9,7 @@ GameKnife Community is a local, no-login toolbox for game art asset processing. 
 - Read the relevant code before changing behavior.
 - Prefer existing modules, services, hooks, components, and utilities over new parallel implementations.
 - Search the repository before adding a new helper, API, component, type, workflow, or processor.
+- Base relevance, routing, classification, and context-handoff decisions on runtime semantic evidence such as explicit structured state, model-produced structured output, embeddings, or explicit user selection. Keyword lists, stop-word lists, regex term extraction, and token-overlap scores are prohibited as semantic proxies; when semantic evidence is unavailable, keep contexts isolated.
 - Keep changes scoped to the requested behavior.
 - Avoid broad refactors unless they are required to complete the request safely.
 - Add comments only where they explain why a boundary, safety check, coordinate conversion, model-loading rule, or cleanup path exists.
