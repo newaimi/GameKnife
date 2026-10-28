@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
@@ -31,6 +31,7 @@ export function SequenceWorkspace() {
   const [sequences, setSequences] = useState<SequenceResponse[]>([]);
   const [sequence, setSequence] = useState<SequenceResponse | null>(null);
   const [params, setParams] = useState<SequenceCleanParameters>(DEFAULT_SEQUENCE_PARAMS);
+  const savedSequence = useRef<SequenceResponse | null>(null);
   const [operationBusy, setOperationBusy] = useState(false);
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
   const canWrite = useWorkflowWritePermission("sequence");
@@ -71,8 +72,25 @@ export function SequenceWorkspace() {
 
   async function selectSequence(sequenceId: string) {
     const nextSequence = await gameKnifeApiClient.getSequence(sequenceId);
+    const previous = savedSequence.current;
+    savedSequence.current = nextSequence;
     setSequence(nextSequence);
-    setParams(readSequenceCleanParameters(nextSequence));
+    const next = readSequenceCleanParameters(nextSequence);
+    // A frame save refreshes the complete sequence. Keep cleaning edits that were
+    // not submitted by that action; selecting another sequence starts a fresh draft.
+    const baseline = previous?.id === nextSequence.id ? readSequenceCleanParameters(previous) : null;
+    setParams((current) => baseline ? {
+      ...next,
+      alpha_threshold: current.alpha_threshold !== baseline.alpha_threshold ? current.alpha_threshold : next.alpha_threshold,
+      alpha_smoothing: current.alpha_smoothing !== baseline.alpha_smoothing ? current.alpha_smoothing : next.alpha_smoothing,
+      trim_padding: current.trim_padding !== baseline.trim_padding ? current.trim_padding : next.trim_padding,
+      canvas_padding: current.canvas_padding !== baseline.canvas_padding ? current.canvas_padding : next.canvas_padding,
+      denoise: current.denoise !== baseline.denoise ? current.denoise : next.denoise,
+      reference_frame_id: current.reference_frame_id !== baseline.reference_frame_id ? current.reference_frame_id : next.reference_frame_id,
+      color_match: current.color_match !== baseline.color_match ? current.color_match : next.color_match,
+      stabilize: current.stabilize !== baseline.stabilize ? current.stabilize : next.stabilize,
+      stabilize_strength: current.stabilize_strength !== baseline.stabilize_strength ? current.stabilize_strength : next.stabilize_strength,
+    } : next);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("sequence", sequenceId);

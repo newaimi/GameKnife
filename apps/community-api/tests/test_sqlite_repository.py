@@ -515,6 +515,64 @@ def test_concurrent_sequence_claim_allows_one_clean_job_and_blocks_user_updates(
     assert failed_job is not None and failed_job.status == "failed"
 
 
+def test_sequence_fps_update_scales_frame_timing_and_preserves_zero_and_disabled_frames(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    asset = _create_asset(repository, "timed-frame")
+    sequence = repository.create_sequence_with_frames(
+        workspace_id="local",
+        created_by="anonymous",
+        name="timed",
+        fps=12,
+        loop=True,
+        clean_parameters={},
+        frames=[
+            {
+                "source_asset_id": asset.id,
+                "original_name": f"frame-{index}.png",
+                "width": 16,
+                "height": 16,
+                "bbox": [0, 0, 16, 16],
+                "duration_ms": duration,
+                "enabled": index != 3,
+            }
+            for index, duration in enumerate([0, 1, 83, 125, 250])
+        ],
+        created_at=_timestamp(),
+    )
+    sequence_id = str(sequence["id"])
+
+    assert repository.update_sequence(sequence_id, "other-workspace", fps=24, updated_at=_timestamp()) is None
+    assert [row["duration_ms"] for row in repository.list_sequence_frames(sequence_id, "local")] == [0, 1, 83, 125, 250]
+
+    updated = repository.update_sequence(sequence_id, "local", fps=24, updated_at=_timestamp())
+    assert updated is not None and updated["fps"] == 24
+    frames = repository.list_sequence_frames(sequence_id, "local")
+    assert [row["duration_ms"] for row in frames] == [0, 1, 42, 63, 125]
+    assert frames[3]["enabled"] == 0
+
+    repository.update_sequence(sequence_id, "local", fps=24, name="renamed", updated_at=_timestamp())
+    repository.update_sequence(sequence_id, "local", loop=False, updated_at=_timestamp())
+    assert [row["duration_ms"] for row in repository.list_sequence_frames(sequence_id, "local")] == [0, 1, 42, 63, 125]
+
+
+def test_sequence_fps_and_frame_timing_roll_back_together(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    asset = _create_asset(repository, "timed-frame")
+    sequence = _create_sequence(repository, asset.id)
+    sequence_id = str(sequence["id"])
+    frames = repository.list_sequence_frames(sequence_id, "local")
+    repository.update_sequence_frames(sequence_id, "local", [{"id": frames[0]["id"], "duration_ms": 125}], updated_at=_timestamp())
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute("CREATE TRIGGER reject_sequence_fps BEFORE UPDATE OF fps ON sequences BEGIN SELECT RAISE(ABORT, 'timing-test'); END")
+
+    with pytest.raises(sqlite3.IntegrityError, match="timing-test"):
+        repository.update_sequence(sequence_id, "local", fps=24, updated_at=_timestamp())
+
+    stored = repository.get_sequence_for_workspace(sequence_id, "local")
+    assert stored is not None and stored["fps"] == 12
+    assert repository.list_sequence_frames(sequence_id, "local")[0]["duration_ms"] == 125
+
+
 def test_sequence_failure_finalizer_releases_claim_after_job_is_already_failed(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     source = _create_asset(repository, "source")

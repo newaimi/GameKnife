@@ -1202,13 +1202,26 @@ class SQLiteGameKnifeRepository:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
-                "SELECT active_job_id FROM sequences WHERE id = ? AND workspace_id = ?",
+                "SELECT active_job_id, fps FROM sequences WHERE id = ? AND workspace_id = ?",
                 (sequence_id, workspace_id),
             ).fetchone()
             if current is None:
                 return None
             if current["active_job_id"] is not None:
                 raise SequenceActiveJobError(sequence_id)
+            if fps is not None and fps != current["fps"]:
+                # Scale stored timings with the FPS change so playback and exports keep
+                # the same relative rhythm. Zero still means the sequence FPS fallback.
+                # Positive half-milliseconds round up, matching the browser preview.
+                connection.execute(
+                    """
+                    UPDATE sequence_frames
+                    SET duration_ms = MAX(1, CAST((duration_ms * ? * 2 + ?) / (? * 2) AS INTEGER)),
+                        updated_at = ?
+                    WHERE sequence_id = ? AND duration_ms > 0
+                    """,
+                    (current["fps"], fps, fps, updated_at, sequence_id),
+                )
             connection.execute(
                 """
                 UPDATE sequences
