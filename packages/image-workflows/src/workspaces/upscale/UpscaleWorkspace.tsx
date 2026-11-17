@@ -50,8 +50,12 @@ export function UpscaleWorkspace() {
     if (params.style !== "pixel" && !(await ensureModelReady("upscale"))) {
       return;
     }
+    const parameters = { ...params };
     await runJob({
-      createJob: () => gameKnifeApiClient.createUpscaleJob(asset.id, params),
+      jobType: "image_upscale",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createUpscaleJob(asset.id, parameters, submission),
       failureTitle: t("common.jobCreationFailed"),
       failureMessage: t("common.backendRejected", { workflow: t("upscale.workflow") }),
       polling: JOB_POLLING_PRESETS.long,

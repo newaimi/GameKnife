@@ -56,6 +56,12 @@
     "downloadZip": "下载 ZIP",
     "original": "UI 原图",
     "cutoutPreview": "UI拆分抠图预览",
+    "componentList": "组件清单",
+    "componentName": "名称",
+    "componentState": "状态",
+    "componentStates": {"normal": "正常", "hover": "悬浮", "pressed": "按下", "disabled": "禁用", "selected": "选中"},
+    "nineSlice": "九宫格",
+    "sliceSides": {"left": "左", "top": "上", "right": "右", "bottom": "下"},
     "component": "组件 #{{id}}",
     "detecting": "正在识别素材...",
     "loading": "正在加载 UI 图片...",
@@ -85,9 +91,8 @@
     "generate": "生成声效"
   },
   "video": {
-    "generationWorkflow": "视频生成",
     "framesWorkflow": "视频转帧",
-    "readFailed": "读取生成视频失败。"
+    "readFailed": "无法读取所选视频。"
   },
   "sequence": {
     "workflow": "序列帧",
@@ -109,13 +114,6 @@
       "death": "死亡"
     },
     "video": {
-      "loadingImage": "正在加载图片...",
-      "callingApi": "正在调用外部视频 API",
-      "editSource": "编辑原图",
-      "generating": "生成中",
-      "generate": "生成视频",
-      "download": "下载",
-      "sendToFrames": "发送到视频转帧",
       "loadingVideo": "正在加载视频...",
       "extracting": "正在抽帧和抠图",
       "framesParameters": "转帧参数",
@@ -125,14 +123,8 @@
       "processing": "处理中",
       "createSequence": "转成序列帧",
       "openSequence": "打开序列帧",
-      "parameters": "视频参数",
       "action": "动作",
-      "duration": "视频时长",
-      "resolution": "分辨率",
-      "prompt": "动作描述",
-      "promptPlaceholder": "留空会使用当前动作的游戏角色动画提示词。",
       "advanced": "高级参数",
-      "negativePrompt": "负向描述",
       "clipParameters": "裁切与抽帧",
       "durationValue": "视频 {{duration}} 秒",
       "reading": "正在读取视频",
@@ -145,19 +137,14 @@
       "outputSize": "输出尺寸",
       "loop": "循环动画",
       "alphaSmoothing": "Alpha 平滑",
-      "stabilize": "稳定脚底基线",
-      "externalApi": "外部 API",
-      "confirmTitle": "确认调用视频生成 API？",
-      "cancel": "取消",
-      "confirmDescription": "这次操作将调用外部视频 API，可能产生费用。确认后才会提交生成任务。",
-      "decline": "暂不调用",
-      "confirm": "确认调用 API"
+      "stabilize": "稳定脚底基线"
     },
     "editor": {
       "title": "序列帧",
       "previousFrame": "上一帧",
       "nextFrame": "下一帧",
       "currentFrame": "当前帧",
+      "previewLoadFailed": "帧预览加载失败。",
       "loadingFrame": "正在加载帧...",
       "differenceMapAlt": "当前帧与参考帧的差异热力图",
       "settings": "序列设置",

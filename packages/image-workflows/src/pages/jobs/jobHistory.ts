@@ -1,3 +1,4 @@
+import { resources } from "@gameknife/i18n";
 import type { JobResponse, OutputAssetRef } from "@gameknife/shared-types";
 import { downloadJobOutputAsset } from "../../utils/assets";
 
@@ -11,17 +12,36 @@ export {
   readJobThumbnailPath,
   readJobTitle,
 } from "../../utils/jobPresentation";
+export type {
+  JobPresentationOverride,
+  JobPresentationResolver,
+} from "../../utils/jobPresentation";
 
 export const JOB_LIST_PAGE_SIZE = 12;
 
-export const JOB_CATEGORY_OPTIONS = [
+export interface JobCategoryOption {
+  value: string;
+  label: string;
+  note: string;
+  translationKey?: keyof typeof resources.en.jobs.categories;
+}
+
+const jobCategoryKeys = [
   { value: "all", translationKey: "all" },
   { value: "background", translationKey: "background" },
   { value: "upscale", translationKey: "upscale" },
   { value: "sound", translationKey: "sound" },
   { value: "asset_board", translationKey: "assetBoard" },
+  { value: "quality", translationKey: "quality" },
   { value: "sequence", translationKey: "sequence" },
-];
+  { value: "export", translationKey: "export" },
+] as const;
+
+// Shared callers can display the labels without a translation context.
+export const JOB_CATEGORY_OPTIONS: JobCategoryOption[] = jobCategoryKeys.map((option) => ({
+  ...option,
+  ...resources["zh-CN"].jobs.categories[option.translationKey],
+}));
 
 export async function downloadJobAsset(job: JobResponse, asset: OutputAssetRef) {
   await downloadJobOutputAsset(job, asset);

@@ -8,16 +8,64 @@ from pydantic import BaseModel, ConfigDict, Field
 class AssetResponse(BaseModel):
     id: str
     filename: str
+    kind: str
     mime_type: str
     size_bytes: int
+    storage_state: str
+    created_by: str
+    created_at: str
+    updated_at: str
     url: str
+
+
+class AssetActionResponse(BaseModel):
+    id: str
+    label: str
+    route: str
+
+
+class AssetRelationResponse(BaseModel):
+    direction: Literal["source", "derived"]
+    relation_type: str
+    job_id: str | None = None
+    asset: AssetResponse
+
+
+class AssetQualityCheckResponse(BaseModel):
+    id: str
+    status: Literal["unchecked", "passed", "warning", "failed"]
+    rules_version: str
+    content_sha256: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
+
+
+class AssetDetailResponse(AssetResponse):
+    relations: list[AssetRelationResponse] = Field(default_factory=list)
+    available_actions: list[AssetActionResponse] = Field(default_factory=list)
+    quality_check: AssetQualityCheckResponse | None = None
+
+
+class AssetPageResponse(BaseModel):
+    items: list[AssetResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class JobInputAssetResponse(BaseModel):
+    role: str
+    position: int
+    asset: AssetResponse
 
 
 class JobResponse(BaseModel):
     id: str
     type: str
     status: Literal["pending", "running", "success", "failed"]
-    input_asset_id: str
+    input_asset_id: str | None
+    input_assets: list[JobInputAssetResponse] = Field(default_factory=list)
     input_filename: str | None = None
     input_mime_type: str | None = None
     input_size_bytes: int | None = None
@@ -26,6 +74,7 @@ class JobResponse(BaseModel):
     device: str | None = None
     duration_ms: int = 0
     error_message: str | None = None
+    error_code: str | None = None
     created_at: str
     updated_at: str
 
@@ -40,6 +89,16 @@ class JobPageResponse(BaseModel):
 class AssetJobRequest(BaseModel):
     input_asset_id: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectExportRequest(BaseModel):
+    asset_ids: list[str] = Field(min_length=1, max_length=100)
+    preset: Literal["generic", "unity", "godot"] = "generic"
+    package_name: str = Field(default="gameknife-export", min_length=1, max_length=120)
+
+
+class AssetQualityCheckRequest(BaseModel):
+    source_quality_check_id: str | None = Field(default=None, max_length=64)
 
 
 class AssetBoardRefineRequest(BaseModel):
@@ -143,29 +202,6 @@ class VideoToSequenceRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class VideoSequenceGenerateRequest(BaseModel):
-    input_asset_id: str
-    action: str = Field(default="walk_down", max_length=64)
-    prompt: str = Field(default="", max_length=1500)
-    negative_prompt: str = Field(default="", max_length=500)
-    duration: int = Field(default=5, ge=2, le=15)
-    resolution: str = Field(default="720P", max_length=32)
-    confirmed_external_api: bool = False
-
-
-class VideoGenerationConfigRequest(BaseModel):
-    provider: Literal["aliyun_dashscope", "seedance"] = "aliyun_dashscope"
-    base_url: str = ""
-    api_key: str | None = None
-
-
-class VideoGenerationConfigResponse(BaseModel):
-    provider: Literal["aliyun_dashscope", "seedance"]
-    base_url: str
-    api_key_configured: bool
-    masked_api_key: str | None = None
-
-
 class PrincipalResponse(BaseModel):
     id: str
     kind: Literal["anonymous", "user"]
@@ -200,4 +236,3 @@ class SettingsResponse(BaseModel):
     birefnet: dict[str, Any]
     upscale_models: dict[str, Any]
     stable_audio: dict[str, Any]
-    video_generation: VideoGenerationConfigResponse

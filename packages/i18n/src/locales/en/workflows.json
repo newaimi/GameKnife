@@ -56,6 +56,12 @@
     "downloadZip": "Download ZIP",
     "original": "Original UI image",
     "cutoutPreview": "UI splitting cutout preview",
+    "componentList": "Components",
+    "componentName": "Name",
+    "componentState": "State",
+    "componentStates": {"normal": "Normal", "hover": "Hover", "pressed": "Pressed", "disabled": "Disabled", "selected": "Selected"},
+    "nineSlice": "Nine-slice",
+    "sliceSides": {"left": "Left", "top": "Top", "right": "Right", "bottom": "Bottom"},
     "component": "Component #{{id}}",
     "detecting": "Detecting assets...",
     "loading": "Loading UI image...",
@@ -85,9 +91,8 @@
     "generate": "Generate sound"
   },
   "video": {
-    "generationWorkflow": "video generation",
     "framesWorkflow": "video to frames",
-    "readFailed": "Could not read the generated video."
+    "readFailed": "Could not read the selected video."
   },
   "sequence": {
     "workflow": "sequence",
@@ -109,13 +114,6 @@
       "death": "Death"
     },
     "video": {
-      "loadingImage": "Loading image...",
-      "callingApi": "Calling external video API",
-      "editSource": "Edit source image",
-      "generating": "Generating",
-      "generate": "Generate video",
-      "download": "Download",
-      "sendToFrames": "Send to video-to-frames",
       "loadingVideo": "Loading video...",
       "extracting": "Extracting frames and removing backgrounds",
       "framesParameters": "Frame extraction parameters",
@@ -125,14 +123,8 @@
       "processing": "Processing",
       "createSequence": "Create sequence",
       "openSequence": "Open sequence",
-      "parameters": "Video parameters",
       "action": "Action",
-      "duration": "Video duration",
-      "resolution": "Resolution",
-      "prompt": "Action description",
-      "promptPlaceholder": "Leave blank to use the game-character prompt for the selected action.",
       "advanced": "Advanced parameters",
-      "negativePrompt": "Negative prompt",
       "clipParameters": "Clip and frame extraction",
       "durationValue": "Video: {{duration}} seconds",
       "reading": "Reading video",
@@ -145,19 +137,14 @@
       "outputSize": "Output size",
       "loop": "Loop animation",
       "alphaSmoothing": "Alpha smoothing",
-      "stabilize": "Stabilize foot baseline",
-      "externalApi": "External API",
-      "confirmTitle": "Call the video generation API?",
-      "cancel": "Cancel",
-      "confirmDescription": "This operation calls an external video API and may incur charges. The job is submitted only after confirmation.",
-      "decline": "Do not call",
-      "confirm": "Call API"
+      "stabilize": "Stabilize foot baseline"
     },
     "editor": {
       "title": "Sequence",
       "previousFrame": "Previous frame",
       "nextFrame": "Next frame",
       "currentFrame": "Current frame",
+      "previewLoadFailed": "Could not load the frame preview.",
       "loadingFrame": "Loading frame...",
       "differenceMapAlt": "Difference heatmap between the current and reference frames",
       "settings": "Sequence settings",

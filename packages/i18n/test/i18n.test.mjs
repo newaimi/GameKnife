@@ -56,6 +56,20 @@ test("switches translations and synchronizes the document language", async () =>
   }
 });
 
+test("localizes job filters added by the workflow foundations in both languages", async () => {
+  const instance = await createGameKnifeI18n({ initialLanguage: "en", detectLanguage: false });
+  const english = instance.getFixedT("en", "jobs");
+  const chinese = instance.getFixedT("zh-CN", "jobs");
+
+  assert.equal(english("categories.quality.label"), "Quality checks");
+  assert.equal(chinese("categories.quality.label"), "质量检查");
+  assert.equal(english("categories.export.label"), "Project exports");
+  assert.equal(chinese("categories.export.label"), "项目导出");
+  assert.equal(english("resultCount", { count: 1 }), "1 job");
+  assert.equal(english("resultCount", { count: 2 }), "2 jobs");
+  assert.equal(chinese("resultCount", { count: 2 }), "共 2 个任务");
+});
+
 test("keeps repository source and developer content in English", () => {
   const repositoryRoot = resolve(process.cwd(), "../..");
   const sourceRoots = [

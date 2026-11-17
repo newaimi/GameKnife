@@ -30,9 +30,55 @@ export interface AppContext {
 export interface AssetResponse {
   id: string;
   filename: string;
+  kind?: string;
   mime_type: string;
   size_bytes: number;
+  storage_state?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
   url: string;
+}
+
+export interface AssetActionResponse {
+  id: string;
+  label: string;
+  route: string;
+}
+
+export interface AssetRelationResponse {
+  direction: "source" | "derived";
+  relation_type: string;
+  job_id?: string | null;
+  asset: AssetResponse;
+}
+
+export interface AssetDetailResponse extends AssetResponse {
+  relations: AssetRelationResponse[];
+  available_actions: AssetActionResponse[];
+  quality_check?: AssetQualityCheckResponse | null;
+}
+
+export interface AssetQualityCheckResponse {
+  id: string;
+  status: "unchecked" | "passed" | "warning" | "failed";
+  rules_version: string;
+  content_sha256: string;
+  parameters: Record<string, unknown>;
+  checks: Array<{
+    code: string;
+    status: "passed" | "warning" | "failed" | "not_checked";
+    message: string;
+    metrics?: Record<string, unknown>;
+  }>;
+  created_at: string;
+}
+
+export interface AssetPageResponse {
+  items: AssetResponse[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface ComponentCandidate {
@@ -40,6 +86,9 @@ export interface ComponentCandidate {
   bbox: [number, number, number, number];
   area: number;
   selected: boolean;
+  name?: string;
+  state?: "normal" | "hover" | "pressed" | "disabled" | "selected";
+  nine_slice?: [number, number, number, number] | null;
   preview_asset_id?: string | null;
   preview_url?: string;
 }
@@ -50,7 +99,12 @@ export interface JobResponse {
   id: string;
   type: string;
   status: JobStatus;
-  input_asset_id: string;
+  input_asset_id?: string | null;
+  input_assets: Array<{
+    role: string;
+    position: number;
+    asset: AssetResponse;
+  }>;
   input_filename?: string | null;
   input_mime_type?: string | null;
   input_size_bytes?: number | null;
@@ -59,6 +113,7 @@ export interface JobResponse {
   device?: string | null;
   duration_ms: number;
   error_message?: string | null;
+  error_code?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -121,23 +176,6 @@ export interface SequenceCleanParameters {
   color_match: boolean;
   stabilize: boolean;
   stabilize_strength: number;
-}
-
-export interface VideoGenerationConfig {
-  provider: "aliyun_dashscope" | "seedance";
-  base_url: string;
-  api_key_configured: boolean;
-  masked_api_key?: string | null;
-}
-
-export type VideoSequenceProvider = "aliyun_dashscope" | "seedance";
-
-export interface VideoSequenceGenerateParameters {
-  action: string;
-  prompt: string;
-  negative_prompt: string;
-  duration: number;
-  resolution: string;
 }
 
 export interface VideoToSequenceParameters {
@@ -247,7 +285,6 @@ export interface RuntimeSettings {
     lazy_load: boolean;
     install_status: StableAudioInstallStatus;
   };
-  video_generation: VideoGenerationConfig;
 }
 
 export interface ModelInstallStatus {

@@ -8,8 +8,7 @@ export interface VideoToSequenceTransfer {
 }
 
 export function saveVideoToSequenceTransfer(transfer: VideoToSequenceTransfer) {
-  // Video generation and video-to-frames are independent tools connected by an explicit transfer object.
-  // Preserve the selected action so frame extraction does not silently return to its default.
+  // Preserve the selected action when passing a source video to frame extraction.
   window.sessionStorage.setItem(VIDEO_TO_SEQUENCE_TRANSFER_KEY, JSON.stringify(transfer));
 }
 

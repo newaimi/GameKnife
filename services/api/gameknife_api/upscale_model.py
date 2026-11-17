@@ -95,18 +95,29 @@ class UpscaleModelService:
             return status
 
     def start_install(self) -> dict[str, Any]:
-        with self._install_lock:
-            if self.__class__._install_status["status"] == "running":
-                return dict(self.__class__._install_status)
-            # Settings is the only download entry point. Job execution reads local weights so submitting a job cannot trigger network access.
-            self.__class__._install_status = {
-                "status": "running",
-                "progress": 1,
-                "message": "Preparing to download upscale model files.",
-                "error": None,
-            }
-        thread = threading.Thread(target=self._install_worker, name="upscale-model-install", daemon=True)
+        if not self._prepare_install():
+            return self.install_status()
+        thread = threading.Thread(target=self._run_install, name="upscale-model-install", daemon=True)
         thread.start()
+        return self.install_status()
+
+    def install(self) -> dict[str, Any]:
+        """Install all upscaling weights synchronously for a durable worker runtime."""
+
+        if not self._prepare_install():
+            return self.install_status()
+        return self._run_install()
+
+    def _run_install(self) -> dict[str, Any]:
+        try:
+            self.model_root.mkdir(parents=True, exist_ok=True)
+            for index, spec in enumerate(UPSCALE_MODEL_SPECS):
+                start = int(index / len(UPSCALE_MODEL_SPECS) * 92) + 3
+                end = int((index + 1) / len(UPSCALE_MODEL_SPECS) * 92) + 3
+                self._download_model(spec, start, end)
+            self._set_install_status("success", 100, "Upscale model files are installed.")
+        except Exception as exc:  # noqa: BLE001
+            self._set_install_status("failed", 100, "Upscale model installation failed.", str(exc))
         return self.install_status()
 
     def is_installed(self) -> bool:
@@ -160,16 +171,18 @@ class UpscaleModelService:
         output.putalpha(alpha_output)
         return output, spec.name, self.device_label, warnings
 
-    def _install_worker(self) -> None:
-        try:
-            self.model_root.mkdir(parents=True, exist_ok=True)
-            for index, spec in enumerate(UPSCALE_MODEL_SPECS):
-                start = int(index / len(UPSCALE_MODEL_SPECS) * 92) + 3
-                end = int((index + 1) / len(UPSCALE_MODEL_SPECS) * 92) + 3
-                self._download_model(spec, start, end)
-            self._set_install_status("success", 100, "Upscale model files are installed.")
-        except Exception as exc:  # noqa: BLE001
-            self._set_install_status("failed", 100, "Upscale model installation failed.", str(exc))
+    def _prepare_install(self) -> bool:
+        with self._install_lock:
+            if self.__class__._install_status["status"] == "running":
+                return False
+            # Only explicit installation requests may download models. Inference reads local weights.
+            self.__class__._install_status = {
+                "status": "running",
+                "progress": 1,
+                "message": "Preparing to download upscale model files.",
+                "error": None,
+            }
+        return True
 
     def _download_model(self, spec: UpscaleModelSpec, start_progress: int, end_progress: int) -> None:
         destination = self.model_path(spec.key)

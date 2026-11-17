@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCw, Save } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useGameKnifePermissions } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { TFunction } from "@gameknife/i18n";
@@ -10,15 +10,9 @@ import type {
   RuntimeSettings,
   StableAudioInstallStatus,
   UpscaleModelInstallStatus,
-  VideoGenerationConfig,
 } from "@gameknife/shared-types";
 import { ModelInstallStatusPanel } from "../../components/ModelInstallStatusPanel";
 import { readMessage } from "../../utils/errors";
-
-const VIDEO_PROVIDER_BASE_URL: Record<VideoGenerationConfig["provider"], string> = {
-  aliyun_dashscope: "https://dashscope.aliyuncs.com",
-  seedance: "https://ark.cn-beijing.volces.com",
-};
 
 function formatAvailable(value: boolean, t: TFunction) {
   return value ? t("values.available") : t("values.unavailable");
@@ -72,17 +66,6 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   );
 }
 
-function buildVideoGenerationPayload(config: VideoGenerationConfig, apiKeyDirty: boolean, apiKey: string) {
-  const payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string } = {
-    provider: config.provider,
-    base_url: config.base_url,
-  };
-  if (apiKeyDirty) {
-    payload.api_key = apiKey;
-  }
-  return payload;
-}
-
 export function CommunitySettingsPage() {
   const { t } = useTranslation("settings");
   const permissions = useGameKnifePermissions();
@@ -90,10 +73,6 @@ export function CommunitySettingsPage() {
   const [installStatus, setInstallStatus] = useState<BiRefNetInstallStatus | null>(null);
   const [upscaleInstallStatus, setUpscaleInstallStatus] = useState<UpscaleModelInstallStatus | null>(null);
   const [stableAudioInstallStatus, setStableAudioInstallStatus] = useState<StableAudioInstallStatus | null>(null);
-  const [draftVideoConfig, setDraftVideoConfig] = useState<VideoGenerationConfig | null>(null);
-  const [videoApiKey, setVideoApiKey] = useState("");
-  const [videoApiKeyDirty, setVideoApiKeyDirty] = useState(false);
-  const [videoMessage, setVideoMessage] = useState("");
   const [error, setError] = useState("");
   const visibleInstallStatus = installStatus ?? settings?.birefnet.install_status ?? null;
   const visibleUpscaleInstallStatus = upscaleInstallStatus ?? settings?.upscale_models.install_status ?? null;
@@ -125,13 +104,6 @@ export function CommunitySettingsPage() {
     });
   }, [t]);
 
-  useEffect(() => {
-    const config = settings?.video_generation ?? null;
-    setDraftVideoConfig(config);
-    setVideoApiKey("");
-    setVideoApiKeyDirty(false);
-  }, [settings?.video_generation]);
-
   async function refreshSettings() {
     try {
       setError("");
@@ -147,32 +119,6 @@ export function CommunitySettingsPage() {
       setStableAudioInstallStatus(nextStableAudioStatus);
     } catch (exc) {
       setError(readMessage(exc));
-    }
-  }
-
-  async function saveVideoGenerationConfig() {
-    if (!draftVideoConfig) return;
-    setVideoMessage(t("video.saving"));
-    try {
-      const saved = await gameKnifeApiClient.updateVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
-      setDraftVideoConfig(saved);
-      setVideoApiKey("");
-      setVideoApiKeyDirty(false);
-      await refreshSettings();
-      setVideoMessage(t("video.saved"));
-    } catch (exc) {
-      setVideoMessage(readMessage(exc));
-    }
-  }
-
-  async function testVideoGenerationConfig() {
-    if (!draftVideoConfig) return;
-    setVideoMessage(t("video.testing"));
-    try {
-      await gameKnifeApiClient.testVideoGenerationSettings(buildVideoGenerationPayload(draftVideoConfig, videoApiKeyDirty, videoApiKey));
-      setVideoMessage(t("video.available"));
-    } catch (exc) {
-      setVideoMessage(readMessage(exc));
     }
   }
 
@@ -243,70 +189,6 @@ export function CommunitySettingsPage() {
           <KeyValue label="GPU" value={gpuSummary} />
           <KeyValue label={t("labels.gpuDetails")} value={gpuDetails} />
         </section>
-
-        {draftVideoConfig ? (
-          <section className="config-card wide">
-            <div className="config-card-title">
-              <h2>{t("video.title")}</h2>
-              <span>{draftVideoConfig.api_key_configured ? t("video.configuredKey") : t("video.unconfiguredKey")}</span>
-            </div>
-            <label className="number-field">
-              <span>{t("labels.provider")}</span>
-              <select
-                value={draftVideoConfig.provider}
-                disabled={!canManageSettings}
-                onChange={(event) => {
-                  const provider = event.target.value as VideoGenerationConfig["provider"];
-                  setDraftVideoConfig((current) => (current ? { ...current, provider, base_url: VIDEO_PROVIDER_BASE_URL[provider] } : current));
-                }}
-              >
-                <option value="aliyun_dashscope">{t("video.aliyun")}</option>
-                <option value="seedance">{t("video.seedance")}</option>
-              </select>
-            </label>
-            <label className="number-field">
-              <span>{t("labels.baseUrl")}</span>
-              <input disabled={!canManageSettings} value={draftVideoConfig.base_url} onChange={(event) => setDraftVideoConfig((current) => (current ? { ...current, base_url: event.target.value } : current))} />
-            </label>
-            <label className="number-field">
-              <span>{t("labels.apiKey")}</span>
-              <input
-                type="password"
-                value={videoApiKey}
-                disabled={!canManageSettings}
-                placeholder={draftVideoConfig.masked_api_key ?? t("values.notConfigured")}
-                onChange={(event) => {
-                  setVideoApiKey(event.target.value);
-                  setVideoApiKeyDirty(true);
-                }}
-              />
-            </label>
-            <div className="settings-inline-actions">
-              <Button
-                size="small"
-                disabled={!canManageSettings}
-                onClick={() => {
-                  setVideoApiKey("");
-                  setVideoApiKeyDirty(true);
-                }}
-              >
-                {t("video.clearKey")}
-              </Button>
-              <span>{t("video.keyHint")}</span>
-            </div>
-            <div className="settings-actions">
-              <Button variant="primary" disabled={!canManageSettings} onClick={() => void saveVideoGenerationConfig()}>
-                <Save size={18} />
-                {t("video.save")}
-              </Button>
-              <Button disabled={!canManageSettings} onClick={() => void testVideoGenerationConfig()}>
-                <RefreshCw size={18} />
-                {t("video.test")}
-              </Button>
-            </div>
-            {videoMessage ? <p className="settings-message">{videoMessage}</p> : null}
-          </section>
-        ) : null}
 
         <section className="config-card">
           <div className="config-card-title">

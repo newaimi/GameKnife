@@ -8,7 +8,6 @@
     "upscale": "图片放大",
     "asset-board": "UI拆分",
     "sequence": "序列帧",
-    "video-generate": "AI生成视频",
     "video-to-sequence": "视频转帧",
     "sound-effect": "声效生成",
     "manual-edit": "手动编辑"

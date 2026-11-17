@@ -6,7 +6,6 @@ const BackgroundRemoveWorkspace = lazy(() => import("../workspaces/background/Ba
 const UpscaleWorkspace = lazy(() => import("../workspaces/upscale/UpscaleWorkspace").then((module) => ({ default: module.UpscaleWorkspace })));
 const AssetBoardWorkspace = lazy(() => import("../workspaces/asset-board/AssetBoardWorkspace").then((module) => ({ default: module.AssetBoardWorkspace })));
 const SequenceWorkspace = lazy(() => import("../workspaces/sequence/SequenceWorkspace").then((module) => ({ default: module.SequenceWorkspace })));
-const VideoGenerateWorkspace = lazy(() => import("../workspaces/video-generate/VideoGenerateWorkspace").then((module) => ({ default: module.VideoGenerateWorkspace })));
 const VideoToSequenceWorkspace = lazy(() => import("../workspaces/video-to-sequence/VideoToSequenceWorkspace").then((module) => ({ default: module.VideoToSequenceWorkspace })));
 const SoundEffectWorkspace = lazy(() => import("../workspaces/sound-effect/SoundEffectWorkspace").then((module) => ({ default: module.SoundEffectWorkspace })));
 const ManualEditWorkspace = lazy(() => import("../workspaces/manual-edit/ManualEditWorkspace").then((module) => ({ default: module.ManualEditWorkspace })));
@@ -16,7 +15,6 @@ const workflowComponentById: Record<string, FeatureRoute["component"]> = {
   upscale: UpscaleWorkspace,
   "asset-board": AssetBoardWorkspace,
   sequence: SequenceWorkspace,
-  "video-generate": VideoGenerateWorkspace,
   "video-to-sequence": VideoToSequenceWorkspace,
   "sound-effect": SoundEffectWorkspace,
   "manual-edit": ManualEditWorkspace,

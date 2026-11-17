@@ -57,12 +57,13 @@ def test_asset_board_region_workflow_rejects_missing_input_asset(tmp_path: Path)
 def test_asset_board_region_workflow_detects_components_without_output_assets(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_region_workflow(
+    submitted, runner = create_asset_board_region_workflow(
         repository,
         context,
         input_asset_id=asset.id,
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -113,13 +114,14 @@ def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> Non
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
     model = FakeAssetBoardCutoutModel()
 
-    job, runner = create_asset_board_cutout_workflow(
+    submitted, runner = create_asset_board_cutout_workflow(
         repository,
         context,
         model,
         input_asset_id=asset.id,
         parameters={},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -131,19 +133,22 @@ def test_asset_board_cutout_workflow_creates_cutout_asset(tmp_path: Path) -> Non
     assert result["cutout_asset_id"] == result["output_assets"][0]["id"]
     assert output_asset is not None
     assert output_asset.kind == "asset_cutout"
-    assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"\x89PNG")
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    assert output_path.read_bytes().startswith(b"\x89PNG")
     assert model.predict_calls == 1
 
 
 def test_asset_board_refine_workflow_refreshes_components(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_refine_workflow(
+    submitted, runner = create_asset_board_refine_workflow(
         repository,
         context,
         cutout_asset_id=asset.id,
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -159,7 +164,7 @@ def test_asset_board_refine_workflow_refreshes_components(tmp_path: Path) -> Non
 def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
 
-    job, runner = create_asset_board_export_workflow(
+    submitted, runner = create_asset_board_export_workflow(
         repository,
         context,
         cutout_asset_id=asset.id,
@@ -167,6 +172,7 @@ def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
         components=[],
         parameters={"min_component_area": 4, "alpha_threshold": 16},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -179,8 +185,92 @@ def test_asset_board_export_workflow_creates_zip_asset(tmp_path: Path) -> None:
     assert output_asset is not None
     assert output_asset.kind == "asset_component"
     assert output_asset.mime_type == "application/zip"
-    with zipfile.ZipFile(context.storage.resolve_asset_path(output_asset.path)) as archive:
-        assert len(archive.namelist()) == 2
+    quality = repository.get_current_asset_quality_check(
+        output_asset.id,
+        context.workspace.id,
+    )
+    assert quality is not None
+    assert quality.status == "passed"
+    assert quality.rules_version == "ui-components-v1"
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
+        assert len(archive.namelist()) == 3
+        assert "component-manifest.json" in archive.namelist()
+
+
+def test_asset_board_export_writes_component_names_states_and_nine_slice(
+    tmp_path: Path,
+) -> None:
+    repository, context, asset = _make_repository_context_and_asset(tmp_path)
+    components = [
+        {
+            "id": 1,
+            "bbox": [2, 2, 6, 6],
+            "area": 36,
+            "selected": True,
+            "name": "primary_button",
+            "state": "pressed",
+            "nine_slice": [1, 1, 1, 1],
+        }
+    ]
+    submitted, runner = create_asset_board_export_workflow(
+        repository,
+        context,
+        cutout_asset_id=asset.id,
+        selected_component_ids=[1],
+        components=components,
+        parameters={
+            "min_component_area": 4,
+            "alpha_threshold": 16,
+            "export_padding": 2,
+            "export_name_stem": "hud",
+        },
+    )
+
+    runner()
+
+    stored = repository.get_job_for_workspace(
+        submitted.job.id,
+        context.workspace.id,
+    )
+    assert stored is not None and stored.status == "success"
+    result = json.loads(stored.result_json)
+    output_asset = repository.get_asset_for_workspace(
+        result["output_assets"][0]["id"],
+        context.workspace.id,
+    )
+    assert output_asset is not None
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    with zipfile.ZipFile(output_path) as archive:
+        assert archive.namelist() == [
+            "hud_primary_button.png",
+            "component-manifest.json",
+        ]
+        manifest = json.loads(archive.read("component-manifest.json"))
+    assert manifest == {
+        "schema_version": 1,
+        "source_size": [32, 16],
+        "export_padding": 2,
+        "components": [
+            {
+                "id": 1,
+                "name": "primary_button",
+                "state": "pressed",
+                "file": "hud_primary_button.png",
+                "width": 10,
+                "height": 10,
+                "source_bbox": [2, 2, 6, 6],
+                "nine_slice": {
+                    "left": 3,
+                    "top": 3,
+                    "right": 3,
+                    "bottom": 3,
+                },
+            }
+        ],
+    }
 
 
 def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext, AssetRecord]:
@@ -189,16 +279,18 @@ def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeR
     init_sqlite_schema(database_path)
     repository = SQLiteGameKnifeRepository(database_path)
     asset_id = "asset-1"
-    asset_path = storage.write_asset(asset_id, "sheet.png", _make_asset_board_png_bytes())
+    source_path = tmp_path / "sheet.png"
+    source_path.write_bytes(_make_asset_board_png_bytes())
+    stored = storage.put_file(asset_id, "sheet.png", source_path)
     asset = AssetRecord(
         id=asset_id,
         workspace_id="local",
         created_by="anonymous",
         kind="image",
         original_name="sheet.png",
-        path=asset_path,
+        path=stored.key,
         mime_type="image/png",
-        size_bytes=storage.resolve_asset_path(asset_path).stat().st_size,
+        size_bytes=stored.size_bytes,
         created_at="2026-01-01T00:00:00+00:00",
         updated_at="2026-01-01T00:00:00+00:00",
     )

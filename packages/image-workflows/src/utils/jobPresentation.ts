@@ -2,6 +2,19 @@ import type { JobResponse } from "@gameknife/shared-types";
 import type { TFunction } from "@gameknife/i18n";
 import { readFirstJobOutputAsset } from "./jobs";
 
+export interface JobPresentationOverride {
+  title?: string;
+  initial?: string;
+  displayName?: string;
+  thumbnailPath?: string;
+  fileMeta?: string;
+  retryRoute?: string | null;
+}
+
+export type JobPresentationResolver = (
+  job: JobResponse,
+) => JobPresentationOverride | null;
+
 export function readJobTitle(job: JobResponse, t: TFunction) {
   const titleMap: Record<string, string> = {
     background_remove: "types.backgroundRemove",
@@ -10,8 +23,8 @@ export function readJobTitle(job: JobResponse, t: TFunction) {
     asset_board_cutout: "types.assetBoardCutout",
     asset_board_region_refine: "types.assetBoardRegionRefine",
     asset_board_export: "types.assetBoardExport",
+    asset_quality_check: "types.assetQualityCheck",
     sequence_clean: "types.sequenceClean",
-    sequence_generate_video: "types.sequenceGenerateVideo",
     sequence_video_to_frames: "types.sequenceVideoToFrames",
     sequence_export_frames: "types.sequenceExportFrames",
     sequence_export_spine: "types.sequenceExportSpine",
@@ -22,8 +35,9 @@ export function readJobTitle(job: JobResponse, t: TFunction) {
 }
 
 export function readJobInitial(job: JobResponse, t: TFunction) {
+  if (job.type === "asset_quality_check") return t("initials.quality");
   if (job.type === "sound_effect_generate") return t("initials.sound");
-  if (job.type === "sequence_generate_video" || job.type === "sequence_video_to_frames") return t("initials.video");
+  if (job.type === "sequence_video_to_frames") return t("initials.video");
   if (job.type.includes("sequence")) return t("initials.frame");
   if (job.type === "image_upscale") return t("initials.upscale");
   return job.type.includes("asset") ? t("initials.board") : t("initials.image");

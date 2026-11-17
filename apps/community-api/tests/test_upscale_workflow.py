@@ -40,13 +40,14 @@ def test_pixel_upscale_workflow_runs_without_installed_model(tmp_path: Path) -> 
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
     model = FakeUpscaleModel(installed=False)
 
-    job, runner = create_upscale_workflow(
+    submitted, runner = create_upscale_workflow(
         repository,
         context,
         model,
         input_asset_id=asset.id,
         parameters={"style": "pixel", "scale": 2},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -80,13 +81,14 @@ def test_ai_upscale_workflow_uses_installed_model(tmp_path: Path) -> None:
     repository, context, asset = _make_repository_context_and_asset(tmp_path)
     model = FakeUpscaleModel()
 
-    job, runner = create_upscale_workflow(
+    submitted, runner = create_upscale_workflow(
         repository,
         context,
         model,
         input_asset_id=asset.id,
         parameters={"style": "general", "scale": 2, "denoise": 1, "tile_size": 128},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -121,16 +123,18 @@ def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeR
     init_sqlite_schema(database_path)
     repository = SQLiteGameKnifeRepository(database_path)
     asset_id = "asset-1"
-    asset_path = storage.write_asset(asset_id, "sprite.png", _make_png_bytes())
+    source_path = tmp_path / "sprite.png"
+    source_path.write_bytes(_make_png_bytes())
+    stored = storage.put_file(asset_id, "sprite.png", source_path)
     asset = AssetRecord(
         id=asset_id,
         workspace_id="local",
         created_by="anonymous",
         kind="image",
         original_name="sprite.png",
-        path=asset_path,
+        path=stored.key,
         mime_type="image/png",
-        size_bytes=storage.resolve_asset_path(asset_path).stat().st_size,
+        size_bytes=stored.size_bytes,
         created_at="2026-01-01T00:00:00+00:00",
         updated_at="2026-01-01T00:00:00+00:00",
     )

@@ -26,9 +26,6 @@
     "service": "Service",
     "queue": "Queue",
     "weightsLicense": "Weights license",
-    "provider": "Provider",
-    "baseUrl": "Base URL",
-    "apiKey": "API key",
     "worker": "Worker"
   },
   "values": {
@@ -51,21 +48,6 @@
     "loadAtStartup": "Load at startup",
     "licenseConfirmation": "Install after accepting the Hugging Face license",
     "standaloneSfxService": "Standalone SFX service"
-  },
-  "video": {
-    "title": "Video generation API",
-    "configuredKey": "API key configured",
-    "unconfiguredKey": "API key not configured",
-    "aliyun": "Alibaba Cloud Model Studio / HappyHorse",
-    "seedance": "Volcengine / Seedance",
-    "clearKey": "Clear API key",
-    "keyHint": "Leave blank to keep the current key.",
-    "save": "Save video API",
-    "test": "Test configuration",
-    "saving": "Saving video API configuration...",
-    "saved": "Video API configuration saved.",
-    "testing": "Testing video API configuration...",
-    "available": "Video API configuration is available."
   },
   "models": {
     "upscale": "Image upscaling models",

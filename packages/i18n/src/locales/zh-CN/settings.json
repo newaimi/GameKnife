@@ -26,9 +26,6 @@
     "service": "服务",
     "queue": "队列",
     "weightsLicense": "权重许可",
-    "provider": "供应商",
-    "baseUrl": "服务地址",
-    "apiKey": "API 密钥",
     "worker": "工作进程"
   },
   "values": {
@@ -51,21 +48,6 @@
     "loadAtStartup": "启动时加载",
     "licenseConfirmation": "确认 Hugging Face 许可后安装",
     "standaloneSfxService": "独立声效服务"
-  },
-  "video": {
-    "title": "视频生成 API",
-    "configuredKey": "已配置密钥",
-    "unconfiguredKey": "未配置密钥",
-    "aliyun": "阿里云百炼 / HappyHorse",
-    "seedance": "火山引擎 / Seedance",
-    "clearKey": "清空密钥",
-    "keyHint": "不填写会保留当前密钥。",
-    "save": "保存视频 API",
-    "test": "检查配置",
-    "saving": "正在保存视频 API 配置...",
-    "saved": "视频 API 配置已保存。",
-    "testing": "正在检查视频 API 配置...",
-    "available": "视频 API 配置可用。"
   },
   "models": {
     "upscale": "图片放大模型",

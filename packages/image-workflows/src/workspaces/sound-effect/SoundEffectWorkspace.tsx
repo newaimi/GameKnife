@@ -44,8 +44,12 @@ export function SoundEffectWorkspace() {
     if (!(await ensureModelReady("stable-audio"))) {
       return;
     }
+    const parameters = { ...params, prompt };
     await runJob({
-      createJob: () => gameKnifeApiClient.createSoundEffectJob({ ...params, prompt }),
+      jobType: "sound_effect_generate",
+      parameters,
+      idempotencyPayload: parameters,
+      createJob: (submission) => gameKnifeApiClient.createSoundEffectJob(parameters, submission),
       failureTitle: t("common.jobCreationFailed"),
       failureMessage: t("common.backendRejected", { workflow: t("sound.workflow") }),
       polling: JOB_POLLING_PRESETS.long,

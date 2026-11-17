@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
@@ -6,7 +6,7 @@ import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, Seque
 import { ToolWorkspaceLayout } from "../../components/ToolWorkspaceLayout";
 import { ImageSequenceUploadAction, WorkbenchActionBar } from "../../components/WorkbenchActionBar";
 import { WorkflowFailureDialog } from "../../components/WorkflowFailureDialog";
-import { useWorkflowJob } from "../../hooks/useWorkflowJob";
+import { useWorkflowJob, type WorkflowJobRunOptions } from "../../hooks/useWorkflowJob";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
 import { downloadOutputAsset } from "../../utils/assets";
 import { readMessage } from "../../utils/errors";
@@ -25,12 +25,15 @@ const DEFAULT_SEQUENCE_PARAMS: SequenceCleanParameters = {
   stabilize_strength: 35,
 };
 
+type SequenceJobSubmission = Pick<WorkflowJobRunOptions<JobResponse>, "jobType" | "parameters" | "idempotencyPayload" | "createJob">;
+
 export function SequenceWorkspace() {
   const { t } = useTranslation("workflows");
   const [searchParams, setSearchParams] = useSearchParams();
   const [sequences, setSequences] = useState<SequenceResponse[]>([]);
   const [sequence, setSequence] = useState<SequenceResponse | null>(null);
   const [params, setParams] = useState<SequenceCleanParameters>(DEFAULT_SEQUENCE_PARAMS);
+  const savedSequence = useRef<SequenceResponse | null>(null);
   const [operationBusy, setOperationBusy] = useState(false);
   const { job, busy: jobBusy, error, setError, failureDialog, setFailureDialog, runJob } = useWorkflowJob();
   const canWrite = useWorkflowWritePermission("sequence");
@@ -71,8 +74,25 @@ export function SequenceWorkspace() {
 
   async function selectSequence(sequenceId: string) {
     const nextSequence = await gameKnifeApiClient.getSequence(sequenceId);
+    const previous = savedSequence.current;
+    savedSequence.current = nextSequence;
     setSequence(nextSequence);
-    setParams(readSequenceCleanParameters(nextSequence));
+    const next = readSequenceCleanParameters(nextSequence);
+    // A frame save refreshes the complete sequence. Keep cleaning edits that were
+    // not submitted by that action; selecting another sequence starts a fresh draft.
+    const baseline = previous?.id === nextSequence.id ? readSequenceCleanParameters(previous) : null;
+    setParams((current) => baseline ? {
+      ...next,
+      alpha_threshold: current.alpha_threshold !== baseline.alpha_threshold ? current.alpha_threshold : next.alpha_threshold,
+      alpha_smoothing: current.alpha_smoothing !== baseline.alpha_smoothing ? current.alpha_smoothing : next.alpha_smoothing,
+      trim_padding: current.trim_padding !== baseline.trim_padding ? current.trim_padding : next.trim_padding,
+      canvas_padding: current.canvas_padding !== baseline.canvas_padding ? current.canvas_padding : next.canvas_padding,
+      denoise: current.denoise !== baseline.denoise ? current.denoise : next.denoise,
+      reference_frame_id: current.reference_frame_id !== baseline.reference_frame_id ? current.reference_frame_id : next.reference_frame_id,
+      color_match: current.color_match !== baseline.color_match ? current.color_match : next.color_match,
+      stabilize: current.stabilize !== baseline.stabilize ? current.stabilize : next.stabilize,
+      stabilize_strength: current.stabilize_strength !== baseline.stabilize_strength ? current.stabilize_strength : next.stabilize_strength,
+    } : next);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("sequence", sequenceId);
@@ -134,12 +154,12 @@ export function SequenceWorkspace() {
     }
   }
 
-  async function runSequenceJob(createJob: () => Promise<JobResponse>, refreshAfter = true) {
+  async function runSequenceJob(submission: SequenceJobSubmission, refreshAfter = true) {
     if (!canWrite) {
       return;
     }
     const finished = await runJob({
-      createJob,
+      ...submission,
       failureTitle: t("common.jobCreationFailed"),
       failureMessage: t("common.backendRejected", { workflow: t("sequence.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,
@@ -154,21 +174,39 @@ export function SequenceWorkspace() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceCleanJob(sequence.id, params));
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_clean",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceCleanJob(sequence.id, params, submission),
+    });
   }
 
   async function exportFrames() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceFramesExportJob(sequence.id, params), false);
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_export_frames",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceFramesExportJob(sequence.id, params, submission),
+    }, false);
   }
 
   async function exportSpine() {
     if (!sequence) {
       return;
     }
-    await runSequenceJob(() => gameKnifeApiClient.createSequenceSpineExportJob(sequence.id, params), false);
+    const parameters = { sequence_id: sequence.id, ...params };
+    await runSequenceJob({
+      jobType: "sequence_export_spine",
+      parameters,
+      idempotencyPayload: { sequence_id: sequence.id, parameters: params },
+      createJob: (submission) => gameKnifeApiClient.createSequenceSpineExportJob(sequence.id, params, submission),
+    }, false);
   }
 
   async function deleteSequence(sequenceId: string) {

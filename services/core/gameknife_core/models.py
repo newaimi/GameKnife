@@ -33,6 +33,24 @@ class AssetRecord:
     size_bytes: int
     created_at: str
     updated_at: str
+    storage_state: str = "ready"
+    storage_etag: str | None = None
+    checksum_sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AssetQualityCheckRecord:
+    """Immutable automatic quality result bound to one exact Asset content hash."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    asset_id: str
+    content_sha256: str
+    rules_version: str
+    status: str
+    checks_json: str
+    created_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +60,7 @@ class JobRecord:
     created_by: str
     job_type: str
     status: str
-    input_asset_id: str
+    input_asset_id: str | None
     parameters_json: str
     result_json: str
     device: str | None
@@ -50,3 +68,69 @@ class JobRecord:
     error_message: str | None
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class JobOutputAssetRecord:
+    """Immutable relationship between a job and one persisted output asset."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    job_id: str
+    asset_id: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class JobInputAssetRecord:
+    """Ordered, role-aware asset input attached to one job."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    job_id: str
+    asset_id: str
+    input_role: str
+    position: int
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssetRelationRecord:
+    """Stable provenance edge from one source asset to a derived asset."""
+
+    id: str
+    workspace_id: str
+    created_by: str
+    source_asset_id: str
+    derived_asset_id: str
+    relation_type: str
+    job_id: str | None
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssetReferenceSummary:
+    """References that must be resolved before an asset can be deleted safely."""
+
+    asset_id: str
+    input_job_ids: tuple[str, ...] = ()
+    output_job_ids: tuple[str, ...] = ()
+    source_sequence_frame_ids: tuple[str, ...] = ()
+    processed_sequence_frame_ids: tuple[str, ...] = ()
+    derived_asset_ids: tuple[str, ...] = ()
+    style_profile_ids: tuple[str, ...] = ()
+
+    @property
+    def is_referenced(self) -> bool:
+        return any(
+            (
+                self.input_job_ids,
+                self.output_job_ids,
+                self.source_sequence_frame_ids,
+                self.processed_sequence_frame_ids,
+                self.derived_asset_ids,
+                self.style_profile_ids,
+            )
+        )

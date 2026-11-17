@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "@gameknife/i18n";
 import { Pause, Play } from "lucide-react";
 import type { SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import type { ManualEditSource } from "../../types/manualEdit";
-import { useObjectUrl } from "../../utils/objectUrl";
+import { gameKnifeApiClient } from "@gameknife/api-client";
 import { EmptyCanvas } from "../../components/ImageComparePreview";
 import { clamp } from "../../utils/math";
 
@@ -42,8 +42,9 @@ export function SequenceEditor({
   const [activeFrameId, setActiveFrameId] = useState("");
   const [draftSequence, setDraftSequence] = useState<SequenceResponse | null>(sequence);
   const [draftFrames, setDraftFrames] = useState<SequenceFrameResponse[]>(sequence?.frames ?? []);
-  const frames = draftFrames.slice().sort((first, second) => first.frame_index - second.frame_index);
-  const enabledFrames = frames.filter((frame) => frame.enabled);
+  const savedSequence = useRef(sequence);
+  const frames = useMemo(() => draftFrames.slice().sort((first, second) => first.frame_index - second.frame_index), [draftFrames]);
+  const enabledFrames = useMemo(() => frames.filter((frame) => frame.enabled), [frames]);
   const navigationFrames = enabledFrames.length ? enabledFrames : frames;
   const canNavigateFrames = navigationFrames.length > 1;
   const activeFrame = frames.find((frame) => frame.id === activeFrameId) ?? enabledFrames[0] ?? frames[0] ?? null;
@@ -51,20 +52,117 @@ export function SequenceEditor({
   const activeIndex = activeFrame ? Math.max(0, enabledFrames.findIndex((frame) => frame.id === activeFrame.id)) : 0;
   const previousFrame = enabledFrames[(activeIndex - 1 + enabledFrames.length) % enabledFrames.length];
   const nextFrame = enabledFrames[(activeIndex + 1) % enabledFrames.length];
-  const activeUrl = useObjectUrl(activeFrame?.preview_url ?? "");
-  const referenceUrl = useObjectUrl(referenceFrame?.preview_url ?? "");
-  const previousUrl = useObjectUrl(previousFrame?.preview_url ?? "");
-  const nextUrl = useObjectUrl(nextFrame?.preview_url ?? "");
+  const loadPreview = useRef<(source: string) => Promise<string>>(() => Promise.resolve(""));
+  const [previews, setPreviews] = useState<{ sequenceId: string; urls: Record<string, string>; loadFailed: boolean }>({ sequenceId: "", urls: {}, loadFailed: false });
+  const previewUrls = previews.sequenceId === sequence?.id ? previews.urls : {};
+  const activeUrl = previewUrls[activeFrame?.preview_url ?? ""] ?? "";
+  const referenceUrl = previewUrls[referenceFrame?.preview_url ?? ""] ?? "";
+  const previousUrl = previewUrls[previousFrame?.preview_url ?? ""] ?? "";
+  const nextUrl = previewUrls[nextFrame?.preview_url ?? ""] ?? "";
+  const [presentedFrame, setPresentedFrame] = useState<{ sequenceId: string; frame: SequenceFrameResponse; url: string } | null>(null);
+  const visibleFrame = activeUrl && activeFrame ? { frame: activeFrame, url: activeUrl } : presentedFrame?.sequenceId === sequence?.id ? presentedFrame : null;
+  const previewSources = useMemo(() => JSON.stringify([...new Set((draftSequence?.id === sequence?.id ? frames : []).map((frame) => frame.preview_url))].sort()), [frames, draftSequence?.id, sequence?.id]);
   const differenceMap = useFrameDifferenceMap(referenceUrl, activeUrl, showDifferenceMap && Boolean(referenceFrame && activeFrame && referenceFrame.id !== activeFrame.id));
   const diagnostics = readSequenceDiagnostics(frames, referenceFrame, activeFrame, differenceMap, t);
 
   useEffect(() => {
-    setDraftSequence(sequence);
-    setDraftFrames(sequence?.frames ?? []);
+    const sequenceId = sequence?.id ?? "";
+    const requests = new Map<string, Promise<string>>();
+    const objectUrls = new Set<string>();
+    const failedSources = new Set<string>();
+    let alive = true;
+    setPreviews({ sequenceId, urls: {}, loadFailed: false });
+    // The timeline already displays every frame. Share its downloads and decoded images
+    // with playback, references and onion skins until the sequence or its source files change.
+    const load = (source: string): Promise<string> => {
+      const current = requests.get(source);
+      if (current) return current;
+      let objectUrl = "";
+      const request = gameKnifeApiClient.requestBlob(source).then(async (blob) => {
+        if (!alive) return "";
+        const url = URL.createObjectURL(blob);
+        objectUrl = url;
+        objectUrls.add(url);
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        if (!alive) return "";
+        failedSources.delete(source);
+        setPreviews((current) => ({ ...current, urls: { ...current.urls, [source]: url }, loadFailed: failedSources.size > 0 }));
+        return url;
+      }).catch(() => {
+        // A later play action may retry this frame without discarding successful previews.
+        requests.delete(source);
+        if (objectUrls.delete(objectUrl)) URL.revokeObjectURL(objectUrl);
+        if (alive) {
+          failedSources.add(source);
+          setPreviews((current) => ({ ...current, loadFailed: true }));
+        }
+        return "";
+      });
+      requests.set(source, request);
+      return request;
+    };
+    loadPreview.current = load;
+    for (const source of JSON.parse(previewSources) as string[]) void load(source);
+    return () => {
+      alive = false;
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+    };
+  }, [sequence?.id, previewSources]);
+
+  useEffect(() => {
+    if (sequence && activeFrame && activeUrl) setPresentedFrame({ sequenceId: sequence.id, frame: activeFrame, url: activeUrl });
+  }, [sequence?.id, activeFrame, activeUrl]);
+
+  useEffect(() => setPlaying(false), [sequence?.id]);
+
+  useEffect(() => {
+    const previous = savedSequence.current;
+    savedSequence.current = sequence;
+    if (!sequence || sequence.id !== previous?.id) {
+      setDraftSequence(sequence);
+      setDraftFrames(sequence?.frames ?? []);
+    } else {
+      // Saving settings and saving frames return the whole sequence. Accept persisted
+      // fields while keeping edits to the other operation against their previous baseline.
+      setDraftSequence((current) => current ? {
+        ...sequence,
+        name: current.name.trim() !== previous.name && current.name.trim() !== sequence.name ? current.name : sequence.name,
+        fps: current.fps !== previous.fps ? current.fps : sequence.fps,
+        loop: current.loop !== previous.loop ? current.loop : sequence.loop,
+        canvas_width: current.canvas_width !== previous.canvas_width ? current.canvas_width : sequence.canvas_width,
+        canvas_height: current.canvas_height !== previous.canvas_height ? current.canvas_height : sequence.canvas_height,
+        anchor_mode: current.anchor_mode !== previous.anchor_mode ? current.anchor_mode : sequence.anchor_mode,
+        anchor_x: current.anchor_x !== previous.anchor_x ? current.anchor_x : sequence.anchor_x,
+        anchor_y: current.anchor_y !== previous.anchor_y ? current.anchor_y : sequence.anchor_y,
+      } : sequence);
+      setDraftFrames((current) => {
+        const drafts = new Map(current.map((frame) => [frame.id, frame]));
+        const saved = new Map(previous.frames.map((frame) => [frame.id, frame]));
+        return sequence.frames.map((frame) => {
+          const draft = drafts.get(frame.id);
+          const baseline = saved.get(frame.id);
+          if (!draft || !baseline) return frame;
+          return {
+            ...frame,
+            frame_index: draft.frame_index !== baseline.frame_index ? draft.frame_index : frame.frame_index,
+            offset_x: draft.offset_x !== baseline.offset_x ? draft.offset_x : frame.offset_x,
+            offset_y: draft.offset_y !== baseline.offset_y ? draft.offset_y : frame.offset_y,
+            enabled: draft.enabled !== baseline.enabled ? draft.enabled : frame.enabled,
+          };
+        });
+      });
+    }
     setActiveFrameId((current) => {
       if (sequence?.frames.some((frame) => frame.id === current)) return current;
       return sequence?.frames.find((frame) => frame.enabled)?.id ?? sequence?.frames[0]?.id ?? "";
     });
+  }, [sequence?.id, sequence?.updated_at]);
+
+  useEffect(() => {
+    // Reference selection belongs to cleaning parameters and must not reset unrelated drafts.
     setReferenceFrameId((current) => {
       const savedReference = typeof params.reference_frame_id === "string" ? params.reference_frame_id : "";
       if (savedReference && sequence?.frames.some((frame) => frame.id === savedReference)) return savedReference;
@@ -74,17 +172,48 @@ export function SequenceEditor({
   }, [sequence?.id, sequence?.updated_at, params.reference_frame_id]);
 
   useEffect(() => {
-    if (!playing || enabledFrames.length <= 1) return;
-    const fps = Math.max(1, draftSequence?.fps ?? 12);
-    const timer = window.setInterval(() => {
-      setActiveFrameId((current) => {
-        const currentIndex = enabledFrames.findIndex((frame) => frame.id === current);
+    if (!playing) return;
+    if (!enabledFrames.length) {
+      setPlaying(false);
+      return;
+    }
+    const currentIndex = enabledFrames.findIndex((frame) => frame.id === activeFrameId);
+    if (currentIndex < 0) {
+      setActiveFrameId(enabledFrames[0].id);
+      return;
+    }
+    const current = enabledFrames[currentIndex];
+    let alive = true;
+    let timer: number | undefined;
+    void loadPreview.current(current.preview_url).then((url) => {
+      if (!alive) return;
+      if (!url) {
+        setPlaying(false);
+        return;
+      }
+      const fps = draftSequence?.fps ?? 12;
+      // FPS edits scale positive frame timings without overwriting a custom rhythm.
+      // The repository applies the same ratio when settings are saved; zero keeps the FPS fallback.
+      const duration = current.duration_ms > 0 ? Math.max(1, Math.round(current.duration_ms * (sequence?.fps ?? fps) / fps)) : 1000 / fps;
+      timer = window.setTimeout(() => {
+        if (currentIndex === enabledFrames.length - 1 && !draftSequence?.loop) {
+          setPlaying(false);
+          return;
+        }
         const next = enabledFrames[(currentIndex + 1) % enabledFrames.length];
-        return next?.id ?? current;
-      });
-    }, 1000 / fps);
-    return () => window.clearInterval(timer);
-  }, [playing, enabledFrames, draftSequence?.fps]);
+        // Keep the current image visible while a cold next frame is downloading or decoding.
+        void loadPreview.current(next.preview_url).then((nextUrl) => {
+          if (!alive) return;
+          if (nextUrl) setActiveFrameId(next.id);
+          else setPlaying(false);
+        });
+      }, duration);
+    });
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [playing, enabledFrames, activeFrameId, draftSequence?.fps, draftSequence?.loop, sequence?.fps, previewSources]);
 
   const updateFrame = (frameId: string, patch: Partial<SequenceFrameResponse>) => {
     setDraftFrames((current) => current.map((frame) => (frame.id === frameId ? { ...frame, ...patch } : frame)));
@@ -136,6 +265,8 @@ export function SequenceEditor({
       <section className="preview-stage sequence-stage">
         <WorkbenchPreview
           key={`sequence-${sequence.id}`}
+          // The sequence canvas has fixed bounds; centering a full-size wrapper leaves it under the tool panel.
+          contentMode="intrinsic"
           toolbarControls={
             <>
               <button className="frame-nav" type="button" disabled={!canNavigateFrames} onClick={() => selectNeighborFrame(-1)}>
@@ -149,7 +280,7 @@ export function SequenceEditor({
         >
           <div className="sequence-canvas">
             {showOnionSkin && previousUrl ? <img className="onion-frame previous" src={previousUrl} alt="" aria-hidden="true" /> : null}
-            {activeUrl ? <img className="active-frame" src={activeUrl} alt={activeFrame?.original_name ?? t("sequence.editor.currentFrame")} /> : <span>{t("sequence.editor.loadingFrame")}</span>}
+            {visibleFrame ? <img className="active-frame" src={visibleFrame.url} alt={visibleFrame.frame.original_name ?? t("sequence.editor.currentFrame")} /> : <span>{t("sequence.editor.loadingFrame")}</span>}
             {showOnionSkin && nextUrl ? <img className="onion-frame next" src={nextUrl} alt="" aria-hidden="true" /> : null}
             {showDifferenceMap && differenceMap.url ? <img className="difference-map" src={differenceMap.url} alt={t("sequence.editor.differenceMapAlt")} /> : null}
             <div className="anchor-line horizontal" />
@@ -161,7 +292,10 @@ export function SequenceEditor({
       <aside className="settings-panel sequence-settings">
         <h2>{t("sequence.editor.settings")}</h2>
         <div className="sequence-toggle-group" aria-label={t("sequence.editor.previewControls")}>
-          <button className="ghost compact" type="button" onClick={() => setPlaying((current) => !current)}>
+          <button className="ghost compact" type="button" disabled={!enabledFrames.length} onClick={() => {
+            if (!playing && (!activeFrame?.enabled || (!draftSequence.loop && activeIndex === enabledFrames.length - 1))) setActiveFrameId(enabledFrames[0].id);
+            setPlaying((current) => !current);
+          }}>
             {playing ? <Pause size={16} /> : <Play size={16} />}
             {playing ? t("sequence.editor.pause") : t("sequence.editor.play")}
           </button>
@@ -287,9 +421,9 @@ export function SequenceEditor({
               key={frame.id}
               className={`frame-thumb ${frame.id === activeFrame?.id ? "active" : ""} ${frame.id === referenceFrame?.id ? "reference" : ""} ${frame.enabled ? "" : "disabled"}`}
               type="button"
-              onClick={() => setActiveFrameId(frame.id)}
+              onClick={() => { setPlaying(false); setActiveFrameId(frame.id); }}
             >
-              <SequenceFrameThumb frame={frame} />
+              {previewUrls[frame.preview_url] ? <img src={previewUrls[frame.preview_url]} alt={frame.original_name} /> : <em />}
               <span>{frame.frame_index + 1}</span>
             </button>
           ))}
@@ -321,16 +455,11 @@ export function SequenceEditor({
           </div>
         ) : null}
         {error ? <p className="error-text">{error}</p> : null}
+        {previews.sequenceId === sequence.id && previews.loadFailed ? <p className="error-text">{t("sequence.editor.previewLoadFailed")}</p> : null}
       </aside>
     </>
   );
 }
-
-function SequenceFrameThumb({ frame }: { frame: SequenceFrameResponse }) {
-  const url = useObjectUrl(frame.preview_url);
-  return url ? <img src={url} alt={frame.original_name} /> : <em />;
-}
-
 
 type FrameDifferenceMap = {
   url: string;

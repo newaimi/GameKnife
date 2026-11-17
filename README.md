@@ -12,12 +12,11 @@ Community Web, Community API, shared tool pages, the editor core, processors, an
 | UI Splitting | Detect regions, extract local cutouts, refine bounds, and export assets as ZIP. |
 | Image upscaling | Use nearest-neighbor scaling for pixel art or Real-ESRGAN for AI super-resolution. |
 | Sequences | Import, clean, compare, and export PNG or Spine packages. |
-| AI video generation | Call an external video API after explicit user confirmation. |
 | Video-to-sequence | Extract local video frames, remove backgrounds, and create sequence projects. |
 | Manual editing | Edit with Canvas2D selections, brushes, erasers, eyedropper, restore, save, and export tools. |
 | Sound effects | Generate WAV effects through the standalone Stable Audio SFX service. |
 | Job history | Inspect status, download results, and delete jobs with their output assets. |
-| Settings and help | Inspect model installation, system settings, video API configuration, and usage guidance. |
+| Settings and help | Inspect local model installation, system settings, and usage guidance. |
 
 ## Repository Layout
 

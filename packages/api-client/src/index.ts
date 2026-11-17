@@ -1,6 +1,8 @@
 import type {
   AppContext,
   AssetResponse,
+  AssetDetailResponse,
+  AssetPageResponse,
   BiRefNetInstallStatus,
   JobPageResponse,
   JobResponse,
@@ -8,11 +10,27 @@ import type {
   SequenceResponse,
   StableAudioInstallStatus,
   UpscaleModelInstallStatus,
-  VideoGenerationConfig,
 } from "@gameknife/shared-types";
 
 export interface GameKnifeApiClientOptions {
   baseUrl?: string;
+}
+
+export interface TaskSubmissionOptions {
+  idempotencyKey?: string;
+  quoteId?: string;
+}
+
+export class ApiClientError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.code = code;
+  }
 }
 
 type ViteImportMeta = ImportMeta & {
@@ -54,6 +72,28 @@ export class GameKnifeApiClient {
     });
   }
 
+  async listAssets(
+    params: { page?: number; pageSize?: number; category?: "all" | "image" | "video" | "audio" | "model" | "export"; search?: string } = {},
+  ): Promise<AssetPageResponse> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      page_size: String(params.pageSize ?? 24),
+      category: params.category ?? "all",
+    });
+    if (params.search?.trim()) {
+      search.set("search", params.search.trim());
+    }
+    return this.requestJson<AssetPageResponse>(`/api/assets?${search.toString()}`);
+  }
+
+  async getAssetMetadata(assetId: string): Promise<AssetDetailResponse> {
+    return this.requestJson<AssetDetailResponse>(`/api/assets/${assetId}/metadata`);
+  }
+
+  async deleteAsset(assetId: string): Promise<void> {
+    await this.requestVoid(`/api/assets/${assetId}`, { method: "DELETE" });
+  }
+
   async saveManualEditAsset(file: File, name?: string, sourceAssetId?: string, sourceContext?: string): Promise<AssetResponse> {
     const form = new FormData();
     form.append("file", file);
@@ -81,7 +121,16 @@ export class GameKnifeApiClient {
   }
 
   async listJobHistory(
-    params: { page?: number; pageSize?: number; category?: string; createdFrom?: string; createdTo?: string; downloadable?: boolean } = {},
+    params: {
+      page?: number;
+      pageSize?: number;
+      category?: string;
+      createdFrom?: string;
+      createdTo?: string;
+      downloadable?: boolean;
+      deliveryOnly?: boolean;
+      status?: "pending" | "running" | "success" | "failed";
+    } = {},
   ): Promise<JobPageResponse> {
     const search = new URLSearchParams();
     search.set("page", String(params.page ?? 1));
@@ -96,6 +145,12 @@ export class GameKnifeApiClient {
     if (params.downloadable) {
       search.set("downloadable", "true");
     }
+    if (params.deliveryOnly) {
+      search.set("delivery_only", "true");
+    }
+    if (params.status) {
+      search.set("status", params.status);
+    }
     return this.requestJson<JobPageResponse>(`/api/jobs/history?${search.toString()}`);
   }
 
@@ -103,12 +158,12 @@ export class GameKnifeApiClient {
     await this.requestVoid(`/api/jobs/${jobId}`, { method: "DELETE" });
   }
 
-  async createUpscaleJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
-    return this.createAssetJob("/api/jobs/upscale", inputAssetId, parameters);
+  async createUpscaleJob(inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/upscale", inputAssetId, parameters, submission);
   }
 
-  async createBackgroundRemoveJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
-    return this.createAssetJob("/api/jobs/background-remove", inputAssetId, parameters);
+  async createBackgroundRemoveJob(inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/background-remove", inputAssetId, parameters, submission);
   }
 
   async createSoundEffectJob(payload: {
@@ -117,26 +172,52 @@ export class GameKnifeApiClient {
     seed?: number | null;
     steps: number;
     cfg_scale: number;
-  }): Promise<JobResponse> {
+  }, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/sound-effect", {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify(payload),
     });
   }
 
-  async createAssetBoardRegionJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
-    return this.createAssetJob("/api/jobs/asset-board/regions", inputAssetId, parameters);
+  async createProjectExportJob(
+    payload: { asset_ids: string[]; preset: "generic" | "unity" | "godot"; package_name: string },
+    submission?: TaskSubmissionOptions,
+  ): Promise<JobResponse> {
+    return this.requestJson<JobResponse>("/api/jobs/project-export", {
+      method: "POST",
+      headers: jobJsonHeaders(submission),
+      body: JSON.stringify(payload),
+    });
   }
 
-  async createAssetBoardCutoutJob(inputAssetId: string, parameters: object): Promise<JobResponse> {
-    return this.createAssetJob("/api/jobs/asset-board/cutout", inputAssetId, parameters);
+  async createAssetQualityCheckJob(
+    assetId: string,
+    payload: { source_quality_check_id?: string | null },
+    submission?: TaskSubmissionOptions,
+  ): Promise<JobResponse> {
+    return this.requestJson<JobResponse>(
+      `/api/assets/${encodeURIComponent(assetId)}/quality-check`,
+      {
+        method: "POST",
+        headers: jobJsonHeaders(submission),
+        body: JSON.stringify(payload),
+      },
+    );
   }
 
-  async createAssetBoardRefineJob(cutoutAssetId: string, parameters: object): Promise<JobResponse> {
+  async createAssetBoardRegionJob(inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/asset-board/regions", inputAssetId, parameters, submission);
+  }
+
+  async createAssetBoardCutoutJob(inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
+    return this.createAssetJob("/api/jobs/asset-board/cutout", inputAssetId, parameters, submission);
+  }
+
+  async createAssetBoardRefineJob(cutoutAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/asset-board/refine", {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({ cutout_asset_id: cutoutAssetId, parameters }),
     });
   }
@@ -146,10 +227,10 @@ export class GameKnifeApiClient {
     selectedComponentIds?: number[];
     components?: object[];
     parameters?: object;
-  }): Promise<JobResponse> {
+  }, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/jobs/asset-board/export", {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({
         cutout_asset_id: payload.cutoutAssetId,
         selected_component_ids: payload.selectedComponentIds ?? [],
@@ -196,26 +277,26 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createSequenceCleanJob(sequenceId: string, parameters: object): Promise<JobResponse> {
+  async createSequenceCleanJob(sequenceId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/clean`, {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({ parameters }),
     });
   }
 
-  async createSequenceFramesExportJob(sequenceId: string, parameters: object): Promise<JobResponse> {
+  async createSequenceFramesExportJob(sequenceId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/export/frames`, {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({ parameters }),
     });
   }
 
-  async createSequenceSpineExportJob(sequenceId: string, parameters: object): Promise<JobResponse> {
+  async createSequenceSpineExportJob(sequenceId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>(`/api/sequences/${sequenceId}/export/spine`, {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({ parameters }),
     });
   }
@@ -229,10 +310,10 @@ export class GameKnifeApiClient {
     duration_seconds?: number | null;
     remove_background?: boolean;
     parameters?: object;
-  }): Promise<JobResponse> {
+  }, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>("/api/sequences/from-video", {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({
         video_asset_id: payload.video_asset_id,
         name: payload.name,
@@ -246,28 +327,8 @@ export class GameKnifeApiClient {
     });
   }
 
-  async createVideoGenerationJob(payload: {
-    input_asset_id: string;
-    action: string;
-    prompt: string;
-    negative_prompt?: string;
-    duration: number;
-    resolution: string;
-    confirmed_external_api: boolean;
-  }): Promise<JobResponse> {
-    return this.requestJson<JobResponse>("/api/sequences/generate-from-image", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
-    });
-  }
-
   async deleteSequence(sequenceId: string): Promise<void> {
     await this.requestVoid(`/api/sequences/${sequenceId}`, { method: "DELETE" });
-  }
-
-  async getVideoGenerationSettings(): Promise<VideoGenerationConfig> {
-    return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation");
   }
 
   async getBiRefNetInstallStatus(): Promise<BiRefNetInstallStatus> {
@@ -300,26 +361,10 @@ export class GameKnifeApiClient {
     });
   }
 
-  async updateVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<VideoGenerationConfig> {
-    return this.requestJson<VideoGenerationConfig>("/api/settings/video-generation", {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async testVideoGenerationSettings(payload: { provider: VideoGenerationConfig["provider"]; base_url: string; api_key?: string }): Promise<Record<string, unknown>> {
-    return this.requestJson<Record<string, unknown>>("/api/settings/video-generation/test", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(payload),
-    });
-  }
-
   async requestBlob(url: string): Promise<Blob> {
     const response = await fetch(this.resolveUrl(url));
     if (!response.ok) {
-      throw new Error(await readErrorMessage(response));
+      throw await readApiClientError(response);
     }
     return response.blob();
   }
@@ -327,7 +372,7 @@ export class GameKnifeApiClient {
   private async requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(this.resolveUrl(path), init);
     if (!response.ok) {
-      throw new Error(await readErrorMessage(response));
+      throw await readApiClientError(response);
     }
     return response.json() as Promise<T>;
   }
@@ -335,14 +380,14 @@ export class GameKnifeApiClient {
   private async requestVoid(path: string, init?: RequestInit): Promise<void> {
     const response = await fetch(this.resolveUrl(path), init);
     if (!response.ok) {
-      throw new Error(await readErrorMessage(response));
+      throw await readApiClientError(response);
     }
   }
 
-  private async createAssetJob(path: string, inputAssetId: string, parameters: object): Promise<JobResponse> {
+  private async createAssetJob(path: string, inputAssetId: string, parameters: object, submission?: TaskSubmissionOptions): Promise<JobResponse> {
     return this.requestJson<JobResponse>(path, {
       method: "POST",
-      headers: jsonHeaders(),
+      headers: jobJsonHeaders(submission),
       body: JSON.stringify({ input_asset_id: inputAssetId, parameters }),
     });
   }
@@ -365,13 +410,32 @@ function jsonHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+function jobJsonHeaders(submission?: TaskSubmissionOptions): HeadersInit {
+  const headers = new Headers(jsonHeaders());
+  if (submission?.idempotencyKey) {
+    headers.set("Idempotency-Key", submission.idempotencyKey);
+  }
+  if (submission?.quoteId) {
+    headers.set("X-GameKnife-Quote-Id", submission.quoteId);
+  }
+  return headers;
+}
+
+async function readApiClientError(response: Response): Promise<ApiClientError> {
   const fallback = `Request failed with status ${response.status}`;
   try {
-    const data = (await response.json()) as { detail?: string };
-    return data.detail || fallback;
+    const data = (await response.json()) as { detail?: string | { code?: unknown; message?: unknown } };
+    if (typeof data.detail === "string") {
+      return new ApiClientError(data.detail, response.status);
+    }
+    if (data.detail && typeof data.detail === "object") {
+      const code = typeof data.detail.code === "string" ? data.detail.code : undefined;
+      const message = typeof data.detail.message === "string" ? data.detail.message : fallback;
+      return new ApiClientError(message, response.status, code);
+    }
+    return new ApiClientError(fallback, response.status);
   } catch {
-    return fallback;
+    return new ApiClientError(fallback, response.status);
   }
 }
 

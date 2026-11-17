@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import wave
+import zipfile
 from io import BytesIO
 from pathlib import Path
-import zipfile
+from tempfile import TemporaryDirectory as RealTemporaryDirectory
+from threading import get_ident
+from types import SimpleNamespace
 
 import cv2
+import gameknife_api.job_service as job_service
+import gameknife_api.routes as api_routes
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
-from PIL import Image
-
-import gameknife_api.routes as api_routes
 from community_api.main import create_app
+from fastapi.testclient import TestClient
 from gameknife_api.deps import CommunitySettings
-from gameknife_api.video_generation import VideoGenerationClient, VideoGenerationResult
-from gameknife_core import AssetRecord, JobRecord
+from gameknife_core import AssetRecord, JobOutputAssetRecord, JobRecord
+from PIL import Image
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -46,6 +49,18 @@ def make_png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def write_test_wav(path: Path, *, duration_seconds: float) -> None:
+    frame_count = round(44_100 * duration_seconds)
+    timeline = np.arange(frame_count, dtype=np.float64) / 44_100
+    mono = np.rint(np.sin(2 * np.pi * 440 * timeline) * 12_000).astype("<i2")
+    stereo = np.column_stack((mono, mono)).astype("<i2")
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(2)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(44_100)
+        wav_file.writeframes(stereo.tobytes())
 
 
 def make_transparent_png_bytes() -> bytes:
@@ -110,7 +125,10 @@ class FakeStableAudioService:
 
     def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, object]) -> dict[str, object]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
+        write_test_wav(
+            output_path,
+            duration_seconds=float(parameters.get("duration_seconds", 1)),
+        )
         return {
             "model": "fake-stable-audio",
             "device": "cpu",
@@ -118,6 +136,19 @@ class FakeStableAudioService:
             "queue_wait_ms": 0,
             "duration_ms": 5,
         }
+
+
+class PresignedDownloadStorage:
+    def __init__(self, download_url: str) -> None:
+        self.download_url = download_url
+        self.request: tuple[str, str, str, int] | None = None
+
+    def local_path(self, key: str) -> None:
+        return None
+
+    def create_download_url(self, key: str, filename: str, mime_type: str, expires_seconds: int) -> str:
+        self.request = (key, filename, mime_type, expires_seconds)
+        return self.download_url
 
 
 class FakeBiRefNetService:
@@ -263,6 +294,104 @@ def test_image_upload_creates_local_anonymous_asset(tmp_path: Path) -> None:
     assert "user_id" not in columns
 
 
+def test_asset_upload_rejects_body_above_the_streaming_limit(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(api_routes, "MAX_ASSET_UPLOAD_BYTES", 4)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/api/assets/images",
+            files={"file": ("oversized.png", b"12345", "image/png")},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "The uploaded file cannot exceed 50 MB."
+
+
+@pytest.mark.parametrize(
+    ("route", "field_name", "filename", "content_type", "form_data"),
+    [
+        ("/api/assets/images", "file", "sprite.png", "image/png", {}),
+        ("/api/assets/videos", "file", "clip.mp4", "video/mp4", {}),
+        ("/api/manual-edits/save", "file", "edited.png", "image/png", {}),
+        ("/api/sequences/import", "files", "idle-01.png", "image/png", {"fps": "12"}),
+    ],
+)
+def test_async_upload_routes_run_the_complete_asset_persistence_chain_in_one_worker_thread(
+    tmp_path: Path,
+    monkeypatch,
+    route: str,
+    field_name: str,
+    filename: str,
+    content_type: str,
+    form_data: dict[str, str],
+) -> None:
+    event_loop_threads: list[int] = []
+    persistence_threads: dict[str, list[int]] = {
+        "reserve": [],
+        "put_file": [],
+        "finalize": [],
+    }
+    sequence_write_threads: list[int] = []
+    original_stage_upload = api_routes._stage_upload
+
+    async def record_stage_upload(*args, **kwargs):
+        event_loop_threads.append(get_ident())
+        return await original_stage_upload(*args, **kwargs)
+
+    monkeypatch.setattr(api_routes, "_stage_upload", record_stage_upload)
+    payload = make_png_bytes() if content_type == "image/png" else b"video-payload"
+    with make_client(tmp_path) as client:
+        repository = client.app.state.repository
+        storage = client.app.state.storage
+
+        def record_call(target, method_name: str, stage: str) -> None:
+            original = getattr(target, method_name)
+
+            def recorded(*args, **kwargs):
+                persistence_threads[stage].append(get_ident())
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(target, method_name, recorded)
+
+        record_call(repository, "create_pending_asset", "reserve")
+        record_call(storage, "put_file", "put_file")
+        record_call(repository, "finalize_pending_asset", "finalize")
+        if route == "/api/sequences/import":
+            original_create_sequence = repository.create_sequence_with_frames
+
+            def record_sequence_write(*args, **kwargs):
+                sequence_write_threads.append(get_ident())
+                return original_create_sequence(*args, **kwargs)
+
+            monkeypatch.setattr(
+                repository,
+                "create_sequence_with_frames",
+                record_sequence_write,
+            )
+        response = client.post(
+            route,
+            files={field_name: (filename, payload, content_type)},
+            data=form_data,
+        )
+
+    assert response.status_code == 200
+    assert len(event_loop_threads) == 1
+    assert {stage: len(threads) for stage, threads in persistence_threads.items()} == {
+        "reserve": 1,
+        "put_file": 1,
+        "finalize": 1,
+    }
+    worker_threads = {
+        thread_id
+        for stage_threads in persistence_threads.values()
+        for thread_id in stage_threads
+    }
+    assert len(worker_threads) == 1
+    assert worker_threads != set(event_loop_threads)
+    if route == "/api/sequences/import":
+        assert len(sequence_write_threads) == 1
+        assert set(sequence_write_threads) != set(event_loop_threads)
+
+
 def test_uploaded_asset_can_be_read_without_authorization(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(
@@ -274,6 +403,120 @@ def test_uploaded_asset_can_be_read_without_authorization(tmp_path: Path) -> Non
 
     assert response.status_code == 200
     assert response.content.startswith(b"\x89PNG")
+
+
+def test_asset_download_redirects_to_presigned_provider_url(tmp_path: Path) -> None:
+    provider = PresignedDownloadStorage("https://storage.example.test/presigned-object")
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        ).json()
+        client.app.state.storage = provider
+        response = client.get(upload["url"], follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == provider.download_url
+    assert provider.request is not None
+    assert provider.request[1:] == ("sprite.png", "image/png", 300)
+
+
+def test_asset_delete_removes_unreferenced_record_and_object(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        uploaded = client.post(
+            "/api/assets/images",
+            files={"file": ("delete.png", make_png_bytes(), "image/png")},
+        ).json()
+        asset = client.app.state.repository.get_asset_for_workspace(uploaded["id"], "local")
+        assert asset is not None
+        object_path = client.app.state.storage.local_path(asset.path)
+
+        deleted = client.delete(uploaded["url"])
+        missing = client.get(uploaded["url"])
+
+    assert deleted.status_code == 204
+    assert missing.status_code == 404
+    assert object_path is not None and not object_path.exists()
+
+
+def test_asset_delete_returns_reference_summary_for_job_and_sequence_owners(tmp_path: Path) -> None:
+    timestamp = "2026-01-01T00:00:00+00:00"
+    with make_client(tmp_path) as client:
+        input_asset = client.post(
+            "/api/assets/images",
+            files={"file": ("input.png", make_png_bytes(), "image/png")},
+        ).json()
+        output_asset = client.post(
+            "/api/assets/images",
+            files={"file": ("output.png", make_png_bytes(), "image/png")},
+        ).json()
+        sequence = client.post(
+            "/api/sequences/import",
+            data={"name": "asset-reference", "fps": "8"},
+            files=[("files", ("frame_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        ).json()
+        sequence_asset = sequence["frames"][0]
+        repository = client.app.state.repository
+        for job_id in ("input-job", "output-job"):
+            repository.create_job(
+                JobRecord(
+                    id=job_id,
+                    workspace_id="local",
+                    created_by="anonymous",
+                    job_type="asset_board_region_detect",
+                    status="pending",
+                    input_asset_id=input_asset["id"],
+                    parameters_json="{}",
+                    result_json="{}",
+                    device=None,
+                    duration_ms=0,
+                    error_message=None,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+            )
+        repository.create_job_output_asset(
+            JobOutputAssetRecord(
+                id="output-relation",
+                workspace_id="local",
+                created_by="anonymous",
+                job_id="output-job",
+                asset_id=output_asset["id"],
+                created_at=timestamp,
+            )
+        )
+
+        input_blocked = client.delete(input_asset["url"])
+        output_blocked = client.delete(output_asset["url"])
+        sequence_blocked = client.delete(sequence_asset["source_url"])
+
+    assert input_blocked.status_code == 409
+    assert "input-job" in input_blocked.json()["detail"]["references"][0]["input_job_ids"]
+    assert output_blocked.status_code == 409
+    assert output_blocked.json()["detail"]["references"][0]["output_job_ids"] == ["output-job"]
+    assert sequence_blocked.status_code == 409
+    assert sequence_blocked.json()["detail"]["references"][0]["source_sequence_frame_ids"]
+
+
+def test_asset_delete_keeps_http_success_when_object_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with make_client(tmp_path) as client:
+        uploaded = client.post(
+            "/api/assets/images",
+            files={"file": ("orphan.png", make_png_bytes(), "image/png")},
+        ).json()
+
+        def reject_delete(_key: str) -> None:
+            raise OSError("object delete failed")
+
+        monkeypatch.setattr(client.app.state.storage, "delete_object", reject_delete)
+        deleted = client.delete(uploaded["url"])
+        missing = client.get(uploaded["url"])
+
+    assert deleted.status_code == 204
+    assert missing.status_code == 404
 
 
 def test_invalid_image_returns_chinese_error(tmp_path: Path) -> None:
@@ -300,10 +543,14 @@ def test_manual_edit_save_creates_new_asset_and_preserves_alpha(tmp_path: Path) 
         )
         saved = response.json()
         saved_file = client.get(saved["url"])
+        metadata = client.get(f"/api/assets/{saved['id']}/metadata").json()
 
     assert response.status_code == 200
     assert saved["filename"] == "edited-zombie.png"
     assert saved["mime_type"] == "image/png"
+    assert metadata["relations"][0]["direction"] == "source"
+    assert metadata["relations"][0]["relation_type"] == "manual_edit"
+    assert metadata["relations"][0]["asset"]["id"] == source["id"]
     with Image.open(BytesIO(saved_file.content)) as image:
         assert image.mode == "RGBA"
         assert image.getpixel((0, 0))[3] == 0
@@ -343,6 +590,7 @@ def test_settings_are_readable_without_login(tmp_path: Path) -> None:
     assert response.json()["birefnet"]["model_id"]
     assert response.json()["stable_audio"]["base_url_configured"] is False
     assert response.json()["stable_audio"]["install_status"]["status"] == "unconfigured"
+    assert "video_generation" not in response.json()
     assert "models" not in response.json()
 
 
@@ -379,16 +627,36 @@ def test_job_history_filters_by_created_range(tmp_path: Path) -> None:
                     workspace_id="local",
                     created_by="anonymous",
                     job_type="background_remove",
-                    status="success",
+                    status="pending",
                     input_asset_id=asset.id,
                     parameters_json="{}",
-                    result_json=json.dumps({"output_assets": [{"id": asset.id, "url": f"/api/assets/{asset.id}"}]}),
-                    device="CPU",
-                    duration_ms=1,
+                    result_json="{}",
+                    device=None,
+                    duration_ms=0,
                     error_message=None,
                     created_at=created_at,
                     updated_at=created_at,
                 )
+            )
+            repository.create_job_output_asset(
+                JobOutputAssetRecord(
+                    id=f"{job_id}-output",
+                    workspace_id="local",
+                    created_by="anonymous",
+                    job_id=job_id,
+                    asset_id=asset.id,
+                    created_at=created_at,
+                )
+            )
+            assert repository.claim_job_for_workspace(job_id, "local", updated_at=created_at) is True
+            repository.update_job(
+                job_id,
+                "local",
+                status="success",
+                result_json=json.dumps({"output_assets": [{"id": asset.id, "url": f"/api/assets/{asset.id}"}]}),
+                device="CPU",
+                duration_ms=1,
+                updated_at=created_at,
             )
 
         response = client.get(
@@ -408,6 +676,22 @@ def test_birefnet_install_status_is_readable_without_login(tmp_path: Path) -> No
 
     assert response.status_code == 200
     assert "installed" in response.json()
+
+
+def test_model_status_read_uses_workflow_permission_without_granting_settings_write() -> None:
+    actions: list[str] = []
+
+    class RecordingPermissionChecker:
+        def require(self, action: str, resource: object | None = None) -> None:
+            del resource
+            actions.append(action)
+
+    context = SimpleNamespace(permissions=RecordingPermissionChecker())
+
+    api_routes._require_model_status_read(context, "read_birefnet_install")
+    api_routes._require_settings_manage(context, "install_birefnet")
+
+    assert actions == ["jobs.create", "settings.manage"]
 
 
 def test_birefnet_install_can_start_without_login(tmp_path: Path) -> None:
@@ -486,12 +770,33 @@ def test_sound_effect_job_creates_wav_asset(tmp_path: Path) -> None:
             json={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
         )
         job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        metadata = client.get(
+            f"/api/assets/{job['result']['output_assets'][0]['id']}/metadata"
+        ).json()
+        recheck = client.post(
+            f"/api/assets/{metadata['id']}/quality-check",
+            json={
+                "source_quality_check_id": metadata["quality_check"]["id"]
+            },
+        )
+        recheck_job = client.get(f"/api/jobs/{recheck.json()['id']}").json()
         output = client.get(job["result"]["output_assets"][0]["url"])
 
     assert created.status_code == 200
     assert job["status"] == "success"
     assert job["type"] == "sound_effect_generate"
     assert job["result"]["prompt"] == "coin pickup"
+    assert job["result"]["quality_status"] == "passed"
+    assert metadata["quality_check"]["rules_version"] == "audio-v1"
+    assert metadata["quality_check"]["parameters"] == {
+        "check_type": "audio",
+        "asset_type": "sound_effect",
+        "expected_duration_seconds": 1.0,
+        "expect_loop": False,
+    }
+    assert recheck.status_code == 200
+    assert recheck_job["status"] == "success"
+    assert recheck_job["result"]["quality_status"] == "passed"
     assert job["result"]["output_assets"][0]["url"].startswith("/api/assets/")
     assert output.status_code == 200
     assert output.content.startswith(b"RIFF")
@@ -732,6 +1037,27 @@ def test_asset_board_refine_job_refreshes_components(tmp_path: Path) -> None:
     assert job["result"]["cutout_asset_id"] == upload.json()["id"]
 
 
+def test_deleting_result_only_job_never_deletes_its_input_asset(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sheet.png", make_asset_board_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/asset-board/refine",
+            json={
+                "cutout_asset_id": upload.json()["id"],
+                "parameters": {"min_component_area": 4, "alpha_threshold": 16},
+            },
+        )
+
+        deleted = client.delete(f"/api/jobs/{created.json()['id']}")
+        retained_input = client.get(upload.json()["url"])
+
+    assert deleted.status_code == 204
+    assert retained_input.status_code == 200
+
+
 def test_asset_board_export_job_creates_zip_asset(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(
@@ -756,7 +1082,17 @@ def test_asset_board_export_job_creates_zip_asset(tmp_path: Path) -> None:
     assert job["result"]["selected_count"] == 2
     assert output.status_code == 200
     with zipfile.ZipFile(BytesIO(output.content)) as archive:
-        assert len(archive.namelist()) == 2
+        assert archive.namelist() == [
+            "sheet_component_001.png",
+            "sheet_component_002.png",
+            "component-manifest.json",
+        ]
+        manifest = json.loads(archive.read("component-manifest.json"))
+    assert manifest["schema_version"] == 1
+    assert [component["file"] for component in manifest["components"]] == [
+        "sheet_component_001.png",
+        "sheet_component_002.png",
+    ]
 
 
 def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
@@ -783,6 +1119,56 @@ def test_job_history_and_delete_output_asset(tmp_path: Path) -> None:
     assert deleted_asset.status_code == 404
 
 
+def test_job_delete_returns_reference_summary_until_sequence_is_detached(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/assets/images",
+            files={"file": ("sprite.png", make_png_bytes(), "image/png")},
+        )
+        created = client.post(
+            "/api/jobs/upscale",
+            json={"input_asset_id": upload.json()["id"], "parameters": {"style": "pixel", "scale": 2}},
+        )
+        job = client.get(f"/api/jobs/{created.json()['id']}").json()
+        output_asset = job["result"]["output_assets"][0]
+        sequence = client.app.state.repository.create_sequence_with_frames(
+            workspace_id="local",
+            created_by="anonymous",
+            name="shared-output",
+            fps=12,
+            loop=True,
+            clean_parameters={},
+            frames=[
+                {
+                    "source_asset_id": output_asset["id"],
+                    "original_name": "sprite_upscale.png",
+                    "width": 4,
+                    "height": 4,
+                    "bbox": [0, 0, 4, 4],
+                }
+            ],
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+
+        blocked = client.delete(f"/api/jobs/{job['id']}")
+        retained_before_detach = client.get(output_asset["url"])
+        detached = client.delete(f"/api/sequences/{sequence['id']}")
+        retained_after_detach = client.get(output_asset["url"])
+        deleted = client.delete(f"/api/jobs/{job['id']}")
+        removed_output = client.get(output_asset["url"])
+
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "RESOURCE_REFERENCED"
+    references = blocked.json()["detail"]["references"]
+    assert references[0]["asset_id"] == output_asset["id"]
+    assert len(references[0]["source_sequence_frame_ids"]) == 1
+    assert retained_before_detach.status_code == 200
+    assert detached.status_code == 204
+    assert retained_after_detach.status_code == 200
+    assert deleted.status_code == 204
+    assert removed_output.status_code == 404
+
+
 def test_sequence_import_sorts_frames_and_uses_assets(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.post(
@@ -801,6 +1187,27 @@ def test_sequence_import_sorts_frames_and_uses_assets(tmp_path: Path) -> None:
     assert [frame["original_name"] for frame in data["frames"]] == ["walk_001.png", "walk_002.png"]
     assert data["frames"][0]["source_url"].startswith("/api/assets/")
     assert "source_file_id" not in data["frames"][0]
+
+
+def test_sequence_import_removes_object_when_asset_persistence_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with make_client(tmp_path) as client:
+        def reject_asset_create(_asset: AssetRecord) -> None:
+            raise RuntimeError("asset insert failed")
+
+        monkeypatch.setattr(client.app.state.repository, "create_asset", reject_asset_create)
+        response = client.post(
+            "/api/sequences/import",
+            data={"name": "failed-import", "fps": "12"},
+            files=[("files", ("failed_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        )
+        stored_objects = list(client.app.state.storage.assets_dir.iterdir())
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to import sequence frames."
+    assert stored_objects == []
 
 
 def test_sequence_clean_and_export_zip(tmp_path: Path) -> None:
@@ -824,13 +1231,283 @@ def test_sequence_clean_and_export_zip(tmp_path: Path) -> None:
 
     assert clean_created.status_code == 200
     assert clean_job["status"] == "success"
+    assert isinstance(clean_job["result"]["sequence_revision"], int)
     assert all(frame["processed_asset_id"] for frame in cleaned_sequence["frames"])
+    assert {
+        "sequence_id",
+        "sequence_revision",
+        "frame_count",
+        "canvas_width",
+        "canvas_height",
+    }.isdisjoint(cleaned_sequence["clean_parameters"])
     assert export_job["status"] == "success"
     assert export_job["type"] == "sequence_export_frames"
     with zipfile.ZipFile(BytesIO(archive_response.content)) as archive:
         names = set(archive.namelist())
     assert "manifest.json" in names
     assert "spritesheet.png" in names
+
+
+def test_cleaning_sequence_remains_readable_and_rejects_a_second_clean_job(tmp_path: Path) -> None:
+    timestamp = "2026-01-01T00:00:00+00:00"
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "locked", "fps": "8"},
+            files=[("files", ("locked_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        ).json()
+        sequence_id = imported["id"]
+        input_asset_id = imported["frames"][0]["source_asset_id"]
+        repository = client.app.state.repository
+        stored_sequence = repository.get_sequence_for_workspace(sequence_id, "local")
+        assert stored_sequence is not None
+        sequence_revision = int(stored_sequence["revision"])
+        repository.create_job(
+            JobRecord(
+                id="active-clean-job",
+                workspace_id="local",
+                created_by="anonymous",
+                job_type="sequence_clean",
+                status="pending",
+                input_asset_id=input_asset_id,
+                parameters_json=json.dumps({"sequence_id": sequence_id, "sequence_revision": 0}),
+                result_json="{}",
+                device=None,
+                duration_ms=0,
+                error_message=None,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+        assert repository.claim_job_for_workspace("active-clean-job", "local", updated_at=timestamp) is True
+        assert repository.claim_sequence_for_job(
+            sequence_id,
+            "local",
+            "active-clean-job",
+            sequence_revision,
+            updated_at=timestamp,
+        ) == sequence_revision
+
+        readable = client.get(f"/api/sequences/{sequence_id}")
+        rejected = client.post(f"/api/sequences/{sequence_id}/clean", json={"parameters": {}})
+
+    assert readable.status_code == 200
+    assert readable.json()["status"] == "cleaning"
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"] == "The sequence is processing. Try again later."
+
+
+def test_sequence_clean_releases_claim_when_repository_read_fails_after_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamp = "2026-01-01T00:00:00+00:00"
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "read-failure", "fps": "8"},
+            files=[("files", ("read_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        ).json()
+        repository = client.app.state.repository
+        sequence_id = imported["id"]
+        repository.create_job(
+            JobRecord(
+                id="read-failure-job",
+                workspace_id="local",
+                created_by="anonymous",
+                job_type="sequence_clean",
+                status="pending",
+                input_asset_id=imported["frames"][0]["source_asset_id"],
+                parameters_json=json.dumps(
+                    {
+                        "sequence_id": sequence_id,
+                        "sequence_revision": 0,
+                        "frame_count": 1,
+                        "canvas_width": imported["canvas_width"],
+                        "canvas_height": imported["canvas_height"],
+                    }
+                ),
+                result_json="{}",
+                device=None,
+                duration_ms=0,
+                error_message=None,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+
+        def reject_frame_read(*_args, **_kwargs):
+            raise RuntimeError("frame read failed")
+
+        monkeypatch.setattr(repository, "list_sequence_frames", reject_frame_read)
+        client.app.state.job_execution_handlers["sequence_clean"]("read-failure-job", "local")
+
+        stored_job = repository.get_job_for_workspace("read-failure-job", "local")
+        with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+            active_job_id, sequence_status = connection.execute(
+                "SELECT active_job_id, status FROM sequences WHERE id = ?",
+                (sequence_id,),
+            ).fetchone()
+
+    assert stored_job is not None and stored_job.status == "failed"
+    assert stored_job.error_message == "frame read failed"
+    assert active_job_id is None
+    assert sequence_status == "ready"
+
+
+def test_sequence_clean_restores_previous_frames_when_success_persistence_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "rollback", "fps": "8"},
+            files=[
+                ("files", ("rollback_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png")),
+                ("files", ("rollback_002.png", make_sequence_frame_bytes((0, 0, 255, 255)), "image/png")),
+            ],
+        ).json()
+        sequence_id = imported["id"]
+        client.post(f"/api/sequences/{sequence_id}/clean", json={"parameters": {"canvas_padding": 2}})
+        previous = client.get(f"/api/sequences/{sequence_id}").json()
+        previous_processed_ids = [frame["processed_asset_id"] for frame in previous["frames"]]
+        with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+            previous_asset_count = connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
+
+        def reject_success(*args, **kwargs) -> None:
+            raise RuntimeError("forced sequence success persistence failure")
+
+        monkeypatch.setattr(client.app.state.repository, "finalize_sequence_clean_job", reject_success)
+        created = client.post(f"/api/sequences/{sequence_id}/clean", json={"parameters": {"canvas_padding": 6}}).json()
+        failed_job = client.get(f"/api/jobs/{created['id']}").json()
+        restored = client.get(f"/api/sequences/{sequence_id}").json()
+        with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+            restored_asset_count = connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
+
+    assert failed_job["status"] == "failed"
+    assert failed_job["error_message"] == "forced sequence success persistence failure"
+    assert [frame["processed_asset_id"] for frame in restored["frames"]] == previous_processed_ids
+    assert restored["clean_parameters"] == previous["clean_parameters"]
+    assert restored_asset_count == previous_asset_count
+
+
+def test_sequence_clean_temporary_cleanup_failure_releases_claim_and_fails_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CleanupFailureTemporaryDirectory:
+        def __init__(self, *args, **kwargs) -> None:
+            self._temporary = RealTemporaryDirectory(*args, **kwargs)
+
+        def __enter__(self) -> str:
+            return self._temporary.__enter__()
+
+        def __exit__(self, exc_type, exc_value, traceback) -> bool:
+            self._temporary.__exit__(exc_type, exc_value, traceback)
+            raise RuntimeError("temporary cleanup failed")
+
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "cleanup", "fps": "8"},
+            files=[("files", ("cleanup_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png"))],
+        ).json()
+        sequence_id = imported["id"]
+        monkeypatch.setattr(job_service, "TemporaryDirectory", CleanupFailureTemporaryDirectory)
+
+        created = client.post(f"/api/sequences/{sequence_id}/clean", json={"parameters": {}}).json()
+        failed_job = client.get(f"/api/jobs/{created['id']}").json()
+        restored = client.get(f"/api/sequences/{sequence_id}").json()
+        with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
+            active_job_id, revision = connection.execute(
+                "SELECT active_job_id, revision FROM sequences WHERE id = ?",
+                (sequence_id,),
+            ).fetchone()
+
+    assert failed_job["status"] == "failed"
+    assert failed_job["error_message"] == "temporary cleanup failed"
+    assert restored["frames"][0]["processed_asset_id"] is None
+    assert active_job_id is None
+    assert revision == 0
+
+
+def test_community_startup_recovery_removes_incomplete_job_objects(tmp_path: Path) -> None:
+    timestamp = "2026-01-01T00:00:00+00:00"
+    with make_client(tmp_path) as client:
+        repository = client.app.state.repository
+        storage = client.app.state.storage
+        source_file = tmp_path / "recovery-input.png"
+        output_file = tmp_path / "recovery-output.png"
+        source_file.write_bytes(make_png_bytes())
+        output_file.write_bytes(make_transparent_png_bytes())
+        stored_source = storage.put_file("recovery-input", source_file.name, source_file)
+        stored_output = storage.put_file("recovery-output", output_file.name, output_file)
+        repository.create_asset(
+            AssetRecord(
+                id="recovery-input",
+                workspace_id="local",
+                created_by="anonymous",
+                kind="image",
+                original_name=source_file.name,
+                path=stored_source.key,
+                mime_type="image/png",
+                size_bytes=stored_source.size_bytes,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+        repository.create_asset(
+            AssetRecord(
+                id="recovery-output",
+                workspace_id="local",
+                created_by="anonymous",
+                kind="background_removed",
+                original_name=output_file.name,
+                path=stored_output.key,
+                mime_type="image/png",
+                size_bytes=stored_output.size_bytes,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+        repository.create_job(
+            JobRecord(
+                id="recovery-job",
+                workspace_id="local",
+                created_by="anonymous",
+                job_type="background_remove",
+                status="pending",
+                input_asset_id="recovery-input",
+                parameters_json="{}",
+                result_json="{}",
+                device=None,
+                duration_ms=0,
+                error_message=None,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+        assert repository.claim_job_for_workspace("recovery-job", "local", updated_at=timestamp) is True
+        repository.create_job_output_asset(
+            JobOutputAssetRecord(
+                id="recovery-job-output",
+                workspace_id="local",
+                created_by="anonymous",
+                job_id="recovery-job",
+                asset_id="recovery-output",
+                created_at=timestamp,
+            )
+        )
+        output_object = storage.local_path(stored_output.key)
+        assert output_object is not None and output_object.exists()
+
+    with make_client(tmp_path) as client:
+        recovered_job = client.get("/api/jobs/recovery-job")
+        removed_asset = client.get("/api/assets/recovery-output")
+
+    assert recovered_job.status_code == 200
+    assert recovered_job.json()["status"] == "failed"
+    assert recovered_job.json()["error_message"] == "The service restarted and stopped the unfinished job."
+    assert removed_asset.status_code == 404
+    assert output_object is not None and not output_object.exists()
 
 
 def test_sequence_export_spine_zip(tmp_path: Path) -> None:
@@ -872,6 +1549,36 @@ def test_sequence_delete_removes_source_assets(tmp_path: Path) -> None:
 
     assert deleted.status_code == 204
     assert source_after_delete.status_code == 404
+
+
+def test_sequence_delete_continues_when_object_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deleted_keys: list[str] = []
+
+    with make_client(tmp_path) as client:
+        imported = client.post(
+            "/api/sequences/import",
+            data={"name": "delete-with-storage-error", "fps": "12"},
+            files=[
+                ("files", ("frame_001.png", make_sequence_frame_bytes((255, 0, 0, 255)), "image/png")),
+                ("files", ("frame_002.png", make_sequence_frame_bytes((0, 0, 255, 255)), "image/png")),
+            ],
+        ).json()
+        source_urls = [frame["source_url"] for frame in imported["frames"]]
+
+        def reject_delete(key: str) -> None:
+            deleted_keys.append(key)
+            raise OSError("object delete failed")
+
+        monkeypatch.setattr(client.app.state.storage, "delete_object", reject_delete)
+        deleted = client.delete(f"/api/sequences/{imported['id']}")
+        source_responses = [client.get(url) for url in source_urls]
+
+    assert deleted.status_code == 204
+    assert len(deleted_keys) == 2
+    assert all(response.status_code == 404 for response in source_responses)
 
 
 def test_video_to_sequence_extracts_frames_into_sequence(tmp_path: Path) -> None:
@@ -964,96 +1671,153 @@ def test_video_to_sequence_background_remove_uses_installed_birefnet(tmp_path: P
         assert image.size == (128, 128)
 
 
-def test_video_generation_settings_save_test_and_mask_secret(tmp_path: Path) -> None:
+def test_asset_page_and_project_export_preserve_manifest_and_provenance(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
-        saved = client.patch(
-            "/api/settings/video-generation",
-            json={"provider": "seedance", "base_url": "https://ark.example.com", "api_key": "sk-1234567890"},
-        )
-        tested = client.post(
-            "/api/settings/video-generation/test",
-            json={"provider": "seedance", "base_url": "https://ark.example.com"},
-        )
-        settings = client.get("/api/settings").json()
-
-    assert saved.status_code == 200
-    assert saved.json()["provider"] == "seedance"
-    assert saved.json()["api_key_configured"] is True
-    assert saved.json()["masked_api_key"] == "sk-1****7890"
-    assert tested.status_code == 200
-    assert tested.json()["ok"] is True
-    assert settings["video_generation"]["api_key_configured"] is True
-
-
-def test_video_generation_requires_confirmation_and_config(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        upload = client.post(
+        hero = client.post(
             "/api/assets/images",
-            files={"file": ("hero.png", make_transparent_png_bytes(), "image/png")},
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
         ).json()
-        not_confirmed = client.post(
-            "/api/sequences/generate-from-image",
-            json={"input_asset_id": upload["id"], "confirmed_external_api": False},
-        )
-        not_configured = client.post(
-            "/api/sequences/generate-from-image",
-            json={"input_asset_id": upload["id"], "confirmed_external_api": True},
-        )
-
-    assert not_confirmed.status_code == 400
-    assert not_confirmed.json()["detail"] == "Confirm the external video generation API call first."
-    assert not_configured.status_code == 409
-    assert not_configured.json()["detail"] == "The video generation API key is missing."
-
-
-def test_video_generation_job_creates_video_asset(tmp_path: Path, monkeypatch) -> None:
-    def fake_generate(self: VideoGenerationClient, image_path: Path, output_path: Path, parameters: dict) -> VideoGenerationResult:
-        assert image_path.is_file()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"fake mp4")
-        return VideoGenerationResult(
-            external_task_id="external-1",
-            video_url="https://example.com/video.mp4",
-            output_path=output_path,
-            provider="seedance",
-            final_response={"status": "succeeded"},
-        )
-
-    monkeypatch.setattr(VideoGenerationClient, "generate_video", fake_generate)
-    with make_client(tmp_path) as client:
-        client.patch(
-            "/api/settings/video-generation",
-            json={"provider": "seedance", "base_url": "https://ark.example.com", "api_key": "sk-1234567890"},
-        )
-        upload = client.post(
+        enemy = client.post(
             "/api/assets/images",
-            files={"file": ("hero.png", make_transparent_png_bytes(), "image/png")},
+            files={"file": ("enemy.png", make_transparent_png_bytes(), "image/png")},
         ).json()
+        asset_page = client.get("/api/assets", params={"category": "image", "search": "hero"})
         created = client.post(
-            "/api/sequences/generate-from-image",
+            "/api/jobs/project-export",
             json={
-                "input_asset_id": upload["id"],
-                "action": "idle",
-                "duration": 2,
-                "resolution": "720P",
-                "confirmed_external_api": True,
+                "asset_ids": [hero["id"], enemy["id"]],
+                "preset": "unity",
+                "package_name": "characters",
             },
         )
         job = client.get(f"/api/jobs/{created.json()['id']}").json()
-        video = client.get(job["result"]["video_url"])
+        export_asset = job["result"]["output_assets"][0]
+        archive_response = client.get(export_asset["url"])
+        export_metadata = client.get(f"/api/assets/{export_asset['id']}/metadata").json()
+        blocked_delete = client.delete(hero["url"])
 
+    assert asset_page.status_code == 200
+    assert asset_page.json()["total"] == 1
+    assert asset_page.json()["items"][0]["id"] == hero["id"]
     assert created.status_code == 200
     assert job["status"] == "success"
-    assert job["type"] == "sequence_generate_video"
-    assert job["result"]["external_task_id"] == "external-1"
-    assert job["result"]["provider"] == "seedance"
-    assert job["result"]["video_asset_id"]
-    assert job["result"]["output_assets"][0]["url"] == job["result"]["video_url"]
-    assert video.status_code == 200
-    assert video.content == b"fake mp4"
-    with sqlite3.connect(tmp_path / "storage" / "gameknife.sqlite3") as connection:
-        row = connection.execute(
-            "SELECT kind, mime_type FROM assets WHERE id = ?",
-            (job["result"]["video_asset_id"],),
-        ).fetchone()
-    assert row == ("sequence_video", "video/mp4")
+    assert job["type"] == "project_export_package"
+    assert job["result"]["preset"] == "unity"
+    assert blocked_delete.status_code == 409
+    assert export_metadata["kind"] == "project_export"
+    assert {relation["asset"]["id"] for relation in export_metadata["relations"] if relation["direction"] == "source"} == {
+        hero["id"],
+        enemy["id"],
+    }
+
+    with zipfile.ZipFile(BytesIO(archive_response.content)) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("gameknife-manifest.json"))
+    assert "Assets/GameKnife/images/hero.png" in names
+    assert "Assets/GameKnife/images/enemy.png" in names
+    assert manifest["schema_version"] == 1
+    assert manifest["preset"] == "unity"
+    assert [item["id"] for item in manifest["assets"]] == [hero["id"], enemy["id"]]
+
+
+def test_asset_metadata_actions_follow_media_type(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        video = client.post(
+            "/api/assets/videos",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        ).json()
+        image_metadata = client.get(f"/api/assets/{image['id']}/metadata").json()
+        video_metadata = client.get(f"/api/assets/{video['id']}/metadata").json()
+
+    assert {action["id"] for action in image_metadata["available_actions"]} == {
+        "download",
+        "background_remove",
+        "image_upscale",
+        "asset_board",
+        "manual_edit",
+    }
+    assert {action["id"] for action in video_metadata["available_actions"]} == {
+        "download",
+        "sequence_video_to_frames",
+    }
+
+
+def test_asset_quality_check_job_persists_retryable_snapshot(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        first = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={},
+        )
+        first_stored = client.get(f"/api/jobs/{first.json()['id']}").json()
+        first_metadata = client.get(
+            f"/api/assets/{image['id']}/metadata"
+        ).json()
+        retried = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={
+                "source_quality_check_id": first_metadata["quality_check"]["id"]
+            },
+        )
+        retried_stored = client.get(f"/api/jobs/{retried.json()['id']}").json()
+        history = client.get(
+            "/api/jobs/history",
+            params={"category": "quality", "delivery_only": "true"},
+        ).json()
+
+    assert first.status_code == 200
+    assert first.json()["type"] == "asset_quality_check"
+    assert first.json()["status"] == "pending"
+    assert first_stored["status"] == "success"
+    assert first_metadata["quality_check"]["status"] == "failed"
+    assert first_metadata["quality_check"]["parameters"] == {
+        "check_type": "image",
+        "expected_size": "ORIGINAL",
+        "palette": [],
+        "expect_no_text": False,
+        "expect_transparency": False,
+        "expect_seamless": False,
+    }
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "pending"
+    assert retried_stored["status"] == "success"
+    assert retried_stored["result"]["quality_check_id"] == (
+        first_metadata["quality_check"]["id"]
+    )
+    assert history["total"] == 2
+
+
+def test_asset_quality_check_rejects_unsupported_asset_and_foreign_snapshot(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        video = client.post(
+            "/api/assets/videos",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        ).json()
+        image = client.post(
+            "/api/assets/images",
+            files={"file": ("hero.png", make_png_bytes(), "image/png")},
+        ).json()
+        unsupported = client.post(
+            f"/api/assets/{video['id']}/quality-check",
+            json={},
+        )
+        missing_snapshot = client.post(
+            f"/api/assets/{image['id']}/quality-check",
+            json={"source_quality_check_id": "missing-quality-check"},
+        )
+
+    assert unsupported.status_code == 400
+    assert unsupported.json()["detail"] == "Automatic quality checks do not support this asset type."
+    assert missing_snapshot.status_code == 404
+    assert missing_snapshot.json()["detail"] == (
+        "The quality rules snapshot is missing. Reopen the asset details."
+    )

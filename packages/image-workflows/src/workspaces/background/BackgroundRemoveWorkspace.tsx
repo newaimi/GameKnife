@@ -41,8 +41,12 @@ export function BackgroundRemoveWorkspace() {
     if (!(await ensureModelReady("birefnet"))) {
       return;
     }
+    const parameters = { ...params };
     await runJob({
-      createJob: () => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, params),
+      jobType: "background_remove",
+      parameters,
+      idempotencyPayload: { input_asset_id: asset.id, parameters },
+      createJob: (submission) => gameKnifeApiClient.createBackgroundRemoveJob(asset.id, parameters, submission),
       failureTitle: t("common.jobCreationFailed"),
       failureMessage: t("common.backendRejected", { workflow: t("background.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,

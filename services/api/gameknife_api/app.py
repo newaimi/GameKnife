@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from gameknife_api.deps import CommunitySettings, build_runtime_state
+from gameknife_api.deps import CommunitySettings, build_runtime_state, recover_community_runtime
 from gameknife_api.routes import router
 from gameknife_api.spa import mount_spa
 from gameknife_jobs import init_sqlite_schema
@@ -16,10 +16,11 @@ def create_community_app(settings: CommunitySettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Initialize the schema at startup so tests, development, and Docker use the same table-creation path.
-        # Community does not migrate legacy databases; missing tables are created from the current GameKnife schema.
+        # Initialize or migrate the versioned schema at startup so tests, development, and Docker share one path.
+        # Community migrations preserve local Assets and Jobs while applying reference-safe foreign-key changes.
         init_sqlite_schema(resolved_settings.database_path)
         build_runtime_state(app, resolved_settings)
+        recover_community_runtime(app)
         yield
 
     app = FastAPI(title="GameKnife Community", version="0.1.0", lifespan=lifespan)

@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import json
+import wave
 from pathlib import Path
 
-from gameknife_core import AllowAllPermissionChecker, CapabilitySet, Principal, RequestContext, Workspace
-from gameknife_jobs import SQLiteGameKnifeRepository, init_sqlite_schema
+import gameknife_workflows.sound_effect as sound_effect_module
+import numpy as np
+import pytest
+from gameknife_core import AllowAllPermissionChecker, CapabilitySet, JobRecord, Principal, RequestContext, Workspace
+from gameknife_jobs import (
+    AssetWriteInProgressError,
+    JobSubmissionResult,
+    SQLiteGameKnifeRepository,
+    TaskSubmission,
+    init_sqlite_schema,
+)
 from gameknife_storage import LocalStorageProvider
 from gameknife_workflows import (
     WorkflowModelNotInstalledError,
@@ -25,7 +35,10 @@ class FakeSoundEffectService:
     def generate_sound_effect(self, prompt: str, output_path: Path, parameters: dict[str, object]) -> dict[str, object]:
         self.generate_calls += 1
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
+        _write_test_wav(
+            output_path,
+            duration_seconds=float(parameters.get("duration_seconds", 1)),
+        )
         return {
             "model": "fake-stable-audio",
             "device": "cpu",
@@ -33,6 +46,37 @@ class FakeSoundEffectService:
             "queue_wait_ms": 0,
             "duration_ms": 5,
         }
+
+
+class ReplaySoundEffectRepository(SQLiteGameKnifeRepository):
+    def __init__(self, database_path: Path) -> None:
+        super().__init__(database_path)
+        self._accepted_by_key: dict[str, JobRecord] = {}
+
+    def create_job(
+        self,
+        job: JobRecord,
+        submission: TaskSubmission | None = None,
+    ) -> JobSubmissionResult:
+        key = submission.idempotency_key if submission is not None else None
+        if key is not None and key in self._accepted_by_key:
+            return JobSubmissionResult(job=self._accepted_by_key[key], replayed=True)
+        result = super().create_job(job, submission)
+        if key is not None:
+            self._accepted_by_key[key] = result.job
+        return result
+
+
+class FencedPromptRepository(SQLiteGameKnifeRepository):
+    def create_pending_asset(
+        self,
+        asset,
+        *,
+        reserved_bytes: int,
+        reservation_job_id: str | None = None,
+    ):
+        del reserved_bytes, reservation_job_id
+        raise AssetWriteInProgressError(asset.id)
 
 
 def test_sound_effect_workflow_rejects_blank_prompt(tmp_path: Path) -> None:
@@ -87,12 +131,13 @@ def test_sound_effect_workflow_creates_prompt_and_wav_assets(tmp_path: Path) -> 
     repository, context = _make_repository_and_context(tmp_path)
     service = FakeSoundEffectService()
 
-    job, runner = create_sound_effect_workflow(
+    submitted, runner = create_sound_effect_workflow(
         repository,
         context,
         service,
         parameters={"prompt": " coin pickup ", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
     )
+    job = submitted.job
     runner()
 
     stored = repository.get_job_for_workspace(job.id, context.workspace.id)
@@ -108,15 +153,152 @@ def test_sound_effect_workflow_creates_prompt_and_wav_assets(tmp_path: Path) -> 
     assert output_asset is not None
     assert output_asset.kind == "sound_effect"
     assert output_asset.mime_type == "audio/wav"
-    assert context.storage.resolve_asset_path(output_asset.path).read_bytes().startswith(b"RIFF")
+    quality = repository.get_current_asset_quality_check(
+        output_asset.id,
+        context.workspace.id,
+    )
+    assert quality is not None
+    assert quality.status == "passed"
+    assert quality.rules_version == "audio-v1"
+    assert result["quality_check_id"] == quality.id
+    assert result["quality_status"] == "passed"
+    output_path = context.storage.local_path(output_asset.path)
+    assert output_path is not None
+    assert output_path.read_bytes().startswith(b"RIFF")
     assert service.generate_calls == 1
 
 
-def _make_repository_and_context(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext]:
+def test_sound_effect_checker_failure_keeps_delivery_and_marks_unchecked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, context = _make_repository_and_context(tmp_path)
+    service = FakeSoundEffectService()
+
+    def unavailable_checker(*_args, **_kwargs):
+        raise RuntimeError("checker unavailable")
+
+    monkeypatch.setattr(sound_effect_module, "check_audio_asset", unavailable_checker)
+    submitted, runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={
+            "prompt": "coin pickup",
+            "duration_seconds": 1,
+            "steps": 20,
+            "cfg_scale": 5,
+        },
+    )
+
+    runner()
+
+    stored = repository.get_job_for_workspace(
+        submitted.job.id,
+        context.workspace.id,
+    )
+    assert stored is not None and stored.status == "success"
+    result = json.loads(stored.result_json)
+    quality = repository.get_current_asset_quality_check(
+        result["output_assets"][0]["id"],
+        context.workspace.id,
+    )
+    assert quality is not None
+    assert quality.status == "unchecked"
+    assert result["quality_status"] == "unchecked"
+
+
+def _write_test_wav(path: Path, *, duration_seconds: float) -> None:
+    frame_count = round(44_100 * duration_seconds)
+    timeline = np.arange(frame_count, dtype=np.float64) / 44_100
+    mono = np.rint(np.sin(2 * np.pi * 440 * timeline) * 12_000).astype("<i2")
+    stereo = np.column_stack((mono, mono)).astype("<i2")
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(2)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(44_100)
+        wav_file.writeframes(stereo.tobytes())
+
+
+def test_sound_effect_replay_reuses_input_and_removes_unaccepted_prompt(tmp_path: Path) -> None:
+    repository, context = _make_repository_and_context(tmp_path, ReplaySoundEffectRepository)
+    service = FakeSoundEffectService()
+    submission = TaskSubmission(idempotency_key="sound-request-1", quote_id="quote-1")
+
+    first, _first_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+    replay, _replay_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+    changed_prompt_replay, _changed_runner = create_sound_effect_workflow(
+        repository,
+        context,
+        service,
+        parameters={"prompt": "sword impact", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
+        submission=submission,
+    )
+
+    prompt_assets = [
+        asset
+        for asset in repository.list_assets_for_workspace(context.workspace.id)
+        if asset.kind == "sound_prompt"
+    ]
+    assert first.replayed is False
+    assert replay.replayed is True
+    assert changed_prompt_replay.replayed is True
+    assert replay.job.id == first.job.id
+    assert replay.job.input_asset_id == first.job.input_asset_id
+    assert changed_prompt_replay.job.id == first.job.id
+    assert [asset.id for asset in prompt_assets] == [first.job.input_asset_id]
+    assert len(list((tmp_path / "storage" / "assets").glob("*.txt"))) == 1
+
+
+def test_sound_effect_prompt_delete_fence_returns_service_unavailable(
+    tmp_path: Path,
+) -> None:
+    repository, context = _make_repository_and_context(
+        tmp_path,
+        FencedPromptRepository,
+    )
+
+    with pytest.raises(
+        WorkflowServiceUnavailableError,
+        match="An identical sound effect job is being submitted",
+    ):
+        create_sound_effect_workflow(
+            repository,
+            context,
+            FakeSoundEffectService(),
+            parameters={
+                "prompt": "coin pickup",
+                "duration_seconds": 1,
+                "steps": 20,
+                "cfg_scale": 5,
+            },
+            submission=TaskSubmission(
+                idempotency_key="sound-fenced",
+                quote_id="quote-fenced",
+            ),
+        )
+
+
+def _make_repository_and_context(
+    tmp_path: Path,
+    repository_type: type[SQLiteGameKnifeRepository] = SQLiteGameKnifeRepository,
+) -> tuple[SQLiteGameKnifeRepository, RequestContext]:
     storage = LocalStorageProvider(tmp_path / "storage")
     database_path = tmp_path / "storage" / "gameknife.sqlite3"
     init_sqlite_schema(database_path)
-    repository = SQLiteGameKnifeRepository(database_path)
+    repository = repository_type(database_path)
     context = RequestContext(
         principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
         workspace=Workspace(id="local", kind="local", name="Local workspace"),

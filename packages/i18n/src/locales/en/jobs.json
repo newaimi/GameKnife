@@ -1,15 +1,16 @@
 {
-  "eyebrow": "Job history",
-  "title": "Downloadable results",
-  "description": "Only jobs that produced downloadable files are shown here. Intermediate operations are excluded.",
+  "eyebrow": "Jobs",
+  "title": "Project jobs",
+  "description": "View job inputs, outputs and failures, and return to tools to continue.",
   "refresh": "Refresh",
   "filterLabel": "Filter by job type",
+  "statusFilter": "Status",
   "startTime": "Start time",
   "endTime": "End time",
   "clearTime": "Clear dates",
   "loading": "Loading...",
-  "resultCount": "{{count}} downloadable result",
-  "resultCount_other": "{{count}} downloadable results",
+  "resultCount_one": "{{count}} job",
+  "resultCount_other": "{{count}} jobs",
   "page": "Page {{current}} of {{total}}",
   "loadingJobs": "Loading jobs...",
   "empty": "No matching jobs",
@@ -18,12 +19,14 @@
   "nextPage": "Next",
   "deleteConfirm": "Deleting this job also removes its generated files. Continue?",
   "categories": {
-    "all": { "label": "All", "note": "All downloadable results" },
+    "all": { "label": "All", "note": "Project jobs" },
     "background": { "label": "Background removal", "note": "AI background removal results" },
     "upscale": { "label": "Image upscaling", "note": "Super-resolution and pixel upscaling" },
     "sound": { "label": "Sound generation", "note": "Text-generated WAV files" },
     "assetBoard": { "label": "UI Splitting", "note": "Region cutouts and exports" },
-    "sequence": { "label": "Sequences", "note": "PNG sequences and Spine projects" }
+    "sequence": { "label": "Sequences", "note": "PNG sequences and Spine projects" },
+    "quality": { "label": "Quality checks", "note": "Image, UI, audio and 3D" },
+    "export": { "label": "Project exports", "note": "Generic, Unity and Godot" }
   },
   "calendar": {
     "chooseDate": "Choose date",
@@ -38,13 +41,22 @@
     "download": "Download result",
     "noDownload": "This job has no downloadable file",
     "delete": "Delete job",
-    "deleteWhileRunning": "A running job cannot be deleted"
+    "deleteWhileRunning": "A running job cannot be deleted",
+    "retry": "Return to tool and retry"
   },
   "status": {
     "queued": "Queued",
     "running": "Processing",
     "succeeded": "Completed",
-    "failed": "Failed"
+    "failed": "Failed",
+    "executionFailed": "Job execution failed"
+  },
+  "billing": {
+    "free": "Cost: Free",
+    "summary": "Cost: {{credits}} credits · {{state}}",
+    "frozen": "Reserved",
+    "charged": "Charged",
+    "released": "Released"
   },
   "presentation": {
     "justNow": "just now",
@@ -65,7 +77,7 @@
     "assetBoardRegionRefine": "UI splitting region refinement",
     "assetBoardExport": "UI splitting export",
     "sequenceClean": "Sequence cleanup",
-    "sequenceGenerateVideo": "Video generation",
+    "assetQualityCheck": "Automated quality check",
     "sequenceVideoToFrames": "Video to frames",
     "sequenceExportFrames": "PNG sequence export",
     "sequenceExportSpine": "Spine export",
@@ -73,6 +85,7 @@
     "componentExport": "Component export"
   },
   "initials": {
+    "quality": "Q",
     "sound": "S",
     "video": "V",
     "frame": "F",

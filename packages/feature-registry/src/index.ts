@@ -29,7 +29,6 @@ export const communityFeatureEntries: FeatureEntry[] = [
   { id: "upscale", label: "Image upscaling", badge: "SR", route: "/tools/upscale", permission: "jobs.create" },
   { id: "asset-board", label: "UI Splitting", badge: "AI", route: "/tools/asset-board", permission: "jobs.create" },
   { id: "sequence", label: "Sequence", badge: "Game", route: "/tools/sequence", permission: "jobs.create" },
-  { id: "video-generate", label: "AI video generation", badge: "API", route: "/tools/video-generate", permission: "jobs.create" },
   { id: "video-to-sequence", label: "Video to frames", badge: "Local", route: "/tools/video-to-sequence", permission: "jobs.create" },
   { id: "sound-effect", label: "Sound generation", badge: "SFX", route: "/tools/sound-effect", permission: "jobs.create" },
   { id: "manual-edit", label: "Manual editing", badge: "Edit", route: "/manual-edit", permission: "jobs.create", openInNewTab: true },

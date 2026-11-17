@@ -5,20 +5,37 @@ from .context import (
     Principal,
     RequestContext,
     StorageProvider,
+    StoredObject,
     Workspace,
 )
-from .models import AssetRecord, ComponentCandidate, JobRecord, ProcessResult
+from .models import (
+    AssetRecord,
+    AssetQualityCheckRecord,
+    AssetReferenceSummary,
+    AssetRelationRecord,
+    ComponentCandidate,
+    JobInputAssetRecord,
+    JobOutputAssetRecord,
+    JobRecord,
+    ProcessResult,
+)
 
 __all__ = [
     "AllowAllPermissionChecker",
     "AssetRecord",
+    "AssetQualityCheckRecord",
+    "AssetReferenceSummary",
+    "AssetRelationRecord",
     "CapabilitySet",
     "ComponentCandidate",
+    "JobInputAssetRecord",
     "JobRecord",
+    "JobOutputAssetRecord",
     "PermissionChecker",
     "Principal",
     "ProcessResult",
     "RequestContext",
     "StorageProvider",
+    "StoredObject",
     "Workspace",
 ]

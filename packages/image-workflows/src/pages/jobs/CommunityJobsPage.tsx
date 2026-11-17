@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
@@ -7,11 +8,38 @@ import { Button, FeedbackMessage } from "@gameknife/ui-kit";
 import { readMessage } from "../../utils/errors";
 import { DatePickerField } from "./DatePickerField";
 import { JobHistoryRow } from "./JobHistoryRow";
-import { JOB_CATEGORY_OPTIONS, JOB_LIST_PAGE_SIZE, dateInputToEndIso, dateInputToStartIso, downloadJobAsset } from "./jobHistory";
+import {
+  JOB_CATEGORY_OPTIONS,
+  JOB_LIST_PAGE_SIZE,
+  dateInputToEndIso,
+  dateInputToStartIso,
+  downloadJobAsset,
+  type JobCategoryOption,
+  type JobPresentationResolver,
+} from "./jobHistory";
+import { readJobRetryRoute } from "../../utils/jobRetry";
+import { useImageAssetSession } from "../../context/ImageAssetSession";
+import { saveVideoToSequenceTransfer } from "../../workspaces/sequence/videoToSequenceTransfer";
 
-export function CommunityJobsPage() {
+export interface JobListMetadata {
+  credits: number;
+  reservation_status: "frozen" | "charged" | "released";
+}
+
+export function CommunityJobsPage({
+  jobCategoryOptions = JOB_CATEGORY_OPTIONS,
+  jobPresentationResolver,
+  loadJobMetadata,
+}: {
+  jobCategoryOptions?: JobCategoryOption[];
+  jobPresentationResolver?: JobPresentationResolver;
+  loadJobMetadata?: (jobIds: string[]) => Promise<Record<string, JobListMetadata>>;
+} = {}) {
+  const navigate = useNavigate();
+  const imageSession = useImageAssetSession();
   const { t } = useTranslation("jobs");
   const [category, setCategory] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | JobResponse["status"]>("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
@@ -21,11 +49,12 @@ export function CommunityJobsPage() {
   const [downloadingAssetId, setDownloadingAssetId] = useState("");
   const [deletingJobId, setDeletingJobId] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [metadata, setMetadata] = useState<Record<string, JobListMetadata>>({});
   const totalPages = Math.max(1, Math.ceil((jobPage?.total ?? 0) / JOB_LIST_PAGE_SIZE));
 
   useEffect(() => {
     setPage(1);
-  }, [category, startDate, endDate]);
+  }, [category, startDate, endDate, statusFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,11 +68,28 @@ export function CommunityJobsPage() {
         category,
         createdFrom: dateInputToStartIso(startDate),
         createdTo: dateInputToEndIso(endDate),
-        downloadable: true,
+        deliveryOnly: true,
+        status: statusFilter === "all" ? undefined : statusFilter,
       })
-      .then((result) => {
+      .then(async (result) => {
         if (!cancelled) {
           setJobPage(result);
+          if (loadJobMetadata && result.items.length) {
+            try {
+              const nextMetadata = await loadJobMetadata(result.items.map((job) => job.id));
+              if (!cancelled) {
+                setMetadata(nextMetadata);
+              }
+            } catch {
+              // Billing metadata is an optional Commercial enrichment. A transient billing read must not hide the
+              // authoritative public Job list or its retry actions.
+              if (!cancelled) {
+                setMetadata({});
+              }
+            }
+          } else {
+            setMetadata({});
+          }
         }
       })
       .catch((exc) => {
@@ -61,7 +107,7 @@ export function CommunityJobsPage() {
     return () => {
       cancelled = true;
     };
-  }, [category, endDate, page, reloadKey, startDate]);
+  }, [category, endDate, loadJobMetadata, page, reloadKey, startDate, statusFilter]);
 
   async function handleDownload(job: JobResponse, asset: OutputAssetRef) {
     setError("");
@@ -92,6 +138,36 @@ export function CommunityJobsPage() {
     }
   }
 
+  function handleRetry(job: JobResponse) {
+    const presentation = jobPresentationResolver?.(job);
+    const route = presentation?.retryRoute ?? readJobRetryRoute(job);
+    if (!route) {
+      return;
+    }
+    if (job.input_asset_id && job.input_mime_type?.startsWith("image/") && job.input_filename && job.input_size_bytes != null) {
+      imageSession?.setImageAsset({
+        id: job.input_asset_id,
+        filename: job.input_filename,
+        mime_type: job.input_mime_type,
+        size_bytes: job.input_size_bytes,
+        url: `/api/assets/${job.input_asset_id}`,
+      });
+    }
+    if (job.input_asset_id && job.type === "sequence_video_to_frames" && job.input_filename && job.input_mime_type && job.input_size_bytes != null) {
+      saveVideoToSequenceTransfer({
+        asset: {
+          id: job.input_asset_id,
+          filename: job.input_filename,
+          mime_type: job.input_mime_type,
+          size_bytes: job.input_size_bytes,
+          url: `/api/assets/${job.input_asset_id}`,
+        },
+        action: "walk_down",
+      });
+    }
+    navigate(route);
+  }
+
   return (
     <section className="task-list-page">
       <div className="page-heading task-list-heading">
@@ -108,14 +184,24 @@ export function CommunityJobsPage() {
 
       <section className="task-filter-card">
         <div className="task-filter-tabs" aria-label={t("filterLabel")}>
-          {JOB_CATEGORY_OPTIONS.map((option) => (
+          {jobCategoryOptions.map((option) => (
             <button key={option.value} className={category === option.value ? "active" : ""} type="button" onClick={() => setCategory(option.value)}>
-              <strong>{t(`categories.${option.translationKey}.label`)}</strong>
-              <span>{t(`categories.${option.translationKey}.note`)}</span>
+              <strong>{option.translationKey ? t(`categories.${option.translationKey}.label`) : option.label}</strong>
+              <span>{option.translationKey ? t(`categories.${option.translationKey}.note`) : option.note}</span>
             </button>
           ))}
         </div>
         <div className="task-date-filters">
+          <label className="task-status-filter">
+            <span>{t("statusFilter")}</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+              <option value="all">{t("categories.all.label")}</option>
+              <option value="pending">{t("status.queued")}</option>
+              <option value="running">{t("status.running")}</option>
+              <option value="success">{t("status.succeeded")}</option>
+              <option value="failed">{t("status.failed")}</option>
+            </select>
+          </label>
           <DatePickerField label={t("startTime")} value={startDate} onChange={setStartDate} />
           <DatePickerField label={t("endTime")} value={endDate} onChange={setEndDate} />
           <Button
@@ -138,7 +224,19 @@ export function CommunityJobsPage() {
         {error ? <FeedbackMessage tone="danger">{error}</FeedbackMessage> : null}
         <div className="task-table">
           {jobPage?.items.length ? (
-            jobPage.items.map((job) => <JobHistoryRow deletingJobId={deletingJobId} downloadingAssetId={downloadingAssetId} job={job} key={job.id} onDelete={handleDelete} onDownload={handleDownload} />)
+            jobPage.items.map((job) => (
+              <JobHistoryRow
+                deletingJobId={deletingJobId}
+                downloadingAssetId={downloadingAssetId}
+                job={job}
+                jobPresentationResolver={jobPresentationResolver}
+                key={job.id}
+                metadata={metadata[job.id]}
+                onDelete={handleDelete}
+                onDownload={handleDownload}
+                onRetry={handleRetry}
+              />
+            ))
           ) : (
             <div className="task-empty">
               <strong>{loading ? t("loadingJobs") : t("empty")}</strong>

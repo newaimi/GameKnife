@@ -1,125 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Play, Sparkles } from "lucide-react";
-import type { AssetResponse, JobResponse, SequenceResponse, VideoSequenceGenerateParameters, VideoToSequenceParameters } from "@gameknife/shared-types";
+import type { AssetResponse, JobResponse, SequenceResponse, VideoToSequenceParameters } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
 import { useObjectUrl } from "../../utils/objectUrl";
 import { EmptyCanvas } from "../../components/ImageComparePreview";
 import { WorkbenchActionBar } from "../../components/WorkbenchActionBar";
-import type { ManualEditSource } from "../../types/manualEdit";
 
 type VideoJobResponse = JobResponse & {
   result: JobResponse["result"] & {
-    video_url?: string;
-    video_filename?: string;
     sequence_id?: string;
   };
 };
 
 const ACTION_OPTIONS = ["idle", "walk_down", "walk_up", "walk_left", "walk_right", "hurt", "death"];
-
-export function VideoGenerateEditor({
-  upload,
-  videoTask,
-  params,
-  error,
-  canWrite,
-  isTaskProcessing,
-  onParamsChange,
-  onStartProcess,
-  onUseGeneratedVideo,
-  onManualEdit,
-  uploadAction,
-}: {
-  upload: AssetResponse | null;
-  videoTask: VideoJobResponse | null;
-  params: VideoSequenceGenerateParameters;
-  error: string;
-  canWrite: boolean;
-  isTaskProcessing: boolean;
-  onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
-  onStartProcess: () => void | Promise<void>;
-  onUseGeneratedVideo: () => void;
-  onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
-  uploadAction: React.ReactNode;
-}) {
-  const { t } = useTranslation("workflows");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const sourceUrl = useObjectUrl(upload?.url ?? "");
-  const videoUrl = useObjectUrl(videoTask?.type === "sequence_generate_video" ? videoTask.result.video_url ?? "" : "");
-  const videoTaskRunning = videoTask?.type === "sequence_generate_video" && ["pending", "running"].includes(videoTask.status);
-  const videoReady = Boolean(videoUrl && videoTask?.status === "success");
-
-  function confirmApiCall() {
-    if (!canWrite) {
-      return;
-    }
-    setConfirmOpen(false);
-    void onStartProcess();
-  }
-
-  return (
-    <>
-      <section className="preview-stage sequence-stage">
-        <WorkbenchPreview key={`video-generate-${upload?.id ?? "empty"}-${videoTask?.id ?? "none"}`}>
-          {!upload ? (
-            <EmptyCanvas />
-          ) : (
-            <div className="video-tool-canvas">
-              {videoUrl ? (
-                <video className="video-tool-preview" src={videoUrl} controls playsInline />
-              ) : sourceUrl ? (
-                <img className="video-tool-source" src={sourceUrl} alt={upload.filename} />
-              ) : (
-                <span>{t("sequence.video.loadingImage")}</span>
-              )}
-              {videoTaskRunning ? (
-                <div className="video-tool-working">
-                  <Sparkles size={22} />
-                  <strong>{t("sequence.video.callingApi")}</strong>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </WorkbenchPreview>
-      </section>
-
-      <aside className="settings-panel sequence-settings">
-        <VideoGenerationPanel params={params} onParamsChange={onParamsChange} />
-        <div className="export-stack">
-          <button className="ghost" type="button" disabled={!sourceUrl || !upload || !canWrite} onClick={() => upload && sourceUrl ? void onManualEdit({ name: upload.filename, url: sourceUrl, sourceFileId: upload.id, sourceContext: "upload" }) : undefined}>
-            {t("sequence.video.editSource")}
-          </button>
-        </div>
-        {error ? <p className="error-text">{error}</p> : null}
-      </aside>
-
-      <WorkbenchActionBar>
-        {uploadAction}
-        <button className="primary" type="button" disabled={!upload || isTaskProcessing || !canWrite} onClick={() => setConfirmOpen(true)}>
-          {videoTaskRunning ? t("sequence.video.generating") : t("sequence.video.generate")}
-        </button>
-        <a
-          className={`ghost ${videoReady ? "" : "disabled"}`}
-          href={videoReady ? videoUrl : undefined}
-          download={videoTask?.result.video_filename || "generated-video.mp4"}
-          aria-disabled={!videoReady}
-          onClick={(event) => {
-            if (!videoReady) event.preventDefault();
-          }}
-        >
-          {t("sequence.video.download")}
-        </a>
-        <button className="ghost" type="button" disabled={!videoReady || !canWrite} onClick={onUseGeneratedVideo}>
-          {t("sequence.video.sendToFrames")}
-        </button>
-      </WorkbenchActionBar>
-
-      {confirmOpen ? <VideoApiConfirmDialog onCancel={() => setConfirmOpen(false)} onConfirm={confirmApiCall} /> : null}
-    </>
-  );
-}
 
 export function VideoToSequenceEditor({
   video,
@@ -268,51 +162,6 @@ export function VideoToSequenceEditor({
   );
 }
 
-function VideoGenerationPanel({
-  params,
-  onParamsChange,
-}: {
-  params: VideoSequenceGenerateParameters;
-  onParamsChange: React.Dispatch<React.SetStateAction<VideoSequenceGenerateParameters>>;
-}) {
-  const { t } = useTranslation("workflows");
-  return (
-    <>
-      <h2>{t("sequence.video.parameters")}</h2>
-      <label className="number-field">
-        <span>{t("sequence.video.action")}</span>
-        <select value={params.action} onChange={(event) => onParamsChange((current) => ({ ...current, action: event.target.value }))}>
-          {ACTION_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {t(`sequence.actions.${option}`)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <NumberField label={t("sequence.video.duration")} value={params.duration} min={2} max={15} onChange={(value) => onParamsChange((current) => ({ ...current, duration: value }))} />
-      <label className="number-field">
-        <span>{t("sequence.video.resolution")}</span>
-        <select value={params.resolution} onChange={(event) => onParamsChange((current) => ({ ...current, resolution: event.target.value }))}>
-          <option value="480P">480P</option>
-          <option value="720P">720P</option>
-          <option value="1080P">1080P</option>
-        </select>
-      </label>
-      <label className="number-field">
-        <span>{t("sequence.video.prompt")}</span>
-        <textarea rows={4} value={params.prompt} placeholder={t("sequence.video.promptPlaceholder")} onChange={(event) => onParamsChange((current) => ({ ...current, prompt: event.target.value }))} />
-      </label>
-      <details className="advanced-settings">
-        <summary>{t("sequence.video.advanced")}</summary>
-        <label className="number-field">
-          <span>{t("sequence.video.negativePrompt")}</span>
-          <textarea rows={3} value={params.negative_prompt} onChange={(event) => onParamsChange((current) => ({ ...current, negative_prompt: event.target.value }))} />
-        </label>
-      </details>
-    </>
-  );
-}
-
 function VideoClipPanel({
   params,
   duration,
@@ -411,35 +260,6 @@ function VideoClipPanel({
       </details>
     </>
   );
-}
-
-function VideoApiConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
-  const { t } = useTranslation("workflows");
-  const modal = (
-    <div className="failure-dialog-backdrop" role="presentation" onClick={onCancel}>
-      <section className="api-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="video-api-confirm-title" onClick={(event) => event.stopPropagation()}>
-        <div className="failure-dialog-title">
-          <div>
-            <span>{t("sequence.video.externalApi")}</span>
-            <strong id="video-api-confirm-title">{t("sequence.video.confirmTitle")}</strong>
-          </div>
-          <button className="ghost compact" type="button" onClick={onCancel}>
-            {t("sequence.video.cancel")}
-          </button>
-        </div>
-        <p>{t("sequence.video.confirmDescription")}</p>
-        <div className="api-confirm-actions">
-          <button className="ghost" type="button" onClick={onCancel}>
-            {t("sequence.video.decline")}
-          </button>
-          <button className="primary" type="button" onClick={onConfirm}>
-            {t("sequence.video.confirm")}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-  return createPortal(modal, document.body);
 }
 
 function GeneratedFrameThumb({ frameUrl, alt }: { frameUrl: string; alt: string }) {
