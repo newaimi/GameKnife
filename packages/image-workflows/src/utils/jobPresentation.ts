@@ -1,4 +1,5 @@
 import type { JobResponse } from "@gameknife/shared-types";
+import type { TFunction } from "@gameknife/i18n";
 import { readFirstJobOutputAsset } from "./jobs";
 
 export interface JobPresentationOverride {
@@ -14,40 +15,41 @@ export type JobPresentationResolver = (
   job: JobResponse,
 ) => JobPresentationOverride | null;
 
-export function readJobTitle(job: JobResponse) {
+export function readJobTitle(job: JobResponse, t: TFunction) {
   const titleMap: Record<string, string> = {
-    background_remove: "AI 去背景",
-    image_upscale: "图片放大",
-    asset_board_region_detect: "素材板区域识别",
-    asset_board_cutout: "素材板抠图",
-    asset_board_region_refine: "素材板框选刷新",
-    asset_board_export: "素材板导出",
-    asset_quality_check: "自动质量检查",
-    sequence_clean: "序列帧清洗",
-    sequence_video_to_frames: "视频转序列帧",
-    sequence_export_frames: "PNG 序列导出",
-    sequence_export_spine: "Spine 导出",
-    sound_effect_generate: "声效生成",
+    background_remove: "types.backgroundRemove",
+    image_upscale: "types.imageUpscale",
+    asset_board_region_detect: "types.assetBoardRegionDetect",
+    asset_board_cutout: "types.assetBoardCutout",
+    asset_board_region_refine: "types.assetBoardRegionRefine",
+    asset_board_export: "types.assetBoardExport",
+    asset_quality_check: "types.assetQualityCheck",
+    sequence_clean: "types.sequenceClean",
+    sequence_video_to_frames: "types.sequenceVideoToFrames",
+    sequence_export_frames: "types.sequenceExportFrames",
+    sequence_export_spine: "types.sequenceExportSpine",
+    sound_effect_generate: "types.soundEffectGenerate",
   };
-  return titleMap[job.type] ?? (job.type.includes("export") ? "组件导出" : job.type);
+  const key = titleMap[job.type];
+  return key ? t(key) : job.type.includes("export") ? t("types.componentExport") : job.type;
 }
 
-export function readJobInitial(job: JobResponse) {
-  if (job.type === "asset_quality_check") return "检";
-  if (job.type === "sound_effect_generate") return "声";
-  if (job.type === "sequence_video_to_frames") return "视";
-  if (job.type.includes("sequence")) return "帧";
-  if (job.type === "image_upscale") return "放";
-  return job.type.includes("asset") ? "板" : "图";
+export function readJobInitial(job: JobResponse, t: TFunction) {
+  if (job.type === "asset_quality_check") return t("initials.quality");
+  if (job.type === "sound_effect_generate") return t("initials.sound");
+  if (job.type === "sequence_video_to_frames") return t("initials.video");
+  if (job.type.includes("sequence")) return t("initials.frame");
+  if (job.type === "image_upscale") return t("initials.upscale");
+  return job.type.includes("asset") ? t("initials.board") : t("initials.image");
 }
 
-export function readJobDisplayName(job: JobResponse) {
+export function readJobDisplayName(job: JobResponse, t: TFunction) {
   if (job.type === "sound_effect_generate") {
     const prompt = readString(job.result.prompt).trim();
     if (prompt) return prompt.length > 36 ? `${prompt.slice(0, 36)}...` : prompt;
-    return "声效生成";
+    return t("types.soundEffectGenerate");
   }
-  return job.input_filename ?? readJobTitle(job);
+  return job.input_filename ?? readJobTitle(job, t);
 }
 
 export function readJobThumbnailPath(job: JobResponse) {
@@ -59,26 +61,23 @@ export function readJobThumbnailPath(job: JobResponse) {
   return readString(job.result.cutout_url) || readString(job.result.input_asset_url);
 }
 
-export function formatJobFileMeta(job: JobResponse) {
-  if (job.type === "asset_quality_check") {
-    return `${formatJobFileType(job)} · ${formatFileSize(job.input_size_bytes ?? 0)}`;
-  }
+export function formatJobFileMeta(job: JobResponse, t: TFunction) {
   if (job.type === "sound_effect_generate") {
     return `WAV · ${job.result.duration_seconds ?? job.parameters.duration_seconds ?? "-"}s`;
   }
-  return `${formatJobFileType(job)} · ${formatFileSize(job.input_size_bytes ?? 0)}`;
+  return `${formatJobFileType(job, t)} · ${formatFileSize(job.input_size_bytes ?? 0, t)}`;
 }
 
-export function formatJobStatus(status: JobResponse["status"]) {
-  if (status === "success") return "已完成";
-  if (status === "failed") return "失败";
-  return status === "running" ? "处理中" : "等待中";
+export function formatJobStatus(status: JobResponse["status"], t: TFunction) {
+  if (status === "success") return t("status.succeeded");
+  if (status === "failed") return t("status.failed");
+  return status === "running" ? t("status.running") : t("status.queued");
 }
 
-export function formatAbsoluteTime(value: string) {
+export function formatAbsoluteTime(value: string, language: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(language, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -86,28 +85,28 @@ export function formatAbsoluteTime(value: string) {
   });
 }
 
-export function formatRelativeTime(value: string) {
+export function formatRelativeTime(value: string, language: string, t: TFunction) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   const diffMs = Date.now() - date.getTime();
-  if (diffMs < 60 * 1000) return "刚刚";
-  if (diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.round(diffMs / 60000))}分钟前`;
-  if (diffMs < 24 * 60 * 60 * 1000) return `${Math.max(1, Math.round(diffMs / 3600000))}小时前`;
-  return formatAbsoluteTime(value);
+  if (diffMs < 60 * 1000) return t("presentation.justNow");
+  if (diffMs < 60 * 60 * 1000) return t("presentation.minutesAgo", { count: Math.max(1, Math.round(diffMs / 60000)) });
+  if (diffMs < 24 * 60 * 60 * 1000) return t("presentation.hoursAgo", { count: Math.max(1, Math.round(diffMs / 3600000)) });
+  return formatAbsoluteTime(value, language);
 }
 
-function formatJobFileType(job: JobResponse) {
+function formatJobFileType(job: JobResponse, t: TFunction) {
   if (job.type === "sound_effect_generate") return "WAV";
   if ((job.type.includes("sequence") || job.type.includes("export")) && readFirstJobOutputAsset(job)) return "ZIP";
   const mimeType = job.input_mime_type ?? "";
   if (mimeType.includes("jpeg")) return "JPG";
   if (mimeType.includes("png")) return "PNG";
   if (mimeType.includes("webp")) return "WEBP";
-  return "图片";
+  return t("presentation.image");
 }
 
-function formatFileSize(sizeBytes: number) {
-  if (!sizeBytes) return "未知大小";
+function formatFileSize(sizeBytes: number, t: TFunction) {
+  if (!sizeBytes) return t("presentation.unknownSize");
   if (sizeBytes < 1024 * 1024) return `${Math.max(1, Math.round(sizeBytes / 1024))}KB`;
   return `${(sizeBytes / 1024 / 1024).toFixed(1)}MB`;
 }

@@ -20,8 +20,8 @@ body {
 }
 
 /*
- * 工具路由使用固定视口工作区，浏览器滚动会让悬浮面板和画布产生不同坐标系。
- * 只在 editor-shell 存在时锁定根节点，任务、设置和帮助页仍保留普通文档滚动。
+ * Tool routes use a fixed viewport. Lock the root only for editor-shell so floating panels and the canvas share
+ * one coordinate system while jobs, settings, and help keep normal document scrolling.
  */
 html:has(.editor-shell),
 body:has(.editor-shell),
@@ -142,6 +142,7 @@ button {
 
 .top-nav nav a:focus-visible,
 .theme-toggle:focus-visible,
+.language-option:focus-visible,
 .mobile-menu-item:focus-visible,
 .mobile-menu-trigger:focus-visible {
   outline: none;
@@ -181,12 +182,9 @@ button {
   position: relative;
 }
 
-.theme-toggle {
+.top-nav .header-control {
   position: relative;
-  width: 42px;
   height: 42px;
-  display: inline-grid;
-  place-items: center;
   border: 1px solid var(--line);
   border-radius: 11px;
   color: var(--blue);
@@ -203,7 +201,52 @@ button {
     background var(--gk-motion-fast) ease;
 }
 
-.theme-toggle:hover {
+.theme-toggle {
+  width: 42px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.language-toggle {
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.language-toggle .language-option {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: var(--gk-font-weight-strong);
+  line-height: 1;
+  transition:
+    color var(--gk-motion-fast) ease,
+    background var(--gk-motion-fast) ease,
+    box-shadow var(--gk-motion-fast) ease,
+    scale var(--gk-motion-instant) var(--gk-ease-out);
+}
+
+.language-toggle .language-option:hover {
+  color: var(--blue);
+  background: var(--chip);
+}
+
+.language-toggle .language-option.active {
+  color: white;
+  background: var(--blue);
+  box-shadow: 0 6px 14px rgba(23, 103, 255, 0.24);
+}
+
+.language-toggle .language-option:active {
+  scale: 0.95;
+}
+
+.top-nav .header-control:hover {
   translate: 0 -1px;
   border-color: var(--blue);
   background: var(--chip);
@@ -326,8 +369,8 @@ button {
 }
 
 /*
- * 顶部导航保留独立高度，剩余视口全部交给工作台。content 不再提供页面留白，
- * 工具和参数面板的悬浮间距统一由共享工作区控制。
+ * The top navigation keeps its own height and the workbench receives the remaining viewport. Shared workbench
+ * styles own all floating panel spacing instead of the content wrapper.
  */
 .editor-shell {
   width: 100%;
@@ -451,7 +494,8 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .top-nav nav a,
-  .theme-toggle,
+  .header-control,
+  .language-option,
   .theme-toggle::after,
   .mobile-menu-item,
   .mobile-menu-trigger {
@@ -459,7 +503,8 @@ button {
   }
 
   .top-nav nav a,
-  .theme-toggle,
+  .header-control,
+  .language-option,
   .mobile-menu-item,
   .mobile-menu-trigger {
     translate: none;

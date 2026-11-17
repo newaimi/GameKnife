@@ -187,7 +187,7 @@ def test_unavailable_quality_result_keeps_retry_parameters_and_no_material_verdi
         {
             "code": "QUALITY_CHECK_UNAVAILABLE",
             "status": "not_checked",
-            "message": "自动质量检查暂时不可用，请重试。",
+            "message": "Automatic quality checks are temporarily unavailable. Try again.",
             "metrics": {},
         }
     ]

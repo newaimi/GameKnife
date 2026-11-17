@@ -14,8 +14,8 @@ COPY package.json package-lock.json ./
 COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/community-web/package.json ./apps/community-web/package.json
-# npm 的详细错误默认只留在构建容器内部。构建失败时直接输出日志，
-# 能减少远程服务器排查前端依赖问题的来回成本。
+# npm keeps detailed failures inside the build container by default. Print the log on failure
+# so remote frontend dependency errors can be diagnosed from the build output.
 RUN npm ci --no-audit --no-fund || (cat /root/.npm/_logs/*.log; exit 1)
 COPY apps/community-web ./apps/community-web
 RUN npm --workspace apps/community-web run build
@@ -49,8 +49,8 @@ ARG GAMEKNIFE_BUILD_NUMBER=local
 ARG GAMEKNIFE_GIT_SHA=unknown
 ARG GAMEKNIFE_BUILD_TIME=unknown
 
-# 先安装 CUDA 版 PyTorch，是为了避免后续安装后端依赖时落到 CPU wheel。
-# GPU 是否真正可用仍取决于宿主机驱动和 Compose 里的 NVIDIA runtime 配置。
+# Install the CUDA PyTorch wheel first so later backend dependencies do not select a CPU wheel.
+# GPU availability still depends on the host driver and the NVIDIA runtime configured by Compose.
 RUN python -m pip install --upgrade pip \
     && python -m pip install "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" --index-url "${TORCH_INDEX_URL}" \
     && python -m pip install -e .

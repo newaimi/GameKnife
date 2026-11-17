@@ -1,0 +1,96 @@
+{
+  "eyebrow": "Jobs",
+  "title": "Project jobs",
+  "description": "View job inputs, outputs and failures, and return to tools to continue.",
+  "refresh": "Refresh",
+  "filterLabel": "Filter by job type",
+  "statusFilter": "Status",
+  "startTime": "Start time",
+  "endTime": "End time",
+  "clearTime": "Clear dates",
+  "loading": "Loading...",
+  "resultCount_one": "{{count}} job",
+  "resultCount_other": "{{count}} jobs",
+  "page": "Page {{current}} of {{total}}",
+  "loadingJobs": "Loading jobs...",
+  "empty": "No matching jobs",
+  "emptyHint": "Try another job type or date range.",
+  "previousPage": "Previous",
+  "nextPage": "Next",
+  "deleteConfirm": "Deleting this job also removes its generated files. Continue?",
+  "categories": {
+    "all": { "label": "All", "note": "Project jobs" },
+    "background": { "label": "Background removal", "note": "AI background removal results" },
+    "upscale": { "label": "Image upscaling", "note": "Super-resolution and pixel upscaling" },
+    "sound": { "label": "Sound generation", "note": "Text-generated WAV files" },
+    "assetBoard": { "label": "UI Splitting", "note": "Region cutouts and exports" },
+    "sequence": { "label": "Sequences", "note": "PNG sequences and Spine projects" },
+    "quality": { "label": "Quality checks", "note": "Image, UI, audio and 3D" },
+    "export": { "label": "Project exports", "note": "Generic, Unity and Godot" }
+  },
+  "calendar": {
+    "chooseDate": "Choose date",
+    "calendar": "Calendar",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "clear": "Clear",
+    "today": "Today",
+    "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  },
+  "actions": {
+    "download": "Download result",
+    "noDownload": "This job has no downloadable file",
+    "delete": "Delete job",
+    "deleteWhileRunning": "A running job cannot be deleted",
+    "retry": "Return to tool and retry"
+  },
+  "status": {
+    "queued": "Queued",
+    "running": "Processing",
+    "succeeded": "Completed",
+    "failed": "Failed",
+    "executionFailed": "Job execution failed"
+  },
+  "billing": {
+    "free": "Cost: Free",
+    "summary": "Cost: {{credits}} credits · {{state}}",
+    "frozen": "Reserved",
+    "charged": "Charged",
+    "released": "Released"
+  },
+  "presentation": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hr ago",
+    "daysAgo": "{{count}} d ago",
+    "outputFile": "Output file",
+    "job": "Job",
+    "image": "Image",
+    "unknownSize": "Unknown size",
+    "statusLabel": "Job status: {{status}}"
+  },
+  "types": {
+    "backgroundRemove": "AI background removal",
+    "imageUpscale": "Image upscaling",
+    "assetBoardRegionDetect": "UI splitting region detection",
+    "assetBoardCutout": "UI splitting cutout",
+    "assetBoardRegionRefine": "UI splitting region refinement",
+    "assetBoardExport": "UI splitting export",
+    "sequenceClean": "Sequence cleanup",
+    "assetQualityCheck": "Automated quality check",
+    "sequenceVideoToFrames": "Video to frames",
+    "sequenceExportFrames": "PNG sequence export",
+    "sequenceExportSpine": "Spine export",
+    "soundEffectGenerate": "Sound generation",
+    "componentExport": "Component export"
+  },
+  "initials": {
+    "quality": "Q",
+    "sound": "S",
+    "video": "V",
+    "frame": "F",
+    "upscale": "U",
+    "board": "B",
+    "image": "I"
+  }
+}

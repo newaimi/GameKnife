@@ -4,7 +4,7 @@ export function downloadBlob(blob: Blob, name: string) {
   anchor.href = objectUrl;
   anchor.download = name;
   anchor.rel = "noreferrer";
-  // 浏览器下载必须由临时 a 标签触发；下载发起后立刻释放对象地址，避免大图反复导出造成内存占用。
+  // Browser downloads require a temporary anchor. Revoke its object URL after dispatch to avoid retaining large exports.
   document.body.append(anchor);
   anchor.click();
   anchor.remove();

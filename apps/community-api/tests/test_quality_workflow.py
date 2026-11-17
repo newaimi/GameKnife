@@ -56,7 +56,7 @@ def test_unavailable_checker_persists_unchecked_fact_and_fails_retry_job(
     )
     assert stored_job is not None
     assert stored_job.status == "failed"
-    assert stored_job.error_message == "自动质量检查暂时不可用，请稍后重试。"
+    assert stored_job.error_message == "Automatic quality checks are temporarily unavailable. Try again later."
     assert quality is not None
     assert quality.status == "unchecked"
     payload = json.loads(quality.checks_json)

@@ -26,21 +26,21 @@ UPSCALE_MODEL_SPECS = [
     UpscaleModelSpec(
         key="general",
         name="RealESRGAN x4plus",
-        role="通用、游戏素材、写实图片",
+        role="General assets, game assets, and realistic images",
         filename="RealESRGAN_x4plus.pth",
         url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
     ),
     UpscaleModelSpec(
         key="anime",
         name="RealESRGAN x4plus anime",
-        role="动漫插画、线稿、卡通素材",
+        role="Anime illustrations, line art, and cartoon assets",
         filename="RealESRGAN_x4plus_anime_6B.pth",
         url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
     ),
     UpscaleModelSpec(
         key="noisy",
         name="RealESRGAN general x4v3",
-        role="噪点图、压缩图、低清素材",
+        role="Noisy, compressed, and low-resolution assets",
         filename="realesr-general-x4v3.pth",
         url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
     ),
@@ -48,7 +48,7 @@ UPSCALE_MODEL_SPECS = [
 
 
 class UpscaleModelService:
-    # 模型对象、加载锁和推理锁放在类级别，是为了让同一个 Web 进程只持有一份权重，避免多请求重复加载占满显存。
+    # Class-level models and locks keep one copy of each weight set per web process and prevent concurrent loads from exhausting GPU memory.
     _models: dict[str, Any] = {}
     _device: str | None = None
     _load_lock = threading.Lock()
@@ -57,7 +57,7 @@ class UpscaleModelService:
     _install_status: dict[str, Any] = {
         "status": "idle",
         "progress": 0,
-        "message": "尚未手动安装。",
+        "message": "Not installed manually.",
         "error": None,
     }
 
@@ -71,7 +71,7 @@ class UpscaleModelService:
         try:
             import torch
         except Exception:  # noqa: BLE001
-            return "未知"
+            return "Unknown"
         return ("cuda" if torch.cuda.is_available() else "cpu").upper()
 
     @property
@@ -86,7 +86,7 @@ class UpscaleModelService:
                 self.__class__._install_status = {
                     "status": "success",
                     "progress": 100,
-                    "message": "图片放大模型文件已安装。" if not loaded else "图片放大模型已安装并加载完成。",
+                    "message": "Upscale model files are installed." if not loaded else "Upscale models are installed and loaded.",
                     "error": None,
                 }
             status = dict(self.__class__._install_status)
@@ -115,9 +115,9 @@ class UpscaleModelService:
                 start = int(index / len(UPSCALE_MODEL_SPECS) * 92) + 3
                 end = int((index + 1) / len(UPSCALE_MODEL_SPECS) * 92) + 3
                 self._download_model(spec, start, end)
-            self._set_install_status("success", 100, "图片放大模型文件已安装。")
+            self._set_install_status("success", 100, "Upscale model files are installed.")
         except Exception as exc:  # noqa: BLE001
-            self._set_install_status("failed", 100, "图片放大模型安装失败。", str(exc))
+            self._set_install_status("failed", 100, "Upscale model installation failed.", str(exc))
         return self.install_status()
 
     def is_installed(self) -> bool:
@@ -145,15 +145,15 @@ class UpscaleModelService:
         tile_size: int,
     ) -> tuple[Image.Image, str, str, list[str]]:
         if not self.is_installed():
-            raise RuntimeError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+            raise RuntimeError("Upscale models are not installed. Install the model files from Settings first.")
 
-        # 这里不再下载模型，只根据已存在的本地权重加载对应风格，保证创建任务时的安装检查和执行阶段行为一致。
+        # Load the requested style only from existing local weights so job creation checks and execution follow the same installation boundary.
         key = self._model_key_for_style(style)
         model = self._model_for_key(key)
         spec = self._spec_for_key(key)
         warnings: list[str] = []
         if target_scale == 8:
-            warnings.append("8x 放大会先执行 4x AI 超分，再插值到目标尺寸。")
+            warnings.append("8x scaling runs 4x AI upscaling first, then interpolates to the target size.")
 
         rgb, alpha = _split_rgba_for_upscale(image)
         if denoise > 0:
@@ -163,7 +163,7 @@ class UpscaleModelService:
         if target_scale == spec.scale:
             rgb_output = first_pass
         else:
-            # 现有 Real-ESRGAN 权重都是原生 4x。8x 只跑一次模型再插值，避免 16x 中间图打爆内存。
+            # Existing Real-ESRGAN weights are native 4x. For 8x, run the model once and interpolate so a 16x intermediate cannot exhaust memory.
             rgb_output = first_pass.resize((image.width * target_scale, image.height * target_scale), Image.Resampling.LANCZOS)
 
         alpha_output = alpha.resize(rgb_output.size, Image.Resampling.LANCZOS)
@@ -175,11 +175,11 @@ class UpscaleModelService:
         with self._install_lock:
             if self.__class__._install_status["status"] == "running":
                 return False
-            # 下载只能由设置页或商业版 Worker 显式触发；推理路径始终只读本地权重。
+            # Only explicit installation requests may download models. Inference reads local weights.
             self.__class__._install_status = {
                 "status": "running",
                 "progress": 1,
-                "message": "准备下载图片放大模型文件。",
+                "message": "Preparing to download upscale model files.",
                 "error": None,
             }
         return True
@@ -187,12 +187,12 @@ class UpscaleModelService:
     def _download_model(self, spec: UpscaleModelSpec, start_progress: int, end_progress: int) -> None:
         destination = self.model_path(spec.key)
         if destination.is_file() and destination.stat().st_size > 0:
-            self._set_install_status("running", end_progress, f"{spec.name} 已存在。")
+            self._set_install_status("running", end_progress, f"{spec.name} already exists.")
             return
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix(destination.suffix + ".part")
-        self._set_install_status("running", start_progress, f"正在下载 {spec.name}。")
+        self._set_install_status("running", start_progress, f"Downloading {spec.name}.")
         try:
             with urllib.request.urlopen(spec.url, timeout=60) as response, temporary.open("wb") as output:  # noqa: S310
                 total = int(response.headers.get("Content-Length") or 0)
@@ -206,14 +206,14 @@ class UpscaleModelService:
                     if total > 0:
                         ratio = min(1.0, downloaded / total)
                         progress = start_progress + int((end_progress - start_progress) * ratio)
-                        self._set_install_status("running", progress, f"正在下载 {spec.name}。")
+                        self._set_install_status("running", progress, f"Downloading {spec.name}.")
             shutil.move(str(temporary), destination)
         finally:
             temporary.unlink(missing_ok=True)
 
     def _model_for_key(self, key: str) -> Any:
         if not self.model_path(key).is_file():
-            raise RuntimeError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+            raise RuntimeError("Upscale models are not installed. Install the model files from Settings first.")
         with self._load_lock:
             if key in self.__class__._models:
                 return self.__class__._models[key]
@@ -221,11 +221,11 @@ class UpscaleModelService:
                 import torch
                 from spandrel import ModelLoader
             except ImportError as exc:
-                raise RuntimeError("缺少图片放大依赖，请安装 torch 和 spandrel。") from exc
+                raise RuntimeError("Upscale dependencies are missing. Install torch and spandrel.") from exc
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = ModelLoader().load_from_file(str(self.model_path(key)))
-            # 使用 spandrel 统一加载权重，避免旧 Real-ESRGAN 包和 torchvision 版本绑定影响 Web 进程。
+            # spandrel loads every weight format without binding the web process to legacy Real-ESRGAN and torchvision versions.
             self.__class__._models[key] = model.eval().float().to(device)
             self.__class__._device = device
             return self.__class__._models[key]
@@ -259,7 +259,7 @@ class UpscaleModelService:
 
         array = np.asarray(tile.convert("RGB")).astype(np.float32) / 255.0
         tensor = torch.from_numpy(array).permute(2, 0, 1).unsqueeze(0).to(device)
-        # Real-ESRGAN 对显存峰值敏感，进程内串行能避免两个 tile 同时推理导致显存抖动。
+        # Real-ESRGAN has high peak memory usage, so in-process serialization prevents two tiles from running inference together.
         with self.infer_lock:
             with torch.inference_mode():
                 output = model(tensor)
@@ -293,7 +293,7 @@ class UpscaleModelService:
         for spec in UPSCALE_MODEL_SPECS:
             if spec.key == key:
                 return spec
-        raise RuntimeError(f"未知图片放大模型：{key}")
+        raise RuntimeError(f"Unknown upscale model: {key}")
 
 
 def _split_rgba_for_upscale(image: Image.Image) -> tuple[Image.Image, Image.Image]:
@@ -302,7 +302,7 @@ def _split_rgba_for_upscale(image: Image.Image) -> tuple[Image.Image, Image.Imag
     alpha = array[:, :, 3]
     if 0 < int(np.count_nonzero(alpha > 0)) < alpha.size and int(np.count_nonzero(alpha == 0)) > 0:
         mask = np.where(alpha == 0, 255, 0).astype(np.uint8)
-        # 透明区不会显示，但模型卷积会读到透明像素里的 RGB。先补邻近色，减少放大后的白边或黑边。
+        # Transparent pixels are hidden but their RGB values still affect convolution. Inpaint nearby colors first to reduce light or dark fringes.
         rgb = cv2.cvtColor(cv2.inpaint(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), mask, 3, cv2.INPAINT_TELEA), cv2.COLOR_BGR2RGB)
     return Image.fromarray(rgb, mode="RGB"), Image.fromarray(alpha, mode="L")
 

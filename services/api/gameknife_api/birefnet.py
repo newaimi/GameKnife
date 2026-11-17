@@ -24,7 +24,7 @@ class BiRefNetService:
     _install_status: dict[str, Any] = {
         "status": "idle",
         "progress": 0,
-        "message": "尚未手动安装。",
+        "message": "Not installed manually.",
         "error": None,
     }
 
@@ -48,7 +48,7 @@ class BiRefNetService:
         try:
             import torch
         except Exception:  # noqa: BLE001
-            return "未知"
+            return "Unknown"
         return ("cuda" if torch.cuda.is_available() else "cpu").upper()
 
     @property
@@ -63,7 +63,7 @@ class BiRefNetService:
                 self.__class__._install_status = {
                     "status": "success",
                     "progress": 100,
-                    "message": "BiRefNet 模型文件已安装。" if not loaded else "BiRefNet 已安装并加载完成。",
+                    "message": "BiRefNet model files are installed." if not loaded else "BiRefNet is installed and loaded.",
                     "error": None,
                 }
             status = dict(self.__class__._install_status)
@@ -111,11 +111,11 @@ class BiRefNetService:
 
     def _run_install(self) -> dict[str, Any]:
         try:
-            self._set_install_status("running", 5, "检查 BiRefNet 依赖。")
+            self._set_install_status("running", 5, "Checking BiRefNet dependencies.")
             self._ensure_model_loaded(status_updates=True, local_files_only=False)
-            self._set_install_status("success", 100, "BiRefNet 已安装并加载完成。")
+            self._set_install_status("success", 100, "BiRefNet is installed and loaded.")
         except Exception as exc:  # noqa: BLE001
-            self._set_install_status("failed", 100, "BiRefNet 安装失败。", str(exc))
+            self._set_install_status("failed", 100, "BiRefNet installation failed.", str(exc))
         return self.install_status()
 
     def predict_alpha(self, image: Image.Image) -> np.ndarray:
@@ -125,14 +125,14 @@ class BiRefNetService:
         if not self.is_installed():
             # Inference forbids implicit downloads because large background transfers make jobs appear stalled.
             # A job can load from the local cache only after Settings completes an explicit installation.
-            raise RuntimeError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+            raise RuntimeError("BiRefNet is not installed. Install the model files from Settings first.")
         if not self.is_loaded():
             self._ensure_model_loaded(status_updates=False, local_files_only=True)
         model = self.__class__._model
         transform_image = self.__class__._transform_image
         device = self.__class__._device
         if model is None or transform_image is None or device is None:
-            raise RuntimeError("BiRefNet 初始化失败，请重启服务后重试。")
+            raise RuntimeError("BiRefNet initialization failed. Restart the service and try again.")
 
         import torch
         from torchvision import transforms
@@ -151,7 +151,7 @@ class BiRefNetService:
             self.__class__._install_status = {
                 "status": "running",
                 "progress": 1,
-                "message": "准备安装 BiRefNet。",
+                "message": "Preparing to install BiRefNet.",
                 "error": None,
             }
         return True
@@ -162,17 +162,17 @@ class BiRefNetService:
             from torchvision import transforms
             from transformers import AutoModelForImageSegmentation
         except ImportError as exc:
-            raise RuntimeError("缺少 BiRefNet 依赖，请先安装 torch、torchvision、transformers、einops、kornia、timm 和 huggingface_hub。") from exc
+            raise RuntimeError("BiRefNet dependencies are missing. Install torch, torchvision, transformers, einops, kornia, timm, and huggingface_hub.") from exc
 
         with self._load_lock:
             if self.__class__._model is not None:
                 if status_updates:
-                    self._set_install_status("running", 95, "模型已经在内存中，正在确认状态。")
+                    self._set_install_status("running", 95, "The model is already in memory. Confirming its status.")
                 return
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if status_updates:
-                self._set_install_status("running", 15, f"开始下载并加载 {BIREFNET_MODEL_ID}。")
+                self._set_install_status("running", 15, f"Downloading and loading {BIREFNET_MODEL_ID}.")
             transform_image = transforms.Compose(
                 [
                     transforms.Resize((self.model_input_size, self.model_input_size)),
@@ -188,7 +188,7 @@ class BiRefNetService:
                 cache_dir=self.model_cache_dir,
             )
             if status_updates:
-                self._set_install_status("running", 85, f"模型文件已就绪，正在迁移到 {device.upper()}。")
+                self._set_install_status("running", 85, f"Model files are ready. Moving the model to {device.upper()}.")
             self.__class__._model = model.eval().float().to(device)
             self.__class__._transform_image = transform_image
             self.__class__._device = device

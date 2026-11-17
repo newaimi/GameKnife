@@ -5,10 +5,10 @@ cd "$(dirname "$0")/.."
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "已创建 .env。请先按实际部署环境修改端口、模型 token 和代理配置。"
+  echo "Created .env. Update the ports, model token, and proxy settings for this deployment before continuing."
 fi
 
-# 部署脚本先统一构建，再使用 --no-build 启动，避免启动阶段隐式重建镜像。
+# Build once before startup so --no-build never triggers an implicit image rebuild.
 export GAMEKNIFE_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 export GAMEKNIFE_BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo local)"
 export GAMEKNIFE_APP_VERSION="local-${GAMEKNIFE_BUILD_NUMBER}"

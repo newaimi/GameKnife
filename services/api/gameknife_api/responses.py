@@ -89,7 +89,7 @@ def build_resource_reference_detail(
 
     return {
         "code": "RESOURCE_REFERENCED",
-        "message": "资源仍被任务、序列或派生素材使用，无法删除。",
+        "message": "The resource is still used by a job, sequence, or derived asset and cannot be deleted.",
         "resource": {"kind": exc.resource_kind, "id": exc.resource_id},
         "references": [
             {

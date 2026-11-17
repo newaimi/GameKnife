@@ -61,7 +61,7 @@ class InstallState:
         self._status: dict[str, Any] = {
             "status": "idle",
             "progress": 0,
-            "message": "尚未手动安装。",
+            "message": "Not installed manually.",
             "error": None,
         }
 
@@ -98,14 +98,14 @@ class StableAudioWorkerPool:
             status_data = {
                 "status": "unavailable",
                 "progress": 0,
-                "message": "Stable Audio 声效服务缺少运行依赖。",
+                "message": "The Stable Audio SFX service is missing runtime dependencies.",
                 "error": format_missing_runtime_dependencies(missing_dependencies),
             }
         elif installed and status_data["status"] in {"idle", "running", "failed"}:
             status_data = {
                 "status": "success",
                 "progress": 100,
-                "message": "Stable Audio Open 模型文件已安装。",
+                "message": "Stable Audio Open model files are installed.",
                 "error": None,
             }
         return {
@@ -137,9 +137,9 @@ class StableAudioWorkerPool:
         try:
             self.jobs.put_nowait(job)
         except queue.Full as exc:
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="声效生成队列已满，请稍后再试。") from exc
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="The SFX generation queue is full. Try again later.") from exc
         if not job.done.wait(GENERATION_TIMEOUT_SECONDS):
-            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="声效生成超时，请缩短时长或稍后重试。")
+            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="SFX generation timed out. Shorten the duration or try again later.")
         if job.error:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=job.error)
         return job
@@ -148,7 +148,7 @@ class StableAudioWorkerPool:
         try:
             from huggingface_hub import snapshot_download
         except ImportError as exc:
-            raise RuntimeError("缺少 huggingface_hub，请确认 stable-audio-tools 已安装。") from exc
+            raise RuntimeError("huggingface_hub is missing. Confirm that stable-audio-tools is installed.") from exc
         snapshot_download(MODEL_ID, repo_type="model")
 
     def _worker_loop(self, state: WorkerState) -> None:
@@ -218,7 +218,7 @@ class StableAudioWorkerPool:
             try:
                 from stable_audio_tools import get_pretrained_model
             except ImportError as exc:
-                raise RuntimeError("缺少 stable-audio-tools，请先安装声效服务依赖。") from exc
+                raise RuntimeError("stable-audio-tools is missing. Install the SFX service dependencies first.") from exc
             with huggingface_offline_mode():
                 model, model_config = get_pretrained_model(MODEL_ID)
             try:
@@ -230,7 +230,7 @@ class StableAudioWorkerPool:
                 if state.device.startswith("cuda"):
                     torch.cuda.set_device(state.device)
             except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"Stable Audio 模型迁移到 {state.label} 失败：{exc}") from exc
+                raise RuntimeError(f"Failed to move the Stable Audio model to {state.label}: {exc}") from exc
             state.loaded = True
             self._models[state.device] = (model, model_config)
             return model, model_config
@@ -257,16 +257,16 @@ def missing_runtime_dependencies() -> list[str]:
 
 
 def format_missing_runtime_dependencies(missing: list[str]) -> str:
-    package_names = "、".join(missing)
-    return f"缺少 Python 依赖：{package_names}。请重新安装或重新构建 gameknife-stable-audio-sfx 服务。"
+    package_names = ", ".join(missing)
+    return f"Missing Python dependencies: {package_names}. Reinstall or rebuild the gameknife-stable-audio-sfx service."
 
 
 def encode_wav_pcm16(audio: Any, sample_rate: int) -> bytes:
     if len(audio.shape) != 2:
-        raise RuntimeError("声效输出格式不正确，无法写入 WAV。")
+        raise RuntimeError("The SFX output format is invalid and cannot be written as WAV.")
     channels = int(audio.shape[0])
     if channels <= 0:
-        raise RuntimeError("声效输出没有可写入的声道。")
+        raise RuntimeError("The SFX output has no writable audio channels.")
 
     # Generation already clips output to int16 PCM. Write WAV with the standard library to avoid inconsistent
     # torchaudio BytesIO support across operating systems and conda backends.
@@ -325,7 +325,7 @@ app = FastAPI(title="GameKnife Stable Audio SFX", version="0.1.0")
 
 def verify_token(x_gameknife_token: str | None = Header(default=None)) -> None:
     if SERVICE_TOKEN and x_gameknife_token != SERVICE_TOKEN:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="声效服务内部 token 不正确。")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The internal SFX service token is invalid.")
 
 
 @app.get("/health")
@@ -346,7 +346,7 @@ def install_model() -> dict[str, Any]:
     current = install_state.read()
     if current["status"] == "running":
         return worker_pool.status()
-    install_state.write("running", 1, "准备安装 Stable Audio Open。")
+    install_state.write("running", 1, "Preparing to install Stable Audio Open.")
     thread = threading.Thread(target=_install_worker, name="gameknife-stable-audio-install", daemon=True)
     thread.start()
     return worker_pool.status()
@@ -358,17 +358,17 @@ def generate_sound_effect(payload: GenerateRequest) -> Response:
     if missing_dependencies:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=format_missing_runtime_dependencies(missing_dependencies))
     if not model_files_cached():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stable Audio Open 模型尚未安装，请先调用安装接口。")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stable Audio Open is not installed. Call the installation endpoint first.")
     job = worker_pool.submit(payload)
     if job.audio is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="声效生成没有返回音频。")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="SFX generation returned no audio.")
     return Response(content=job.audio, media_type="audio/wav", headers=job.headers)
 
 
 def _install_worker() -> None:
     try:
-        install_state.write("running", 10, f"正在下载 {MODEL_ID}。")
+        install_state.write("running", 10, f"Downloading {MODEL_ID}.")
         worker_pool.install_model()
-        install_state.write("success", 100, "Stable Audio Open 模型文件已安装。")
+        install_state.write("success", 100, "Stable Audio Open model files are installed.")
     except Exception as exc:  # noqa: BLE001
-        install_state.write("failed", 100, "Stable Audio Open 安装失败。", str(exc))
+        install_state.write("failed", 100, "Stable Audio Open installation failed.", str(exc))

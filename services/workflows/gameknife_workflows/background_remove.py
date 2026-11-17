@@ -34,11 +34,11 @@ def create_background_remove_workflow(
     submission: TaskSubmission | None = None,
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     if not model.is_installed():
-        raise WorkflowModelNotInstalledError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+        raise WorkflowModelNotInstalledError("BiRefNet is not installed. Install the model files from Settings first.")
 
     input_asset = repository.get_asset_for_workspace(input_asset_id, context.workspace.id)
     if input_asset is None:
-        raise WorkflowInputNotFoundError("输入素材不存在。")
+        raise WorkflowInputNotFoundError("Input asset not found.")
 
     # Creation validation lives in the workflow so every API entry point reuses the same orchestration path.
     # The API layer only maps HTTP status codes, avoiding duplicated model checks and asset-ownership rules.

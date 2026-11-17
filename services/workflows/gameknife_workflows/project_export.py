@@ -85,12 +85,12 @@ def prepare_project_export_parameters(
 ) -> tuple[list[AssetRecord], dict[str, Any]]:
     unique_ids = list(dict.fromkeys(str(asset_id).strip() for asset_id in asset_ids if str(asset_id).strip()))
     if not unique_ids:
-        raise WorkflowValidationError("请至少选择一个素材。")
+        raise WorkflowValidationError("Select at least one asset.")
     if len(unique_ids) > MAX_EXPORT_ASSETS:
-        raise WorkflowValidationError(f"单次最多导出 {MAX_EXPORT_ASSETS} 个素材。")
+        raise WorkflowValidationError(f"Export at most {MAX_EXPORT_ASSETS} assets at a time.")
     normalized_preset = preset.strip().lower()
     if normalized_preset not in EXPORT_PRESETS:
-        raise WorkflowValidationError("不支持的导出预设。")
+        raise WorkflowValidationError("Unsupported export preset.")
 
     stored = {
         asset.id: asset
@@ -99,7 +99,7 @@ def prepare_project_export_parameters(
     }
     missing = [asset_id for asset_id in unique_ids if asset_id not in stored]
     if missing:
-        raise WorkflowInputNotFoundError("部分素材不存在或尚未就绪。")
+        raise WorkflowInputNotFoundError("Some assets are missing or not ready.")
     assets = [stored[asset_id] for asset_id in unique_ids]
     try:
         parameters = canonical_project_export_parameters(
@@ -133,7 +133,7 @@ def run_project_export_workflow(
             package_name=str(parameters.get("package_name") or "gameknife-export"),
         )
         if canonical != parameters:
-            raise WorkflowValidationError("导出参数与当前素材不一致，请重新提交。")
+            raise WorkflowValidationError("The export parameters do not match the current assets. Submit the export again.")
 
         with temporary_job_directory(job.id) as working_directory:
             package_path = output_path(

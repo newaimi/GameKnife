@@ -1,4 +1,6 @@
+import type { TFunction } from "@gameknife/i18n";
 import type { JobResponse, OutputAssetRef } from "@gameknife/shared-types";
+import { useTranslation } from "react-i18next";
 import { JobAssetActions } from "../../components/JobAssetActions";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "@gameknife/ui-kit";
@@ -35,8 +37,9 @@ export function JobHistoryRow({
   onRetry: (job: JobResponse) => void;
   metadata?: JobListMetadata;
 }) {
+  const { i18n, t } = useTranslation("jobs");
   const presentation = jobPresentationResolver?.(job);
-  const displayName = presentation?.displayName ?? readJobDisplayName(job);
+  const displayName = presentation?.displayName ?? readJobDisplayName(job, t);
   const thumbnailUrl = useObjectUrl(
     presentation?.thumbnailPath ?? readJobThumbnailPath(job),
   );
@@ -47,27 +50,27 @@ export function JobHistoryRow({
   return (
     <article className="task-row">
       <div className="job-thumb task-row-thumb">
-        {thumbnailUrl ? <img src={thumbnailUrl} alt={displayName} /> : <span>{presentation?.initial ?? readJobInitial(job)}</span>}
+        {thumbnailUrl ? <img src={thumbnailUrl} alt={displayName} /> : <span>{presentation?.initial ?? readJobInitial(job, t)}</span>}
       </div>
       <div className="task-row-main">
         <div>
           <strong title={displayName}>{displayName}</strong>
-          <span>{presentation?.title ?? readJobTitle(job)}</span>
+          <span>{presentation?.title ?? readJobTitle(job, t)}</span>
         </div>
         <p>
-          {presentation?.fileMeta ?? formatJobFileMeta(job)} · {formatAbsoluteTime(job.updated_at)}
+          {presentation?.fileMeta ?? formatJobFileMeta(job, t)} · {formatAbsoluteTime(job.updated_at, i18n.resolvedLanguage ?? i18n.language)}
         </p>
-        {metadata ? <p className="task-row-billing">{billingLabel(metadata)}</p> : null}
+        {metadata ? <p className="task-row-billing">{billingLabel(metadata, t)}</p> : null}
         {job.status === "failed" ? (
-          <p className="task-row-error" title={job.error_message || "任务执行失败"}>
-            {job.error_code || "JOB_EXECUTION_FAILED"} · {job.error_message || "任务执行失败"}
+          <p className="task-row-error" title={job.error_message || t("status.executionFailed")}>
+            {job.error_code || "JOB_EXECUTION_FAILED"} · {job.error_message || t("status.executionFailed")}
           </p>
         ) : null}
       </div>
       <JobStatusBadge status={job.status} />
       <div className="task-row-actions">
         {job.status === "failed" ? (
-          <IconButton label="返回工具重试" onClick={() => onRetry(job)}>
+          <IconButton label={t("actions.retry")} onClick={() => onRetry(job)}>
             <RotateCcw size={18} strokeWidth={2.2} />
           </IconButton>
         ) : null}
@@ -85,9 +88,10 @@ export function JobHistoryRow({
   );
 }
 
-function billingLabel(metadata: JobListMetadata) {
-  if (metadata.credits === 0) return "费用：免费";
-  if (metadata.reservation_status === "charged") return `费用：${metadata.credits} 积分 · 已扣除`;
-  if (metadata.reservation_status === "released") return `费用：${metadata.credits} 积分 · 已退回`;
-  return `费用：${metadata.credits} 积分 · 已冻结`;
+function billingLabel(metadata: JobListMetadata, t: TFunction) {
+  if (metadata.credits === 0) return t("billing.free");
+  return t("billing.summary", {
+    credits: metadata.credits,
+    state: t(`billing.${metadata.reservation_status}`),
+  });
 }

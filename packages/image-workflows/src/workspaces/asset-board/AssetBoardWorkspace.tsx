@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Play, RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { AssetBoardParameters, ComponentCandidate, JobResponse } from "@gameknife/shared-types";
@@ -30,6 +31,8 @@ const DEFAULT_ASSET_BOARD_PARAMS: AssetBoardParameters = {
 type AssetBoardJobSubmission = Pick<WorkflowJobRunOptions<JobResponse>, "jobType" | "parameters" | "idempotencyPayload" | "createJob">;
 
 export function AssetBoardWorkspace() {
+  const { t } = useTranslation("workflows");
+  const { t: tWorkbench } = useTranslation("workbench");
   const [params, setParams] = useState<AssetBoardParameters>(DEFAULT_ASSET_BOARD_PARAMS);
   const [components, setComponents] = useState<ComponentCandidate[]>([]);
   const [selectedComponents, setSelectedComponents] = useState<Set<number>>(new Set());
@@ -83,8 +86,8 @@ export function AssetBoardWorkspace() {
     if (!asset || !canWrite) {
       return;
     }
-    // 素材板的区域识别是轻量 CPU 步骤，原工程在上传和区域参数变化后会自动刷新框。
-    // 这里只监听阈值和最小面积，避免用户微调抠图边缘时隐式创建模型任务。
+    // Region detection is a lightweight CPU step and refreshes after upload or region parameter changes.
+    // Only threshold and minimum area trigger it so edge cleanup cannot create model jobs implicitly.
     const parameters = readRegionParameters();
     await runJob({
       jobType: "asset_board_region_detect",
@@ -115,7 +118,7 @@ export function AssetBoardWorkspace() {
       return;
     }
     if (!cutoutAssetId) {
-      setError("请先完成素材板抠图。");
+      setError(t("assetBoard.cutoutRequired"));
       return;
     }
     const parameters = readRegionParameters();
@@ -132,7 +135,7 @@ export function AssetBoardWorkspace() {
       return;
     }
     if (!cutoutAssetId) {
-      setError("请先完成素材板抠图。");
+      setError(t("assetBoard.cutoutRequired"));
       return;
     }
     const selectedComponentIds = Array.from(selectedComponents);
@@ -159,8 +162,8 @@ export function AssetBoardWorkspace() {
   async function runJob(submission: AssetBoardJobSubmission, onSuccess?: (finished: JobResponse) => void) {
     await runWorkflowJob({
       ...submission,
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建素材板任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("assetBoard.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,
       onSuccess,
     });
@@ -289,33 +292,33 @@ export function AssetBoardWorkspace() {
         </section>
 
         <aside className="settings-panel">
-          <h2>当前参数</h2>
-          <NumberField label="Alpha 阈值" value={params.alpha_threshold} min={0} max={255} onChange={(alpha_threshold) => setParams((current) => ({ ...current, alpha_threshold }))} />
-          <NumberField label="最小组件面积" value={params.min_component_area} min={1} max={100000} onChange={(min_component_area) => setParams((current) => ({ ...current, min_component_area }))} />
-          <NumberField label="Alpha 平滑" value={params.alpha_smoothing} min={0} max={10} onChange={(alpha_smoothing) => setParams((current) => ({ ...current, alpha_smoothing }))} />
-          <NumberField label="边缘内缩" value={params.alpha_contract} min={0} max={8} onChange={(alpha_contract) => setParams((current) => ({ ...current, alpha_contract }))} />
-          <NumberField label="边缘柔化" value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
-          <NumberField label="去边色" value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
-          <NumberField label="导出留边" value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
+          <h2>{tWorkbench("parameters")}</h2>
+          <NumberField label={t("assetBoard.alphaThreshold")} value={params.alpha_threshold} min={0} max={255} onChange={(alpha_threshold) => setParams((current) => ({ ...current, alpha_threshold }))} />
+          <NumberField label={t("assetBoard.minimumArea")} value={params.min_component_area} min={1} max={100000} onChange={(min_component_area) => setParams((current) => ({ ...current, min_component_area }))} />
+          <NumberField label={t("assetBoard.alphaSmoothing")} value={params.alpha_smoothing} min={0} max={10} onChange={(alpha_smoothing) => setParams((current) => ({ ...current, alpha_smoothing }))} />
+          <NumberField label={t("assetBoard.alphaContract")} value={params.alpha_contract} min={0} max={8} onChange={(alpha_contract) => setParams((current) => ({ ...current, alpha_contract }))} />
+          <NumberField label={t("assetBoard.alphaFeather")} value={params.alpha_feather} min={0} max={6} onChange={(alpha_feather) => setParams((current) => ({ ...current, alpha_feather }))} />
+          <NumberField label={t("assetBoard.alphaDefringe")} value={params.alpha_defringe} min={0} max={8} onChange={(alpha_defringe) => setParams((current) => ({ ...current, alpha_defringe }))} />
+          <NumberField label={t("assetBoard.exportPadding")} value={params.export_padding} min={0} max={200} onChange={(export_padding) => setParams((current) => ({ ...current, export_padding }))} />
           {selectedCount ? (
             <section className="ui-component-settings">
-              <h3>组件清单</h3>
+              <h3>{t("assetBoard.componentList")}</h3>
               {components.filter((component) => selectedComponents.has(component.id)).map((component) => (
                 <article className="ui-component-editor" key={component.id}>
-                  <header><strong>组件 #{component.id}</strong><span>{component.bbox[2]} × {component.bbox[3]}</span></header>
-                  <label>名称<input disabled={busy || !canWrite} maxLength={64} value={component.name ?? ""} onChange={(event) => updateComponent(component.id, { name: event.target.value })} /></label>
-                  <label>状态<select disabled={busy || !canWrite} value={component.state ?? "normal"} onChange={(event) => updateComponent(component.id, { state: event.target.value as ComponentCandidate["state"] })}>
-                    <option value="normal">正常</option>
-                    <option value="hover">悬浮</option>
-                    <option value="pressed">按下</option>
-                    <option value="disabled">禁用</option>
-                    <option value="selected">选中</option>
+                  <header><strong>{t("assetBoard.component", { id: component.id })}</strong><span>{component.bbox[2]} × {component.bbox[3]}</span></header>
+                  <label>{t("assetBoard.componentName")}<input disabled={busy || !canWrite} maxLength={64} value={component.name ?? ""} onChange={(event) => updateComponent(component.id, { name: event.target.value })} /></label>
+                  <label>{t("assetBoard.componentState")}<select disabled={busy || !canWrite} value={component.state ?? "normal"} onChange={(event) => updateComponent(component.id, { state: event.target.value as ComponentCandidate["state"] })}>
+                    <option value="normal">{t("assetBoard.componentStates.normal")}</option>
+                    <option value="hover">{t("assetBoard.componentStates.hover")}</option>
+                    <option value="pressed">{t("assetBoard.componentStates.pressed")}</option>
+                    <option value="disabled">{t("assetBoard.componentStates.disabled")}</option>
+                    <option value="selected">{t("assetBoard.componentStates.selected")}</option>
                   </select></label>
-                  <label className="ui-nine-slice-toggle"><input checked={Boolean(component.nine_slice)} disabled={busy || !canWrite} type="checkbox" onChange={(event) => toggleNineSlice(component.id, event.target.checked)} />九宫格</label>
+                  <label className="ui-nine-slice-toggle"><input checked={Boolean(component.nine_slice)} disabled={busy || !canWrite} type="checkbox" onChange={(event) => toggleNineSlice(component.id, event.target.checked)} />{t("assetBoard.nineSlice")}</label>
                   {component.nine_slice ? (
                     <div className="ui-nine-slice-grid">
-                      {(["左", "上", "右", "下"] as const).map((label, index) => (
-                        <label key={label}>{label}<input disabled={busy || !canWrite} min={0} type="number" value={component.nine_slice?.[index] ?? 0} onChange={(event) => changeNineSlice(component, index, Number(event.target.value))} /></label>
+                      {(["left", "top", "right", "bottom"] as const).map((side, index) => (
+                        <label key={side}>{t(`assetBoard.sliceSides.${side}`)}<input disabled={busy || !canWrite} min={0} type="number" value={component.nine_slice?.[index] ?? 0} onChange={(event) => changeNineSlice(component, index, Number(event.target.value))} /></label>
                       ))}
                     </div>
                   ) : null}
@@ -327,20 +330,20 @@ export function AssetBoardWorkspace() {
         </aside>
 
         <WorkbenchActionBar>
-          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <ImageUploadAction label={asset ? t("common.replaceImage") : t("common.uploadImage")} disabled={!canWrite} onFile={upload} />
           <button className="primary" disabled={!asset || busy || !canWrite} onClick={() => void detectRegions()} type="button">
             <RefreshCw size={17} strokeWidth={2.4} />
-            识别区域
+            {t("assetBoard.detect")}
           </button>
           <button className="ghost" disabled={!asset || busy || !canWrite} onClick={() => void cutout()} type="button">
             <Play size={17} strokeWidth={2.4} />
-            抠图
+            {t("assetBoard.cutout")}
           </button>
           <button className="ghost" disabled={!cutoutAssetId || busy || !canWrite} onClick={() => void refine()} type="button">
-            刷新框
+            {t("assetBoard.refreshRegions")}
           </button>
           <button className="ghost" disabled={!cutoutAssetId || busy || selectedCount === 0 || !canWrite} onClick={() => void exportSelected()} type="button">
-            导出选中 {selectedCount}
+            {t("assetBoard.exportSelected", { count: selectedCount })}
           </button>
           <button
             className="ghost"
@@ -348,7 +351,7 @@ export function AssetBoardWorkspace() {
             type="button"
             onClick={() => (exportAsset ? void downloadOutputAsset(exportAsset, `${asset?.filename ?? "asset-board"}_components.zip`) : undefined)}
           >
-            下载 ZIP
+            {t("assetBoard.downloadZip")}
           </button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>

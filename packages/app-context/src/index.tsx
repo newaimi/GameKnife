@@ -5,12 +5,12 @@ export const communityContext: AppContext = {
   principal: {
     id: "anonymous",
     kind: "anonymous",
-    displayName: "本地用户",
+    displayName: "Local user",
   },
   workspace: {
     id: "local",
     kind: "local",
-    name: "本地工作区",
+    name: "Local workspace",
   },
   capabilities: {
     edition: "community",

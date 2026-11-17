@@ -140,13 +140,36 @@ test("useWorkflowJob synchronously rejects a same-tick second run and releases t
   assert.equal(createCount, 2);
 });
 
+test("useWorkflowJob passes both translation namespaces to the terminal failure dialog", async () => {
+  const failedJob = { id: "job-1", status: "failed", result: {} };
+  const translations = [];
+  const workflow = executeUseWorkflowJob({
+    waitForJob: async () => failedJob,
+    readJobFailureDialog: (job, tWorkbench, tJobs) => {
+      assert.equal(job, failedJob);
+      translations.push(tWorkbench("failure.title"), tJobs("status.failed"));
+      return null;
+    },
+  });
+
+  assert.equal(await workflow.runJob({
+    jobType: "background_remove",
+    parameters: {},
+    idempotencyPayload: {},
+    failureTitle: "Task failed",
+    failureMessage: "Task creation failed.",
+    createJob: async () => ({ id: "job-1", status: "pending", result: {} }),
+  }), failedJob);
+  assert.deepEqual(translations, ["workbench:failure.title", "jobs:status.failed"]);
+});
+
 test("sequence clean submits only client-known parameters", () => {
   const source = readFileSync(resolve(packageRoot, "src/workspaces/sequence/SequenceWorkspace.tsx"), "utf8");
   assert.match(source, /const parameters = \{ sequence_id: sequence\.id, \.\.\.params \}/);
   assert.doesNotMatch(source, /sequence_revision|\brevision\b/);
 });
 
-function executeUseWorkflowJob({ waitForJob }) {
+function executeUseWorkflowJob({ waitForJob, readJobFailureDialog = () => null }) {
   const source = readFileSync(resolve(packageRoot, "src/hooks/useWorkflowJob.ts"), "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -165,6 +188,9 @@ function executeUseWorkflowJob({ waitForJob }) {
     if (specifier === "react") {
       return react;
     }
+    if (specifier === "react-i18next") {
+      return { useTranslation: (namespace) => ({ t: (key) => namespace + ":" + key }) };
+    }
     if (specifier === "../context/WorkflowSubmission") {
       return {
         useWorkflowSubmission: () => submissionProvider,
@@ -173,7 +199,7 @@ function executeUseWorkflowJob({ waitForJob }) {
     }
     if (specifier === "../components/FailureDialog") {
       return {
-        readJobFailureDialog: () => null,
+        readJobFailureDialog,
         readRequestFailureDialog: () => null,
       };
     }

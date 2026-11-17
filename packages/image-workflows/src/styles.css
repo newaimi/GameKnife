@@ -1,6 +1,6 @@
 @import "@gameknife/ui-kit/styles.css";
 
-/* 公共工作流只保留工具布局和业务状态样式，主题令牌与基础交互统一由 ui-kit 提供。 */
+/* Shared workflows keep layout and business-state styles here; ui-kit owns theme tokens and base interactions. */
 
 .workflow-page,
 .page-panel,
@@ -225,8 +225,8 @@
 }
 
 /*
- * 收起菜单后按钮只保留图标，固定宽高可以避免面板内边距把按钮压成窄矩形。
- * margin 使用自动水平边距，使按钮在不同视口下都位于收起面板中央。
+ * Collapsed tool buttons keep fixed square dimensions so panel padding cannot compress them. Automatic horizontal
+ * margins keep the icons centered at every viewport size.
  */
 .workspace-left-collapsed .tool-button {
   width: 50px;
@@ -357,8 +357,8 @@
 }
 
 /*
- * 文件、处理和下载共享同一条顶部操作栏。操作数量较多的工具只在操作栏内部横向滚动，
- * 页面和画布坐标保持固定，避免浏览器横向滚动影响拖动画布。
+ * Upload, processing, and download share the top toolbar. Toolbars with extra actions scroll internally so the
+ * page and canvas coordinates remain fixed.
  */
 .workbench-action-bar {
   position: absolute;
@@ -591,7 +591,7 @@
 
 .canvas.canvas-intrinsic-content .react-transform-component,
 .canvas.canvas-intrinsic-content .react-transform-component.transform-content {
-  /* 手动编辑缩放的是图片文档本身，这里保留真实尺寸，避免画笔坐标和显示尺寸错位。 */
+  /* Manual editing scales the document itself; retain true dimensions so brush and display coordinates agree. */
   width: fit-content;
   height: fit-content;
   min-width: 0;
@@ -1688,7 +1688,7 @@
   border-top: 1px solid var(--line);
 }
 
-/* 序列诊断和帧调整并入右侧面板后改为单列，避免内容撑宽悬浮面板。 */
+/* Sequence diagnostics and frame controls use one column so they cannot widen the floating inspector. */
 .settings-panel .diagnostic-metrics,
 .settings-panel .frame-editor {
   display: grid;
@@ -1855,7 +1855,7 @@
   min-height: 0;
 }
 
-/* 手动编辑按左右悬浮面板的宽度收窄顶部操作栏，避免按钮进入面板覆盖区域。 */
+/* Constrain the manual editor toolbar between floating panels so actions stay out of their overlay regions. */
 .manual-editor-shell .workbench-action-bar {
   max-width: calc(100% - var(--manual-editor-left-track) - var(--manual-editor-right-track) - 72px);
 }
@@ -2612,8 +2612,8 @@
 
 @media (min-width: 1181px) {
   /*
-   * 画布直接占满导航下方的全部视口，左右面板使用绝对定位覆盖在画布上。
-   * 面板沿用原有宽度、折叠和拖拽状态，内部单独滚动，不把滚动传递给页面。
+   * The canvas fills the viewport below navigation while side panels overlay it. Panels preserve their width,
+   * collapse, and resize state and contain overflow without scrolling the page.
    */
   .workspace > .tool-panel {
     width: var(--workspace-left-track);

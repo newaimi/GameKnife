@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FailureDialogState, ManualEditSource } from "../../types/manualEdit";
 import { FailureDialog } from "../../components/FailureDialog";
 import { useWorkflowWritePermission } from "../../hooks/useWorkflowWritePermission";
@@ -6,6 +7,7 @@ import { ManualEditPage } from "./ManualEditPage";
 import { loadManualEditTransfer } from "./transfer";
 
 export function ManualEditWorkspace() {
+  const { t } = useTranslation("manualEditor");
   const sourceRef = useRef<ManualEditSource | null>(null);
   const transferLoadedRef = useRef(false);
   const [source, setSource] = useState<ManualEditSource | null>(null);
@@ -29,12 +31,12 @@ export function ManualEditWorkspace() {
       })
       .catch((error) => {
         setFailureDialog({
-          title: "图片打开失败",
-          message: "手动编辑没有读取到临时图片。",
-          detail: error instanceof Error ? error.message : "图片读取失败。",
+          title: t("errors.openTitle"),
+          message: t("errors.openMessage"),
+          detail: error instanceof Error ? error.message : t("errors.readDetail"),
         });
       });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     return () => {
@@ -50,9 +52,8 @@ export function ManualEditWorkspace() {
   }
 
   function replaceSource(nextSource: ManualEditSource) {
-    // 手动编辑页会在开发模式 StrictMode 下重复执行 effect。
-    // 对象 URL 如果绑在 effect 的 source 清理函数里，会在编辑器读取前被提前释放。
-    // 这里把释放时机收敛到“图片被替换”和“页面卸载”，保证当前图片始终可读。
+    // StrictMode runs effects twice during development. Releasing the object URL from a source effect cleanup
+    // can revoke it before the editor reads it, so release only when the source changes or the page unmounts.
     releaseSource(sourceRef.current);
     sourceRef.current = nextSource;
     setSource(nextSource);

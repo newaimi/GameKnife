@@ -1,21 +1,24 @@
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "@gameknife/i18n";
 import type { JobResponse } from "@gameknife/shared-types";
 import { Button } from "@gameknife/ui-kit";
 import type { FailureDialogState } from "../types/failure";
 import { readJobTitle } from "../utils/jobPresentation";
 
 export function FailureDialog({ dialog, onClose }: { dialog: FailureDialogState; onClose: () => void }) {
+  const { t } = useTranslation("workbench");
   const dialogId = "task-failure-dialog-title";
   const modal = (
     <div className="failure-dialog-backdrop" role="presentation" onClick={onClose}>
       <section className="failure-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogId} onClick={(event) => event.stopPropagation()}>
         <div className="failure-dialog-title">
           <div>
-            <span>处理失败</span>
+            <span>{t("failure.label")}</span>
             <strong id={dialogId}>{dialog.title}</strong>
           </div>
           <Button size="small" onClick={onClose}>
-            关闭
+            {t("failure.close")}
           </Button>
         </div>
         <p>{dialog.message}</p>
@@ -24,24 +27,24 @@ export function FailureDialog({ dialog, onClose }: { dialog: FailureDialogState;
     </div>
   );
 
-  // 失败弹窗必须脱离工作台画布的缩放和平移上下文，否则报错内容会跟随预览区一起变形。
+  // Keep failure dialogs outside the workbench transform context so zoom and pan never distort error details.
   return createPortal(modal, document.body);
 }
 
-export function readJobFailureDialog(job: JobResponse): FailureDialogState {
-  const detail = job.error_message?.trim() || "后端没有返回具体错误。";
-  const jobTitle = readJobTitle(job);
+export function readJobFailureDialog(job: JobResponse, tWorkbench: TFunction, tJobs: TFunction): FailureDialogState {
+  const detail = job.error_message?.trim() || tWorkbench("failure.unknownBackendError");
+  const jobTitle = readJobTitle(job, tJobs);
   return {
-    title: `${jobTitle}失败`,
-    message: "任务没有完成，下面是后端返回的原始错误内容。",
-    detail: `任务 ID：${job.id}\n错误内容：${detail}`,
+    title: tWorkbench("failure.jobTitle", { title: jobTitle }),
+    message: tWorkbench("failure.jobMessage"),
+    detail: tWorkbench("failure.jobDetail", { id: job.id, detail }),
   };
 }
 
-export function readRequestFailureDialog(title: string, message: string, error: unknown): FailureDialogState {
+export function readRequestFailureDialog(title: string, message: string, error: unknown, t: TFunction): FailureDialogState {
   return {
     title,
     message,
-    detail: error instanceof Error ? error.message : "请求失败。",
+    detail: error instanceof Error ? error.message : t("failure.request"),
   };
 }

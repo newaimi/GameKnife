@@ -201,7 +201,7 @@ def settings(
     }
     stable_audio_settings = {
         "model_id": settings.stable_audio_model_id,
-        "device": "独立声效服务",
+        "device": "Standalone SFX service",
         "base_url_configured": stable_audio.is_configured,
         "lazy_load": True,
         "install_status": stable_audio.install_status(),
@@ -252,7 +252,7 @@ def list_job_history(
     ),
 ) -> JobPageResponse:
     if job_status is not None and job_status not in {"pending", "running", "success", "failed"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的任务状态。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported job status.")
     job_types = _resolve_history_job_types(
         category,
         downloadable,
@@ -300,7 +300,7 @@ def get_job(
 ) -> JobResponse:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     return _job_response(job, context, repository)
 
 
@@ -312,7 +312,7 @@ def remove_job(
 ) -> Response:
     job = repository.get_job_for_workspace(job_id, context.workspace.id)
     if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     _require_project_workflow_write(
         context,
         "delete_job",
@@ -328,7 +328,7 @@ def remove_job(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -571,9 +571,9 @@ async def import_sequence_frames(
 ) -> SequenceResponse:
     _require_project_workflow_write(context, "import_sequence_frames")
     if not files:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一张序列帧。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select at least one sequence frame.")
     if fps < 1 or fps > 60:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帧率必须在 1 到 60 之间。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Frame rate must be between 1 and 60.")
 
     ordered_files, warnings = _sort_sequence_uploads(files)
     created_assets: list[AssetRecord] = []
@@ -587,7 +587,7 @@ async def import_sequence_frames(
             repository.create_sequence_with_frames,
             workspace_id=context.workspace.id,
             created_by=context.principal.id,
-            name=(name or _guess_sequence_name(ordered_files)).strip() or "未命名序列帧",
+            name=(name or _guess_sequence_name(ordered_files)).strip() or "Untitled sequence",
             fps=fps,
             loop=True,
             clean_parameters=DEFAULT_SEQUENCE_CLEAN_PARAMETERS,
@@ -599,7 +599,7 @@ async def import_sequence_frames(
         raise
     except Exception as exc:  # noqa: BLE001
         await run_in_threadpool(_cleanup_created_assets, repository, context, created_assets)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="序列帧导入失败。") from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to import sequence frames.") from exc
 
     return _sequence_response(sequence, context, repository, warnings=warnings)
 
@@ -630,7 +630,7 @@ def get_sequence(
 ) -> SequenceResponse:
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     return _sequence_response(sequence, context, repository)
 
 
@@ -658,9 +658,9 @@ def update_sequence(
             updated_at=_now(),
         )
     except SequenceActiveJobError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能修改。") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The sequence is processing and cannot be edited yet.") from exc
     if sequence is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     return _sequence_response(sequence, context, repository)
 
 
@@ -674,7 +674,7 @@ def update_sequence_frames(
     _require_project_workflow_write(context, "update_sequence_frames", {"sequence_id": sequence_id})
     sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     try:
         repository.update_sequence_frames(
             sequence_id,
@@ -683,10 +683,10 @@ def update_sequence_frames(
             updated_at=_now(),
         )
     except SequenceActiveJobError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能修改。") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The sequence is processing and cannot be edited yet.") from exc
     updated = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     return _sequence_response(updated, context, repository)
 
 
@@ -698,7 +698,7 @@ def delete_sequence(
 ) -> Response:
     sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     _require_project_workflow_write(
         context,
         "delete_sequence",
@@ -708,9 +708,9 @@ def delete_sequence(
     try:
         asset_records = repository.delete_sequence_for_workspace(sequence_id, context.workspace.id)
     except SequenceActiveJobError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，暂时不能删除。") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The sequence is processing and cannot be deleted yet.") from exc
     if asset_records is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     # The repository already deleted the Sequence and every now-unreferenced Asset in one transaction. Returned
     # records are the exact object cleanup set; Assets shared with Jobs or other Sequences remain in the database.
     for asset in asset_records:
@@ -739,7 +739,7 @@ def create_sequence_clean_task(
         return _job_response(replayed_submission.job, context, repository)
     sequence, input_asset_id = _ensure_sequence_job_input(repository, context, sequence_id)
     if sequence["active_job_id"] is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="序列帧正在处理中，请稍后重试。")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The sequence is processing. Try again later.")
     enabled_frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     submitted = create_job(
         repository,
@@ -779,7 +779,7 @@ def create_sequence_from_video_task(
         return _job_response(replayed_submission.job, context, repository)
     video_asset = _ensure_asset_exists(repository, context, payload.video_asset_id)
     if not video_asset.mime_type.startswith("video/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="输入素材必须是视频。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The input asset must be a video.")
     if payload.remove_background:
         # Frame extraction can run locally by itself, while background removal has an explicit model dependency.
         # Reject missing installations during creation so execution uses only the injected local model service.
@@ -911,7 +911,7 @@ async def upload_image_asset(
 ) -> AssetResponse:
     _require_project_workflow_write(context, "upload_image")
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="上传文件必须是图片。")
+        raise HTTPException(status_code=400, detail="The uploaded file must be an image.")
 
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.png").name
@@ -951,7 +951,7 @@ async def upload_video_asset(
 ) -> AssetResponse:
     _require_project_workflow_write(context, "upload_video")
     if not file.content_type or not file.content_type.startswith("video/"):
-        raise HTTPException(status_code=400, detail="上传文件必须是视频。")
+        raise HTTPException(status_code=400, detail="The uploaded file must be a video.")
 
     asset_id = uuid4().hex
     filename = Path(file.filename or "upload.mp4").name
@@ -989,7 +989,7 @@ def list_asset_page(
     repository: GameKnifeRepository = Depends(get_repository),
 ) -> AssetPageResponse:
     if category != "all" and category not in ASSET_CATEGORY_KINDS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的素材类型。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported asset type.")
     kinds = ASSET_CATEGORY_KINDS.get(category)
     total = repository.count_asset_page_for_workspace(
         context.workspace.id,
@@ -1019,7 +1019,7 @@ def get_asset_metadata(
 ) -> AssetDetailResponse:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if asset is None or asset.storage_state != "ready":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="素材不存在或尚未就绪。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found or not ready.")
     relations = repository.list_asset_relations_for_workspace(asset.id, context.workspace.id)
     related_ids = list(
         dict.fromkeys(
@@ -1084,7 +1084,7 @@ def create_asset_quality_check_job(
     if asset is None or asset.storage_state != "ready":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="素材不存在或尚未就绪。",
+            detail="Asset not found or not ready.",
         )
     supports_image = asset.mime_type.startswith("image/")
     supports_components = (
@@ -1104,7 +1104,7 @@ def create_asset_quality_check_job(
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前素材类型不支持自动质量检查。",
+            detail="Automatic quality checks do not support this asset type.",
         )
     source_quality_check_id = str(payload.source_quality_check_id or "").strip()
     if source_quality_check_id and repository.get_asset_quality_check_for_workspace(
@@ -1114,7 +1114,7 @@ def create_asset_quality_check_job(
     ) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="质量规则快照不存在，请重新打开素材详情。",
+            detail="The quality rules snapshot is missing. Reopen the asset details.",
         )
     try:
         parameters = canonical_asset_quality_check_parameters(
@@ -1126,7 +1126,7 @@ def create_asset_quality_check_job(
     except JobParameterValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="质量检查参数无效。",
+            detail="Invalid quality check parameters.",
         ) from exc
     submitted = create_job_record(
         repository,
@@ -1149,7 +1149,7 @@ def get_asset(
 ) -> Response:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if not asset:
-        raise HTTPException(status_code=404, detail="素材不存在或已被删除。")
+        raise HTTPException(status_code=404, detail="Asset not found or already deleted.")
 
     try:
         file_path = context.storage.local_path(asset.path)
@@ -1158,7 +1158,7 @@ def get_asset(
 
     if file_path is not None:
         if not file_path.is_file():
-            raise HTTPException(status_code=404, detail="素材文件不存在。")
+            raise HTTPException(status_code=404, detail="Asset file not found.")
         return FileResponse(file_path, media_type=asset.mime_type, filename=asset.original_name)
 
     download_url = context.storage.create_download_url(
@@ -1168,7 +1168,7 @@ def get_asset(
         expires_seconds=300,
     )
     if not download_url:
-        raise HTTPException(status_code=500, detail="存储服务未提供素材下载方式。")
+        raise HTTPException(status_code=500, detail="The storage provider cannot download this asset.")
     return RedirectResponse(download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
@@ -1180,7 +1180,7 @@ def delete_asset(
 ) -> Response:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="素材不存在或已被删除。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found or already deleted.")
     _require_project_workflow_write(
         context,
         "delete_asset",
@@ -1217,7 +1217,7 @@ async def save_manual_edit_asset(
     if source_asset_id:
         await run_in_threadpool(_ensure_asset_exists, repository, context, source_asset_id)
     if file.content_type not in ALLOWED_MANUAL_EDIT_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持 JPG、PNG 和 WebP 图片。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WebP images are supported.")
 
     suffix = ALLOWED_MANUAL_EDIT_TYPES[file.content_type]
     filename = _manual_edit_name(name, file.filename, "manual-edit", suffix)
@@ -1252,7 +1252,7 @@ def _verify_image_path(source_path: Path) -> None:
     try:
         Image.open(source_path).verify()
     except (UnidentifiedImageError, OSError) as exc:
-        raise HTTPException(status_code=400, detail="上传文件不是有效图片。") from exc
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid image.") from exc
 
 
 async def _stage_upload(upload: UploadFile, directory: Path, fallback_name: str) -> tuple[Path, int]:
@@ -1269,11 +1269,11 @@ async def _stage_upload(upload: UploadFile, directory: Path, fallback_name: str)
             if size_bytes > MAX_ASSET_UPLOAD_BYTES:
                 raise HTTPException(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    detail="上传文件不能超过 50MB。",
+                    detail="The uploaded file cannot exceed 50 MB.",
                 )
             target.write(chunk)
     if size_bytes == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="上传文件不能为空。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file cannot be empty.")
     return source_path, size_bytes
 
 
@@ -1290,21 +1290,21 @@ def _asset_response(asset: AssetRecord) -> AssetResponse:
 
 def _asset_actions(asset: AssetRecord, context: RequestContext) -> list[dict[str, str]]:
     actions: list[dict[str, str]] = [
-        {"id": "download", "label": "下载", "route": f"/api/assets/{asset.id}"}
+        {"id": "download", "label": "Download", "route": f"/api/assets/{asset.id}"}
     ]
     if not context.permissions.can(PROJECT_WORKFLOW_PERMISSION, {"asset_id": asset.id}):
         return actions
     if asset.mime_type.startswith("image/"):
         actions.extend(
             [
-                {"id": "background_remove", "label": "去背景", "route": "/tools/background-remove"},
-                {"id": "image_upscale", "label": "图片放大", "route": "/tools/upscale"},
-                {"id": "asset_board", "label": "素材板", "route": "/tools/asset-board"},
-                {"id": "manual_edit", "label": "手动编辑", "route": "/manual-edit"},
+                {"id": "background_remove", "label": "Remove Background", "route": "/tools/background-remove"},
+                {"id": "image_upscale", "label": "Upscale Image", "route": "/tools/upscale"},
+                {"id": "asset_board", "label": "Asset Board", "route": "/tools/asset-board"},
+                {"id": "manual_edit", "label": "Manual Edit", "route": "/manual-edit"},
             ]
         )
     elif asset.mime_type.startswith("video/"):
-        actions.append({"id": "sequence_video_to_frames", "label": "视频转帧", "route": "/tools/video-to-sequence"})
+        actions.append({"id": "sequence_video_to_frames", "label": "Video to Frames", "route": "/tools/video-to-sequence"})
     return actions
 
 
@@ -1447,7 +1447,7 @@ async def _save_sequence_upload(
     repository: GameKnifeRepository,
 ) -> tuple[AssetRecord, dict[str, object]]:
     if upload.content_type not in ALLOWED_SEQUENCE_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{upload.filename or '文件'} 不是支持的图片格式。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{upload.filename or 'File'} is not a supported image format.")
 
     asset_id = uuid4().hex
     filename = Path(upload.filename or "frame.png").name
@@ -1481,7 +1481,7 @@ async def _save_sequence_upload(
                 width, height = image.size
         except Exception as exc:
             await run_in_threadpool(_cleanup_created_assets, repository, context, [asset])
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} 读取失败。") from exc
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to read {filename}.") from exc
 
     return asset, {
         "source_asset_id": asset.id,
@@ -1554,10 +1554,10 @@ def _ensure_sequence_job_input(
 ):
     sequence = repository.get_sequence_for_workspace_including_processing(sequence_id, context.workspace.id)
     if sequence is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="序列帧不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found.")
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="序列帧没有可用帧。")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The sequence has no usable frames.")
     return sequence, frames[0]["source_asset_id"]
 
 
@@ -1573,12 +1573,12 @@ def _sort_sequence_uploads(files: list[UploadFile]) -> tuple[list[UploadFile], l
         return (1, filename, filename)
 
     if any(number_pattern.search(Path(upload.filename or "").name) is None for upload in files):
-        warnings.append("部分文件名没有数字序号，已按文件名字典序排在数字序号之后。")
+        warnings.append("Some filenames have no numeric index and were sorted lexically after indexed files.")
     return sorted(files, key=sort_key), warnings
 
 
 def _guess_sequence_name(files: list[UploadFile]) -> str:
-    first_name = Path(files[0].filename or "序列帧").stem
+    first_name = Path(files[0].filename or "Sequence").stem
     return re.sub(r"[_ -]*\d+$", "", first_name).strip(" _-") or first_name
 
 
@@ -1605,14 +1605,14 @@ def _job_response(job: JobRecord, context: RequestContext, repository: GameKnife
 def _ensure_asset_exists(repository: GameKnifeRepository, context: RequestContext, asset_id: str) -> AssetRecord:
     asset = repository.get_asset_for_workspace(asset_id, context.workspace.id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="输入素材不存在。")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Input asset not found.")
     return asset
 
 
 def _ensure_birefnet_installed(birefnet: BiRefNetService) -> None:
     if birefnet.is_installed():
         return
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BiRefNet is not installed. Install the model files from Settings first.")
 
 
 def _read_runtime_info() -> dict[str, object]:
@@ -1636,7 +1636,7 @@ def _read_runtime_info() -> dict[str, object]:
 
     try:
         import torch
-    except Exception as exc:  # pragma: no cover - 只有部署环境缺 PyTorch 时才会触发
+    except Exception as exc:  # pragma: no cover - only reached when the deployment is missing PyTorch
         info["error"] = str(exc)
         return info
 

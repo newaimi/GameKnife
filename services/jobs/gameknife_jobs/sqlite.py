@@ -1063,7 +1063,7 @@ class SQLiteGameKnifeRepository:
             )
         sequence = self.get_sequence_for_workspace_including_processing(sequence_id, workspace_id)
         if sequence is None:
-            raise RuntimeError("序列帧创建失败。")
+            raise RuntimeError("Sequence creation failed.")
         return sequence
 
     def create_sequence_with_frames_for_job(
@@ -1108,7 +1108,7 @@ class SQLiteGameKnifeRepository:
             )
         sequence = self.get_sequence_for_workspace_including_processing(sequence_id, workspace_id)
         if sequence is None:
-            raise RuntimeError("序列帧创建失败。")
+            raise RuntimeError("Sequence creation failed.")
         return sequence
 
     def list_sequences_for_workspace(self, workspace_id: str) -> list[sqlite3.Row]:

@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   IconButton,
@@ -13,6 +14,7 @@ import {
 import { ToolSidebar } from "./ToolSidebar";
 
 export function ToolWorkspaceLayout({ activeToolId, children }: { activeToolId: string; children: ReactNode }) {
+  const { t } = useTranslation("workbench");
   const [layout, setLayout] = useWorkspaceLayout(WORKSPACE_LAYOUT_STORAGE_KEY);
 
   const workspaceClassName = [
@@ -43,7 +45,7 @@ export function ToolWorkspaceLayout({ activeToolId, children }: { activeToolId: 
           value={layout.leftWidth}
           min={WORKSPACE_LEFT_MIN}
           max={WORKSPACE_LEFT_MAX}
-          label="调整工具面板宽度"
+          label={t("resizeToolPanel")}
           disabled={layout.leftCollapsed}
           onChange={(leftWidth) => setLayout((current) => ({ ...current, leftWidth }))}
         />
@@ -55,13 +57,13 @@ export function ToolWorkspaceLayout({ activeToolId, children }: { activeToolId: 
           value={layout.rightWidth}
           min={WORKSPACE_RIGHT_MIN}
           max={WORKSPACE_RIGHT_MAX}
-          label="调整参数面板宽度"
+          label={t("resizeParameterPanel")}
           disabled={layout.rightCollapsed}
           onChange={(rightWidth) => setLayout((current) => ({ ...current, rightWidth }))}
         />
         <IconButton
           className="workspace-right-toggle"
-          label={layout.rightCollapsed ? "展开参数面板" : "折叠参数面板"}
+          label={layout.rightCollapsed ? t("expandParameterPanel") : t("collapseParameterPanel")}
           aria-expanded={!layout.rightCollapsed}
           onClick={() => setLayout((current) => ({ ...current, rightCollapsed: !current.rightCollapsed }))}
         >

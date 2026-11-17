@@ -8,8 +8,7 @@ export interface VideoToSequenceTransfer {
 }
 
 export function saveVideoToSequenceTransfer(transfer: VideoToSequenceTransfer) {
-  // AI 生成视频和视频转帧是两个独立工具，中间只通过显式传递对象交接结果。
-  // 保存 action 是为了保留用户在生成视频时选择的动作语义，避免转帧后又回到默认动作。
+  // Preserve the selected action when passing a source video to frame extraction.
   window.sessionStorage.setItem(VIDEO_TO_SEQUENCE_TRANSFER_KEY, JSON.stringify(transfer));
 }
 

@@ -44,11 +44,11 @@ def create_upscale_workflow(
     submission: TaskSubmission | None = None,
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     if str(parameters.get("style") or "general") != "pixel" and not model.is_installed():
-        raise WorkflowModelNotInstalledError("图片放大模型尚未下载安装，请先到设置页下载安装模型文件。")
+        raise WorkflowModelNotInstalledError("Upscale models are not installed. Install the model files from Settings first.")
 
     input_asset = repository.get_asset_for_workspace(input_asset_id, context.workspace.id)
     if input_asset is None:
-        raise WorkflowInputNotFoundError("输入素材不存在。")
+        raise WorkflowInputNotFoundError("Input asset not found.")
 
     # Pixel-art and AI upscaling share one job type because history and download filters group by image_upscale.
     # Parameters explicitly choose model use, so pixel-art scaling can run independently with nearest-neighbor interpolation.

@@ -94,7 +94,7 @@ def check_generated_images(
                 QualityCheckItem(
                     code="IMAGE_DECODE",
                     status="failed",
-                    message="图片文件无法解析。",
+                    message="The image file could not be read.",
                     metrics={},
                 )
             )
@@ -112,7 +112,7 @@ def check_generated_images(
             QualityCheckItem(
                 code="IMAGE_DECODE",
                 status="passed",
-                message="图片文件可解析。",
+                message="The image file can be read.",
                 metrics={
                     "width": metrics["width"],
                     "height": metrics["height"],
@@ -137,7 +137,7 @@ def check_generated_images(
                 QualityCheckItem(
                     code="IMAGE_NEAR_DUPLICATE",
                     status="warning",
-                    message="候选图与同次任务中的其他结果高度相似。",
+                    message="The candidate is highly similar to other results from this job.",
                     metrics={"other_candidate": duplicate_warnings[index]},
                 )
             )
@@ -146,7 +146,7 @@ def check_generated_images(
                 QualityCheckItem(
                     code="IMAGE_NEAR_DUPLICATE",
                     status="passed",
-                    message="未发现高度相似的候选图。",
+                    message="No highly similar candidates were found.",
                     metrics={},
                 )
             )
@@ -177,11 +177,11 @@ def check_component_archive(path: Path) -> AssetQualityResult:
                 if name.startswith(("/", "\\")) or ".." in Path(name).parts
             ]
             if unsafe_names:
-                raise ValueError("组件包包含不安全路径。")
+                raise ValueError("The component package contains an unsafe path.")
             manifest = json.loads(archive.read("component-manifest.json"))
             components = manifest.get("components")
             if not isinstance(components, list) or not components:
-                raise ValueError("组件清单为空。")
+                raise ValueError("The component manifest is empty.")
             for component in components:
                 _validate_component_manifest_entry(component, names)
     except (OSError, KeyError, ValueError, TypeError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
@@ -189,7 +189,7 @@ def check_component_archive(path: Path) -> AssetQualityResult:
             QualityCheckItem(
                 code="UI_COMPONENT_MANIFEST",
                 status="failed",
-                message=str(exc) or "组件包无法解析。",
+                message=str(exc) or "The component package could not be read.",
                 metrics={},
             )
         )
@@ -198,7 +198,7 @@ def check_component_archive(path: Path) -> AssetQualityResult:
             QualityCheckItem(
                 code="UI_COMPONENT_MANIFEST",
                 status="passed",
-                message="组件清单、图片和九宫格边界有效。",
+                message="The component manifest, images, and nine-slice bounds are valid.",
                 metrics={"component_count": len(components)},
             )
         )
@@ -242,7 +242,7 @@ def check_audio_asset(
                 QualityCheckItem(
                     code="AUDIO_DECODE",
                     status="failed",
-                    message="音频文件不是可解析的 PCM WAV。",
+                    message="The audio file is not a readable PCM WAV.",
                     metrics={},
                 ),
             ),
@@ -253,7 +253,7 @@ def check_audio_asset(
         QualityCheckItem(
             code="AUDIO_DECODE",
             status="passed",
-            message="音频文件可解析。",
+            message="The audio file can be read.",
             metrics={"encoding": "PCM WAV"},
         ),
         _audio_format_check(metrics),
@@ -292,7 +292,7 @@ def unavailable_quality_result(
             QualityCheckItem(
                 code="QUALITY_CHECK_UNAVAILABLE",
                 status="not_checked",
-                message="自动质量检查暂时不可用，请重试。",
+                message="Automatic quality checks are temporarily unavailable. Try again.",
                 metrics={},
             ),
         ),
@@ -422,9 +422,9 @@ def _audio_format_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="AUDIO_FORMAT",
         status="passed" if supported else "warning",
         message=(
-            "采样率、位深和声道符合交付规格。"
+            "The sample rate, bit depth, and channels meet the delivery requirements."
             if supported
-            else "采样率、位深或声道需要人工确认。"
+            else "The sample rate, bit depth, or channels require review."
         ),
         metrics={
             "sample_rate": sample_rate,
@@ -460,11 +460,11 @@ def _audio_duration_check(
         code="AUDIO_DURATION",
         status=status,
         message=(
-            "音频时长符合任务参数。"
+            "The audio duration matches the job parameters."
             if status == "passed"
-            else "音频时长与任务参数存在偏差。"
+            else "The audio duration differs from the job parameters."
             if expected is not None
-            else "声效时长超过当前单次任务范围。"
+            else "The sound effect exceeds the duration allowed for a single job."
         ),
         metrics={
             "duration_seconds": round(duration, 4),
@@ -487,11 +487,11 @@ def _audio_peak_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="AUDIO_PEAK_CLIPPING",
         status=status,
         message=(
-            "峰值正常，未发现削波。"
+            "The peak level is within range and no clipping was detected."
             if status == "passed"
-            else "检测到少量满幅采样，请试听确认。"
+            else "A few samples reached full scale. Listen to the result to verify."
             if status == "warning"
-            else "检测到明显削波。"
+            else "Significant clipping was detected."
         ),
         metrics={
             "peak": round(peak, 6),
@@ -514,11 +514,11 @@ def _audio_level_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="AUDIO_LEVEL_SILENCE",
         status=status,
         message=(
-            "音频电平和静音比例正常。"
+            "The audio level and proportion of silence are within range."
             if status == "passed"
-            else "音频整体偏安静或包含较多静音。"
+            else "The audio is quiet overall or contains extended silence."
             if status == "warning"
-            else "音频接近静音。"
+            else "The audio is almost silent."
         ),
         metrics={
             "rms_dbfs": round(level_dbfs, 3),
@@ -536,11 +536,11 @@ def _audio_loop_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="AUDIO_LOOP_SEAM",
         status=status,
         message=(
-            "首尾接缝平滑。"
+            "The loop transition is smooth."
             if status == "passed"
-            else "首尾接缝可能产生跳变，请试听确认。"
+            else "The loop may have an audible discontinuity. Listen to verify."
             if status == "warning"
-            else "首尾接缝存在明显跳变。"
+            else "The loop has a noticeable discontinuity."
         ),
         metrics={
             "seam_rms": round(seam_rms, 6),
@@ -638,13 +638,13 @@ def _format_and_aspect_check(metrics: dict[str, Any]) -> QualityCheckItem:
     aspect_ratio = width / max(height, 1)
     if image_format not in {"PNG", "JPEG"}:
         status: QualityItemStatus = "failed"
-        message = "图片格式不属于生成任务允许的 PNG 或 JPEG。"
+        message = "The generation job requires a PNG or JPEG image."
     elif aspect_ratio < 0.2 or aspect_ratio > 5.0:
         status = "warning"
-        message = "图片宽高比异常，请确认是否符合任务预期。"
+        message = "The image has an unusual aspect ratio. Verify it against the job requirements."
     else:
         status = "passed"
-        message = "图片格式和宽高比有效。"
+        message = "The image format and aspect ratio are valid."
     return QualityCheckItem(
         code="IMAGE_FORMAT_ASPECT",
         status=status,
@@ -666,7 +666,7 @@ def _dimension_check(metrics: dict[str, Any], expected_size: str) -> QualityChec
     return QualityCheckItem(
         code="IMAGE_DIMENSIONS",
         status=status,
-        message="图片尺寸符合任务档位。" if status == "passed" else "图片长边低于任务档位。",
+        message="The image size meets the job requirements." if status == "passed" else "The longer image dimension is below the job requirement.",
         metrics={"long_edge": long_edge, "minimum_long_edge": minimum_long_edge},
     )
 
@@ -677,7 +677,7 @@ def _blank_check(metrics: dict[str, Any]) -> QualityCheckItem:
     return QualityCheckItem(
         code="IMAGE_BLANK",
         status=status,
-        message="图片包含可用视觉内容。" if status == "passed" else "图片接近空白或纯色。",
+        message="The image contains usable visual content." if status == "passed" else "The image is nearly blank or a solid color.",
         metrics={
             "luma_std": round(luma_std, 3),
             "transparent_ratio": round(float(metrics["transparent_ratio"]), 4),
@@ -695,16 +695,16 @@ def _transparency_check(
     border_visible_ratio = float(metrics["border_visible_ratio"])
     if required and transparent_ratio < 0.01:
         status: QualityItemStatus = "warning"
-        message = "任务要求透明背景，但图片没有形成可用透明区域。"
+        message = "The job requires a transparent background, but the image has no usable transparent area."
     elif transparent_ratio > 0 and border_visible_ratio > 0.75:
         status = "warning"
-        message = "透明图片边界仍有大面积可见像素，请检查背景残留。"
+        message = "Many visible pixels remain at the transparent image boundary. Check for leftover background."
     elif semi_transparent_ratio > 0.35:
         status = "warning"
-        message = "图片包含大面积半透明区域，请检查边缘残留。"
+        message = "The image has a large semitransparent area. Check for edge residue."
     else:
         status = "passed"
-        message = "透明区域和画布边界未发现明显残留。"
+        message = "No noticeable residue was found in transparent areas or at the canvas edges."
     return QualityCheckItem(
         code="IMAGE_TRANSPARENCY",
         status=status,
@@ -726,7 +726,7 @@ def _seam_check(metrics: dict[str, Any]) -> QualityCheckItem:
     return QualityCheckItem(
         code="IMAGE_SEAM",
         status=status,
-        message="图片首尾边缘差异较大。" if status == "warning" else "图片首尾边缘连续。",
+        message="The opposing image edges differ substantially." if status == "warning" else "The opposing image edges match.",
         metrics={
             "horizontal_error": round(horizontal_error, 4),
             "vertical_error": round(vertical_error, 4),
@@ -761,7 +761,7 @@ def _palette_check(metrics: dict[str, Any], palette: Sequence[str]) -> QualityCh
         return QualityCheckItem(
             code="IMAGE_PALETTE",
             status="not_checked",
-            message="风格档案没有可解析的色板。",
+            message="The style profile has no readable palette.",
             metrics={},
         )
     pixels = metrics["sampled_rgb"]
@@ -769,7 +769,7 @@ def _palette_check(metrics: dict[str, Any], palette: Sequence[str]) -> QualityCh
         return QualityCheckItem(
             code="IMAGE_PALETTE",
             status="warning",
-            message="图片没有可比较的可见颜色。",
+            message="The image has no visible colors to compare.",
             metrics={},
         )
     distances = np.linalg.norm(
@@ -781,7 +781,7 @@ def _palette_check(metrics: dict[str, Any], palette: Sequence[str]) -> QualityCh
     return QualityCheckItem(
         code="IMAGE_PALETTE",
         status=status,
-        message="图片颜色偏离项目色板。" if status == "warning" else "图片颜色接近项目色板。",
+        message="The image colors differ from the project palette." if status == "warning" else "The image colors are close to the project palette.",
         metrics={"mean_deviation": round(deviation, 4)},
     )
 
@@ -792,14 +792,14 @@ def _ocr_check(path: Path, runner: OcrRunner) -> QualityCheckItem:
         return QualityCheckItem(
             code="UI_UNEXPECTED_TEXT",
             status="not_checked",
-            message="OCR 服务不可用，未检查文字。",
+            message="Text was not checked because OCR is unavailable.",
             metrics={},
         )
     status: QualityItemStatus = "warning" if detected_count else "passed"
     return QualityCheckItem(
         code="UI_UNEXPECTED_TEXT",
         status=status,
-        message="无文字输出中检测到文字。" if detected_count else "未检测到文字。",
+        message="Text was detected in an output that requested no text." if detected_count else "No text was detected.",
         metrics={
             "detected_regions": detected_count,
             "max_confidence": max_confidence,
@@ -809,25 +809,25 @@ def _ocr_check(path: Path, runner: OcrRunner) -> QualityCheckItem:
 
 def _validate_component_manifest_entry(component: object, names: list[str]) -> None:
     if not isinstance(component, dict):
-        raise ValueError("组件清单条目无效。")
+        raise ValueError("The component manifest entry is invalid.")
     filename = str(component.get("file") or "")
     if not filename or filename not in names:
-        raise ValueError("组件清单引用的图片不存在。")
+        raise ValueError("The image referenced by the component manifest was not found.")
     width = int(component.get("width") or 0)
     height = int(component.get("height") or 0)
     if width <= 0 or height <= 0:
-        raise ValueError("组件尺寸无效。")
+        raise ValueError("The component dimensions are invalid.")
     nine_slice = component.get("nine_slice")
     if nine_slice is None:
         return
     if not isinstance(nine_slice, dict):
-        raise ValueError("九宫格边界无效。")
+        raise ValueError("The nine-slice bounds are invalid.")
     left = int(nine_slice.get("left", -1))
     top = int(nine_slice.get("top", -1))
     right = int(nine_slice.get("right", -1))
     bottom = int(nine_slice.get("bottom", -1))
     if min(left, top, right, bottom) < 0 or left + right >= width or top + bottom >= height:
-        raise ValueError("九宫格边界没有保留可拉伸中心区域。")
+        raise ValueError("The nine-slice bounds must leave a stretchable center.")
 
 
 def _overall_status(

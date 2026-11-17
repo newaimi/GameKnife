@@ -1,6 +1,6 @@
 /**
- * 手动编辑底部操作栏的输入状态。字段直接来自页面权限、保存流程和编辑历史，
- * 计算层不读取组件状态，便于空文档、只读和保存中的边界分别验证。
+ * Inputs for the manual editor action bar come directly from document, permission, save, and history state.
+ * Keeping the calculation free of component state makes empty, read-only, and saving cases independently testable.
  */
 export type ManualEditorActionStateInput = {
   hasSource: boolean;
@@ -10,20 +10,18 @@ export type ManualEditorActionStateInput = {
   canRedo: boolean;
 };
 
-/** 手动编辑底部操作栏展示的标签和禁用状态。 */
+/** Disabled states for actions in the manual editor toolbar. */
 export type ManualEditorActionState = {
-  uploadLabel: "导入图片" | "更换图片";
   uploadDisabled: boolean;
   undoDisabled: boolean;
   redoDisabled: boolean;
-  saveLabel: "保存" | "保存中";
   saveDisabled: boolean;
   exportDisabled: boolean;
 };
 
 /**
- * 按单项操作的真实依赖计算按钮状态。导入只依赖写入权限，导出只依赖当前文档，
- * 保存同时依赖文档、权限和进行中的请求，避免一项操作借用另一项操作的隐含条件。
+ * Calculates each action from its actual dependencies. Import needs write permission, export needs a document,
+ * and save needs a document, permission, and no request in progress.
  */
 export function readManualEditorActionState({
   hasSource,
@@ -33,11 +31,9 @@ export function readManualEditorActionState({
   canRedo,
 }: ManualEditorActionStateInput): ManualEditorActionState {
   return {
-    uploadLabel: hasSource ? "更换图片" : "导入图片",
     uploadDisabled: !canWrite,
     undoDisabled: !canUndo,
     redoDisabled: !canRedo,
-    saveLabel: saving ? "保存中" : "保存",
     saveDisabled: !hasSource || saving || !canWrite,
     exportDisabled: !hasSource,
   };

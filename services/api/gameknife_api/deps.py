@@ -131,7 +131,7 @@ def recover_community_runtime(app) -> None:
     # BackgroundTasks has no durable continuation after process exit. Recovery closes those persisted executions
     # before the API accepts traffic, then removes only the objects whose Asset rows were atomically retired.
     cleanup_assets = app.state.repository.recover_incomplete_jobs(
-        error_message="服务重启，未完成任务已终止。",
+        error_message="The service restarted and stopped the unfinished job.",
         updated_at=datetime.now(UTC).isoformat(),
     )
     for asset in cleanup_assets:
@@ -227,8 +227,8 @@ def get_job_dispatcher(
 
 def _build_community_request_context(app) -> RequestContext:
     return RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=COMMUNITY_FEATURES),
         storage=app.state.storage,

@@ -35,5 +35,5 @@ def test_local_storage_round_trip_reports_integrity_metadata(tmp_path: Path) -> 
 def test_local_storage_rejects_keys_outside_its_root(tmp_path: Path) -> None:
     provider = LocalStorageProvider(tmp_path / "storage")
 
-    with pytest.raises(ValueError, match="素材路径超出本地存储目录"):
+    with pytest.raises(ValueError, match="The asset path is outside the local storage directory"):
         provider.local_path("../outside.png")

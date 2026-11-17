@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { UpscaleParameters } from "@gameknife/shared-types";
 import { Button, NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
@@ -15,12 +16,7 @@ import { downloadOutputAsset } from "../../utils/assets";
 import { JOB_POLLING_PRESETS, readFirstJobOutputAsset } from "../../utils/jobs";
 import { openManualEdit } from "../../utils/manualEdit";
 
-const UPSCALE_STYLE_OPTIONS: Array<{ value: UpscaleParameters["style"]; label: string; note: string }> = [
-  { value: "general", label: "通用素材", note: "角色、道具、UI" },
-  { value: "anime", label: "动漫插画", note: "线稿和卡通" },
-  { value: "noisy", label: "噪点压缩", note: "低清和 JPEG" },
-  { value: "pixel", label: "像素风", note: "最近邻硬边" },
-];
+const UPSCALE_STYLE_OPTIONS: UpscaleParameters["style"][] = ["general", "anime", "noisy", "pixel"];
 
 const DEFAULT_UPSCALE_PARAMS: UpscaleParameters = {
   style: "general",
@@ -30,6 +26,7 @@ const DEFAULT_UPSCALE_PARAMS: UpscaleParameters = {
 };
 
 export function UpscaleWorkspace() {
+  const { t } = useTranslation("workflows");
   const [params, setParams] = useState<UpscaleParameters>(DEFAULT_UPSCALE_PARAMS);
   const [compare, setCompare] = useState(50);
   const { job, busy: jobBusy, error: jobError, failureDialog, setFailureDialog, runJob, resetJob } = useWorkflowJob();
@@ -59,8 +56,8 @@ export function UpscaleWorkspace() {
       parameters,
       idempotencyPayload: { input_asset_id: asset.id, parameters },
       createJob: (submission) => gameKnifeApiClient.createUpscaleJob(asset.id, parameters, submission),
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建图片放大任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("upscale.workflow") }),
       polling: JOB_POLLING_PRESETS.long,
     });
   }
@@ -77,8 +74,8 @@ export function UpscaleWorkspace() {
                 original={asset.url}
                 result={outputAsset?.url ?? ""}
                 compare={compare}
-                previewTitle="图片放大结果"
-                previewDescription="双击打开的超分放大结果。"
+                previewTitle={t("upscale.resultTitle")}
+                previewDescription={t("upscale.resultDescription")}
                 manualEditName={`${asset.filename.replace(/\.[^.]+$/, "")}_upscale.png`}
                 manualEditContext="image_upscale"
                 onCompare={setCompare}
@@ -90,22 +87,22 @@ export function UpscaleWorkspace() {
         </section>
 
         <aside className="settings-panel upscale-settings">
-          <h2>放大参数</h2>
-          <div className="upscale-style-grid" aria-label="图片风格">
+          <h2>{t("upscale.parameters")}</h2>
+          <div className="upscale-style-grid" aria-label={t("upscale.styleLabel")}>
             {UPSCALE_STYLE_OPTIONS.map((option) => (
               <button
-                key={option.value}
-                className={params.style === option.value ? "active" : ""}
+                key={option}
+                className={params.style === option ? "active" : ""}
                 type="button"
-                onClick={() => setParams((current) => ({ ...current, style: option.value }))}
+                onClick={() => setParams((current) => ({ ...current, style: option }))}
               >
-                <strong>{option.label}</strong>
-                <span>{option.note}</span>
+                <strong>{t(`upscale.styles.${option}.label`)}</strong>
+                <span>{t(`upscale.styles.${option}.note`)}</span>
               </button>
             ))}
           </div>
           <label className="number-field">
-            <span>放大倍率</span>
+            <span>{t("upscale.scale")}</span>
             <select value={params.scale} onChange={(event) => setParams((current) => ({ ...current, scale: Number(event.target.value) as UpscaleParameters["scale"] }))}>
               <option value={2}>2x</option>
               <option value={4}>4x</option>
@@ -113,22 +110,22 @@ export function UpscaleWorkspace() {
             </select>
           </label>
           <label className="number-field">
-            <span>降噪强度</span>
+            <span>{t("upscale.denoise")}</span>
             <select
               value={params.denoise}
               disabled={params.style === "pixel"}
               onChange={(event) => setParams((current) => ({ ...current, denoise: Number(event.target.value) }))}
             >
-              <option value={0}>关闭</option>
-              <option value={1}>轻度</option>
-              <option value={2}>中度</option>
-              <option value={3}>强度</option>
+              <option value={0}>{t("upscale.denoiseOff")}</option>
+              <option value={1}>{t("upscale.denoiseLight")}</option>
+              <option value={2}>{t("upscale.denoiseMedium")}</option>
+              <option value={3}>{t("upscale.denoiseStrong")}</option>
             </select>
           </label>
-          <NumberField label="Tile Size" value={params.tile_size} min={128} max={1024} onChange={(tile_size) => setParams((current) => ({ ...current, tile_size }))} />
+          <NumberField label={t("upscale.tileSize")} value={params.tile_size} min={128} max={1024} onChange={(tile_size) => setParams((current) => ({ ...current, tile_size }))} />
           {warnings.length ? (
             <div className="hint-box warning">
-              <strong>注意</strong>
+              <strong>{t("upscale.warning")}</strong>
               <p>{warnings.join(" ")}</p>
             </div>
           ) : null}
@@ -147,23 +144,23 @@ export function UpscaleWorkspace() {
                   : undefined
               }
             >
-              手动编辑
+              {t("upscale.manualEdit")}
             </Button>
           </div>
           <StatusLine error={error} job={job} />
         </aside>
 
         <WorkbenchActionBar>
-          <ImageUploadAction label={asset ? "更换图片" : "上传图片"} disabled={!canWrite} onFile={upload} />
+          <ImageUploadAction label={asset ? t("common.replaceImage") : t("common.uploadImage")} disabled={!canWrite} onFile={upload} />
           <Button variant="primary" disabled={!asset || busy || !canWrite} onClick={() => void run()}>
-            {busy ? "处理中" : "开始放大"}
+            {busy ? t("common.processing") : t("upscale.start")}
           </Button>
           <Button
             variant="secondary"
             disabled={!outputAsset}
             onClick={() => (outputAsset ? void downloadOutputAsset(outputAsset, `${asset?.filename ?? "upscale"}_upscale.png`) : undefined)}
           >
-            下载
+            {t("common.download")}
           </Button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>

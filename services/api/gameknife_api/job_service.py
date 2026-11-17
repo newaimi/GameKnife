@@ -57,7 +57,7 @@ def create_job(
     submitted = repository.create_job(job, submission)
     stored = repository.get_job_for_workspace(submitted.job.id, context.workspace.id)
     if stored is None:
-        raise RuntimeError("任务创建失败。")
+        raise RuntimeError("Job creation failed.")
     return JobSubmissionResult(job=stored, replayed=submitted.replayed)
 
 
@@ -69,7 +69,7 @@ def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestCont
         return
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
-        _mark_failed(repository, context, job_id, "序列帧不存在。")
+        _mark_failed(repository, context, job_id, "Sequence not found.")
         return
 
     try:
@@ -77,7 +77,7 @@ def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestCont
         job_parameters = json.loads(job.parameters_json)
         expected_revision = job_parameters["sequence_revision"]
         if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
-            raise ValueError("序列帧版本无效。")
+            raise ValueError("Invalid sequence revision.")
         delivery_keys = {"sequence_id", "sequence_revision", "frame_count", "canvas_width", "canvas_height"}
         clean_parameters = {
             **original_clean_parameters,
@@ -101,7 +101,7 @@ def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestCont
         updated_at=_now(),
     )
     if claimed_revision is None:
-        _mark_failed(repository, context, job_id, "序列帧已被其他任务修改或正在处理。")
+        _mark_failed(repository, context, job_id, "Another job has edited or is processing the sequence.")
         return
 
     old_records: list[AssetRecord] = []
@@ -110,7 +110,7 @@ def run_sequence_clean_job(repository: GameKnifeRepository, context: RequestCont
         # the atomic failure finalizer releases the claim instead of leaving a failed Job with a locked Sequence.
         frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
         if not frames:
-            raise ValueError("序列帧没有可用帧。")
+            raise ValueError("The sequence has no usable frames.")
         old_processed_ids = repository.list_sequence_processed_asset_ids(sequence_id, context.workspace.id)
         old_records = repository.list_assets_by_ids_for_workspace(old_processed_ids, context.workspace.id)
         processed_assets_by_frame: dict[str, str] = {}
@@ -184,7 +184,7 @@ def run_sequence_from_video_job(repository: GameKnifeRepository, context: Reques
         return
     video_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if video_asset is None:
-        _mark_failed(repository, context, job_id, "视频素材不存在。")
+        _mark_failed(repository, context, job_id, "Video asset not found.")
         return
 
     sequence_id: str | None = None
@@ -308,7 +308,7 @@ def delete_job(repository: GameKnifeRepository, context: RequestContext, job_id:
     if job is None:
         return False
     if job.status in {"pending", "running"}:
-        raise ValueError("任务正在处理中，完成后再删除。")
+        raise ValueError("The job is still processing. Delete it after it finishes.")
 
     # job_output_assets is the ownership boundary. Result payloads may also contain input or source Asset IDs and
     # must never decide what a Job deletion owns. The repository deletes Job rows and owned output Assets atomically.

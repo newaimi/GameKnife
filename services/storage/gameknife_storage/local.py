@@ -61,7 +61,7 @@ class LocalStorageProvider:
         candidate = (self.root / key).resolve()
         if not candidate.is_relative_to(root):
             # Treat persisted keys as untrusted input so malformed database data cannot escape the storage root.
-            raise ValueError("素材路径超出本地存储目录。")
+            raise ValueError("The asset path is outside the local storage directory.")
         return candidate
 
 

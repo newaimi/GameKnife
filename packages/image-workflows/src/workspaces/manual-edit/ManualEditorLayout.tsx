@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   IconButton,
@@ -13,10 +14,11 @@ import {
 const MANUAL_EDITOR_LAYOUT_STORAGE_KEY = "gameknife-manual-editor-layout";
 
 /**
- * 维护手动编辑页左右面板的宽度与折叠状态。
- * 画布始终占满工作区，工具和参数面板覆盖在画布上方，拖拽只更新各自的持久化宽度。
+ * Maintains the manual editor panel widths and collapse state. The canvas fills the workbench while floating
+ * panels overlay it; resizing changes only the persisted width of the corresponding panel.
  */
 export function ManualEditorLayout({ tools, stage, inspector }: { tools: ReactNode; stage: ReactNode; inspector: ReactNode }) {
+  const { t } = useTranslation("manualEditor");
   const [layout, setLayout] = useWorkspaceLayout(MANUAL_EDITOR_LAYOUT_STORAGE_KEY);
   const className = [
     "manual-editor-shell",
@@ -39,13 +41,13 @@ export function ManualEditorLayout({ tools, stage, inspector }: { tools: ReactNo
           value={layout.leftWidth}
           min={WORKSPACE_LEFT_MIN}
           max={WORKSPACE_LEFT_MAX}
-          label="调整编辑工具面板宽度"
+          label={t("layout.resizeTools")}
           disabled={layout.leftCollapsed}
           onChange={(leftWidth) => setLayout((current) => ({ ...current, leftWidth }))}
         />
         <IconButton
           className="manual-editor-panel-toggle"
-          label={layout.leftCollapsed ? "展开编辑工具面板" : "折叠编辑工具面板"}
+          label={layout.leftCollapsed ? t("layout.expandTools") : t("layout.collapseTools")}
           aria-expanded={!layout.leftCollapsed}
           onClick={() => setLayout((current) => ({ ...current, leftCollapsed: !current.leftCollapsed }))}
         >
@@ -59,13 +61,13 @@ export function ManualEditorLayout({ tools, stage, inspector }: { tools: ReactNo
           value={layout.rightWidth}
           min={WORKSPACE_RIGHT_MIN}
           max={WORKSPACE_RIGHT_MAX}
-          label="调整编辑检查器宽度"
+          label={t("layout.resizeInspector")}
           disabled={layout.rightCollapsed}
           onChange={(rightWidth) => setLayout((current) => ({ ...current, rightWidth }))}
         />
         <IconButton
           className="manual-editor-panel-toggle"
-          label={layout.rightCollapsed ? "展开编辑检查器" : "折叠编辑检查器"}
+          label={layout.rightCollapsed ? t("layout.expandInspector") : t("layout.collapseInspector")}
           aria-expanded={!layout.rightCollapsed}
           onClick={() => setLayout((current) => ({ ...current, rightCollapsed: !current.rightCollapsed }))}
         >

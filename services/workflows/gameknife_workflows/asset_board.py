@@ -52,7 +52,7 @@ def create_asset_board_region_workflow(
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     input_asset = repository.get_asset_for_workspace(input_asset_id, context.workspace.id)
     if input_asset is None:
-        raise WorkflowInputNotFoundError("输入素材不存在。")
+        raise WorkflowInputNotFoundError("Input asset not found.")
 
     # Region detection performs connected-component analysis without receiving the BiRefNet service.
     # It can run independently as a fast preflight, while extraction declares its model dependency explicitly.
@@ -81,11 +81,11 @@ def create_asset_board_cutout_workflow(
     submission: TaskSubmission | None = None,
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     if not model.is_installed():
-        raise WorkflowModelNotInstalledError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+        raise WorkflowModelNotInstalledError("BiRefNet is not installed. Install the model files from Settings first.")
 
     input_asset = repository.get_asset_for_workspace(input_asset_id, context.workspace.id)
     if input_asset is None:
-        raise WorkflowInputNotFoundError("输入素材不存在。")
+        raise WorkflowInputNotFoundError("Input asset not found.")
 
     # Asset extraction receives the model service explicitly because its dependencies differ from region detection.
     # Creation checks installation first, and the background job only reads local cache and writes the extracted asset.
@@ -114,7 +114,7 @@ def create_asset_board_refine_workflow(
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     cutout_asset = repository.get_asset_for_workspace(cutout_asset_id, context.workspace.id)
     if cutout_asset is None:
-        raise WorkflowInputNotFoundError("抠图结果不存在。")
+        raise WorkflowInputNotFoundError("Background removal result not found.")
 
     submitted = create_job_record(
         repository,
@@ -143,7 +143,7 @@ def create_asset_board_export_workflow(
 ) -> tuple[JobSubmissionResult, Callable[[], None]]:
     cutout_asset = repository.get_asset_for_workspace(cutout_asset_id, context.workspace.id)
     if cutout_asset is None:
-        raise WorkflowInputNotFoundError("抠图结果不存在。")
+        raise WorkflowInputNotFoundError("Background removal result not found.")
 
     # Export receives the confirmed components and selection explicitly instead of depending on an earlier refine job.
     # Passing current UI state is sufficient to execute ZIP export independently.
@@ -170,7 +170,7 @@ def run_asset_board_region_workflow(repository: WorkflowRepository, context: Req
         return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
-        mark_failed(repository, context, job_id, "输入素材不存在。")
+        mark_failed(repository, context, job_id, "Input asset not found.")
         return
 
     try:
@@ -225,7 +225,7 @@ def run_asset_board_refine_workflow(repository: WorkflowRepository, context: Req
         return
     cutout_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if cutout_asset is None:
-        mark_failed(repository, context, job_id, "抠图结果不存在。")
+        mark_failed(repository, context, job_id, "Background removal result not found.")
         return
 
     try:
@@ -257,7 +257,7 @@ def run_asset_board_export_workflow(repository: WorkflowRepository, context: Req
         return
     cutout_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if cutout_asset is None:
-        mark_failed(repository, context, job_id, "抠图结果不存在。")
+        mark_failed(repository, context, job_id, "Background removal result not found.")
         return
 
     output_assets: list[dict[str, str]] = []

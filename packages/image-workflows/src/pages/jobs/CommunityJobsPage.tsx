@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobPageResponse, JobResponse, OutputAssetRef } from "@gameknife/shared-types";
@@ -36,6 +37,7 @@ export function CommunityJobsPage({
 } = {}) {
   const navigate = useNavigate();
   const imageSession = useImageAssetSession();
+  const { t } = useTranslation("jobs");
   const [category, setCategory] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | JobResponse["status"]>("all");
   const [startDate, setStartDate] = useState("");
@@ -120,7 +122,7 @@ export function CommunityJobsPage({
   }
 
   async function handleDelete(job: JobResponse) {
-    if (!window.confirm("删除后会移除这条任务记录和对应生成文件，是否继续？")) {
+    if (!window.confirm(t("deleteConfirm"))) {
       return;
     }
 
@@ -170,38 +172,38 @@ export function CommunityJobsPage({
     <section className="task-list-page">
       <div className="page-heading task-list-heading">
         <div>
-          <p className="eyebrow">任务中心</p>
-          <h1>项目任务</h1>
-          <p>查看任务输入、输出和失败原因，并回到对应工具继续处理。</p>
+          <p className="eyebrow">{t("eyebrow")}</p>
+          <h1>{t("title")}</h1>
+          <p>{t("description")}</p>
         </div>
         <Button onClick={() => setReloadKey((current) => current + 1)}>
           <RefreshCw size={18} />
-          刷新
+          {t("refresh")}
         </Button>
       </div>
 
       <section className="task-filter-card">
-        <div className="task-filter-tabs" aria-label="任务类型筛选">
+        <div className="task-filter-tabs" aria-label={t("filterLabel")}>
           {jobCategoryOptions.map((option) => (
             <button key={option.value} className={category === option.value ? "active" : ""} type="button" onClick={() => setCategory(option.value)}>
-              <strong>{option.label}</strong>
-              <span>{option.note}</span>
+              <strong>{option.translationKey ? t(`categories.${option.translationKey}.label`) : option.label}</strong>
+              <span>{option.translationKey ? t(`categories.${option.translationKey}.note`) : option.note}</span>
             </button>
           ))}
         </div>
         <div className="task-date-filters">
           <label className="task-status-filter">
-            <span>状态</span>
+            <span>{t("statusFilter")}</span>
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
-              <option value="all">全部</option>
-              <option value="pending">排队中</option>
-              <option value="running">处理中</option>
-              <option value="success">成功</option>
-              <option value="failed">失败</option>
+              <option value="all">{t("categories.all.label")}</option>
+              <option value="pending">{t("status.queued")}</option>
+              <option value="running">{t("status.running")}</option>
+              <option value="success">{t("status.succeeded")}</option>
+              <option value="failed">{t("status.failed")}</option>
             </select>
           </label>
-          <DatePickerField label="开始时间" value={startDate} onChange={setStartDate} />
-          <DatePickerField label="结束时间" value={endDate} onChange={setEndDate} />
+          <DatePickerField label={t("startTime")} value={startDate} onChange={setStartDate} />
+          <DatePickerField label={t("endTime")} value={endDate} onChange={setEndDate} />
           <Button
             size="small"
             onClick={() => {
@@ -209,17 +211,15 @@ export function CommunityJobsPage({
               setEndDate("");
             }}
           >
-            清空时间
+            {t("clearTime")}
           </Button>
         </div>
       </section>
 
       <section className="task-table-card">
         <div className="task-table-summary">
-          <span>{loading ? "正在加载..." : `共 ${jobPage?.total ?? 0} 个任务`}</span>
-          <span>
-            第 {Math.min(page, totalPages)} / {totalPages} 页
-          </span>
+          <span>{loading ? t("loading") : t("resultCount", { count: jobPage?.total ?? 0 })}</span>
+          <span>{t("page", { current: Math.min(page, totalPages), total: totalPages })}</span>
         </div>
         {error ? <FeedbackMessage tone="danger">{error}</FeedbackMessage> : null}
         <div className="task-table">
@@ -239,17 +239,17 @@ export function CommunityJobsPage({
             ))
           ) : (
             <div className="task-empty">
-              <strong>{loading ? "正在加载任务..." : "没有符合条件的任务"}</strong>
-              <span>可以换一个任务类型或时间范围再试。</span>
+              <strong>{loading ? t("loadingJobs") : t("empty")}</strong>
+              <span>{t("emptyHint")}</span>
             </div>
           )}
         </div>
         <div className="task-pagination">
           <Button size="small" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-            上一页
+            {t("previousPage")}
           </Button>
           <Button size="small" disabled={page >= totalPages || loading} onClick={() => setPage((current) => current + 1)}>
-            下一页
+            {t("nextPage")}
           </Button>
         </div>
       </section>

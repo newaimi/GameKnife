@@ -692,7 +692,7 @@ export function extractSelectionClipboard(doc: EditorDocument, cut: boolean): Ed
       if (cut) layer.imageData.data[sourceIndex + 3] = 0;
     }
   }
-  return { name: "选区", imageData: item, bounds: { ...bounds } };
+  return { name: "Selection", imageData: item, bounds: { ...bounds } };
 }
 
 export function isEditorSelectionPixelSelected(selection: EditorSelectionMask, x: number, y: number, width: number) {
@@ -718,7 +718,7 @@ export function centerClipboardBounds(bounds: EditorSelection, width: number, he
 }
 
 export async function writeClipboardImage(imageData: ImageData) {
-  if (!navigator.clipboard || typeof ClipboardItem === "undefined") throw new Error("当前浏览器不支持图片剪贴板写入。");
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined") throw new Error("This browser does not support writing images to the clipboard.");
   const blob = await imageDataToPngBlob(imageData);
   await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
 }
@@ -733,7 +733,7 @@ export async function readClipboardImage(): Promise<EditorClipboardItem | null> 
     if (!type) continue;
     const blob = await item.getType(type);
     const imageData = await blobToImageData(blob);
-    return { name: "剪贴板", imageData, bounds: { x: 0, y: 0, width: imageData.width, height: imageData.height } };
+    return { name: "Clipboard", imageData, bounds: { x: 0, y: 0, width: imageData.width, height: imageData.height } };
   }
   return null;
 }
@@ -743,10 +743,10 @@ export function imageDataToPngBlob(imageData: ImageData) {
   canvas.width = imageData.width;
   canvas.height = imageData.height;
   const context = canvas.getContext("2d");
-  if (!context) return Promise.reject(new Error("浏览器不支持 Canvas 导出。"));
+  if (!context) return Promise.reject(new Error("This browser does not support Canvas export."));
   context.putImageData(imageData, 0, 0);
   return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG 生成失败。"))), "image/png");
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Could not generate PNG."))), "image/png");
   });
 }
 
@@ -776,7 +776,7 @@ export function blobToImageData(blob: Blob) {
       canvas.height = image.naturalHeight;
       const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) {
-        reject(new Error("浏览器不支持 Canvas 解码。"));
+        reject(new Error("This browser does not support Canvas decoding."));
         return;
       }
       context.drawImage(image, 0, 0);
@@ -784,7 +784,7 @@ export function blobToImageData(blob: Blob) {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("剪贴板图片无法解码。"));
+      reject(new Error("Could not decode the clipboard image."));
     };
     image.src = url;
   });
@@ -889,7 +889,7 @@ export function readMinNeighborAlpha(alpha: Uint8ClampedArray, width: number, he
 }
 
 export function exportEditorPng(doc: EditorDocument | null, options?: EditorExportOptions) {
-  if (!doc) return Promise.reject(new Error("当前没有可导出的编辑图。"));
+  if (!doc) return Promise.reject(new Error("There is no edited image to export."));
   const imageData = compositeEditorDocument(doc);
   return imageDataToPngBlob(options?.backgroundMode === "color" ? flattenImageDataOnBackground(imageData, options.backgroundColor) : imageData);
 }

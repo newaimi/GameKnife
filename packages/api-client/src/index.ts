@@ -422,7 +422,7 @@ function jobJsonHeaders(submission?: TaskSubmissionOptions): HeadersInit {
 }
 
 async function readApiClientError(response: Response): Promise<ApiClientError> {
-  const fallback = `请求失败，状态码 ${response.status}`;
+  const fallback = `Request failed with status ${response.status}`;
   try {
     const data = (await response.json()) as { detail?: string | { code?: unknown; message?: unknown } };
     if (typeof data.detail === "string") {

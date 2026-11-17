@@ -127,12 +127,12 @@ def _ensure_sequence_export_input(
 ) -> tuple[Any, str]:
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
-        raise WorkflowInputNotFoundError("序列帧不存在。")
+        raise WorkflowInputNotFoundError("Sequence not found.")
     if sequence["active_job_id"] is not None:
-        raise WorkflowValidationError("序列帧正在处理中，请稍后导出。")
+        raise WorkflowValidationError("The sequence is processing. Try exporting again later.")
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
-        raise WorkflowValidationError("序列帧没有可用帧。")
+        raise WorkflowValidationError("The sequence has no usable frames.")
     return sequence, str(frames[0]["source_asset_id"])
 
 
@@ -153,14 +153,14 @@ def _run_sequence_export_workflow(
         return
     sequence = repository.get_sequence_for_workspace(sequence_id, context.workspace.id)
     if sequence is None:
-        mark_failed(repository, context, job_id, "序列帧不存在。")
+        mark_failed(repository, context, job_id, "Sequence not found.")
         return
     if sequence["active_job_id"] is not None:
-        mark_failed(repository, context, job_id, "序列帧正在处理中，请稍后导出。")
+        mark_failed(repository, context, job_id, "The sequence is processing. Try exporting again later.")
         return
     frames = repository.list_sequence_frames(sequence_id, context.workspace.id, enabled_only=True)
     if not frames:
-        mark_failed(repository, context, job_id, "序列帧没有可导出的帧。")
+        mark_failed(repository, context, job_id, "The sequence has no frames to export.")
         return
 
     output_assets: list[dict[str, str]] = []

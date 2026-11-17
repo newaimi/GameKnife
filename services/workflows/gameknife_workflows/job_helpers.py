@@ -123,12 +123,12 @@ def create_job_record(
     for role, asset_ids in (input_assets or {}).items():
         normalized_role = role.strip()
         if not normalized_role:
-            raise ValueError("任务输入角色不能为空。")
+            raise ValueError("The job input role cannot be empty.")
         normalized_asset_ids = list(
             dict.fromkeys(asset_id.strip() for asset_id in asset_ids if asset_id.strip())
         )
         if not normalized_asset_ids:
-            raise ValueError(f"任务输入角色 {normalized_role} 没有关联素材。")
+            raise ValueError(f"The job input role {normalized_role} has no associated asset.")
         normalized_inputs[normalized_role] = normalized_asset_ids
     context.permissions.require(
         "jobs.create",
@@ -175,7 +175,7 @@ def create_job_record(
     )
     stored = repository.get_job_for_workspace(submitted.job.id, context.workspace.id)
     if stored is None:
-        raise RuntimeError("任务创建失败。")
+        raise RuntimeError("Job creation failed.")
     # A Commercial repository may return an earlier Job for an idempotent replay. Preserve that signal together
     # with the reloaded record so API routes can avoid dispatching the same accepted request twice.
     return JobSubmissionResult(job=stored, replayed=submitted.replayed)
@@ -198,7 +198,7 @@ def run_image_output_job(
         return
     input_asset = repository.get_asset_for_workspace(job.input_asset_id, context.workspace.id)
     if input_asset is None:
-        mark_failed(repository, context, job_id, "输入素材不存在。")
+        mark_failed(repository, context, job_id, "Input asset not found.")
         return
 
     output_assets: list[dict[str, str]] = []

@@ -90,9 +90,9 @@ def test_sound_effect_workflow_rejects_blank_prompt(tmp_path: Path) -> None:
             parameters={"prompt": "   ", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
         )
     except WorkflowValidationError as exc:
-        assert str(exc) == "请输入声效提示词。"
+        assert str(exc) == "Enter an SFX prompt."
     else:
-        raise AssertionError("空声效提示词必须阻止创建任务。")
+        raise AssertionError("An empty SFX prompt must prevent job creation.")
 
 
 def test_sound_effect_workflow_rejects_unavailable_service(tmp_path: Path) -> None:
@@ -102,13 +102,13 @@ def test_sound_effect_workflow_rejects_unavailable_service(tmp_path: Path) -> No
         create_sound_effect_workflow(
             repository,
             context,
-            FakeSoundEffectService({"status": "unconfigured", "installed": False, "message": "Stable Audio 声效服务未配置。"}),
+            FakeSoundEffectService({"status": "unconfigured", "installed": False, "message": "The Stable Audio SFX service is not configured."}),
             parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
         )
     except WorkflowServiceUnavailableError as exc:
-        assert str(exc) == "Stable Audio 声效服务未配置。"
+        assert str(exc) == "The Stable Audio SFX service is not configured."
     else:
-        raise AssertionError("声效服务不可用时必须阻止创建任务。")
+        raise AssertionError("An unavailable SFX service must prevent job creation.")
 
 
 def test_sound_effect_workflow_rejects_missing_model(tmp_path: Path) -> None:
@@ -122,9 +122,9 @@ def test_sound_effect_workflow_rejects_missing_model(tmp_path: Path) -> None:
             parameters={"prompt": "coin pickup", "duration_seconds": 1, "steps": 20, "cfg_scale": 5},
         )
     except WorkflowModelNotInstalledError as exc:
-        assert str(exc) == "Stable Audio Open 模型尚未安装，请先到设置页下载安装模型文件。"
+        assert str(exc) == "Stable Audio Open is not installed. Install the model files from Settings first."
     else:
-        raise AssertionError("Stable Audio 模型未安装时必须阻止创建任务。")
+        raise AssertionError("A missing Stable Audio model must prevent job creation.")
 
 
 def test_sound_effect_workflow_creates_prompt_and_wav_assets(tmp_path: Path) -> None:
@@ -272,7 +272,7 @@ def test_sound_effect_prompt_delete_fence_returns_service_unavailable(
 
     with pytest.raises(
         WorkflowServiceUnavailableError,
-        match="相同声效任务正在提交",
+        match="An identical sound effect job is being submitted",
     ):
         create_sound_effect_workflow(
             repository,
@@ -300,8 +300,8 @@ def _make_repository_and_context(
     init_sqlite_schema(database_path)
     repository = repository_type(database_path)
     context = RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=frozenset({"sound-effect"})),
         storage=storage,

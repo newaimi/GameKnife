@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clearManualEditorScheduledWork } from "../dist/workspaces/manual-edit/manualEditorScheduling.js";
 
-test("StrictMode 清理后释放手动编辑器调度引用并允许再次调度", () => {
+test("StrictMode cleanup releases manual editor scheduling refs and allows rescheduling", () => {
   const renderFrameRef = { current: 17 };
   const statusTimerRef = { current: 23 };
   const cancelledFrames = [];
@@ -20,7 +20,7 @@ test("StrictMode 清理后释放手动编辑器调度引用并允许再次调度
   assert.deepEqual(cancelledFrames, [17]);
   assert.deepEqual(clearedTimers, [23]);
 
-  // StrictMode 会在清理后重新执行 effect；新的浏览器任务必须能写入并再次被正常回收。
+  // StrictMode reruns effects after cleanup, so new browser tasks must be scheduled and released normally.
   renderFrameRef.current = 31;
   statusTimerRef.current = 47;
   clearManualEditorScheduledWork(
@@ -36,7 +36,7 @@ test("StrictMode 清理后释放手动编辑器调度引用并允许再次调度
   assert.deepEqual(clearedTimers, [23, 47]);
 });
 
-test("没有待执行任务时清理函数不调用浏览器取消接口", () => {
+test("cleanup does not call browser cancellation APIs when no work is scheduled", () => {
   const renderFrameRef = { current: null };
   const statusTimerRef = { current: null };
   let cancelCount = 0;

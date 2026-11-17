@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import type { JobResponse, SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
@@ -27,6 +28,7 @@ const DEFAULT_SEQUENCE_PARAMS: SequenceCleanParameters = {
 type SequenceJobSubmission = Pick<WorkflowJobRunOptions<JobResponse>, "jobType" | "parameters" | "idempotencyPayload" | "createJob">;
 
 export function SequenceWorkspace() {
+  const { t } = useTranslation("workflows");
   const [searchParams, setSearchParams] = useSearchParams();
   const [sequences, setSequences] = useState<SequenceResponse[]>([]);
   const [sequence, setSequence] = useState<SequenceResponse | null>(null);
@@ -61,7 +63,7 @@ export function SequenceWorkspace() {
     setOperationBusy(true);
     setError("");
     try {
-      const imported = await gameKnifeApiClient.uploadSequenceFrames(files, guessSequenceName(files), 12);
+      const imported = await gameKnifeApiClient.uploadSequenceFrames(files, guessSequenceName(files, t("sequence.defaultName")), 12);
       await refreshSequences(imported.id);
     } catch (exc) {
       setError(readMessage(exc));
@@ -158,8 +160,8 @@ export function SequenceWorkspace() {
     }
     const finished = await runJob({
       ...submission,
-      failureTitle: "任务创建失败",
-      failureMessage: "后端拒绝创建序列帧任务，下面是接口返回的错误内容。",
+      failureTitle: t("common.jobCreationFailed"),
+      failureMessage: t("common.backendRejected", { workflow: t("sequence.workflow") }),
       polling: JOB_POLLING_PRESETS.standard,
     });
     if (finished?.status === "success" && refreshAfter && sequence) {
@@ -240,15 +242,15 @@ export function SequenceWorkspace() {
           onManualEdit={openManualEdit}
         />
         <WorkbenchActionBar>
-          <ImageSequenceUploadAction label={sequence ? "更换序列" : "上传序列"} disabled={busy || !canWrite} onFiles={importFrames} />
+          <ImageSequenceUploadAction label={sequence ? t("sequence.replace") : t("sequence.upload")} disabled={busy || !canWrite} onFiles={importFrames} />
           <button className="primary" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void clean()}>
-            {jobBusy ? "处理中" : "清洗"}
+            {jobBusy ? t("sequence.processing") : t("sequence.clean")}
           </button>
           <button className="ghost" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void exportFrames()}>
-            导出 PNG
+            {t("sequence.exportPng")}
           </button>
           <button className="ghost" type="button" disabled={!sequence || busy || !canWrite} onClick={() => void exportSpine()}>
-            导出 Spine
+            {t("sequence.exportSpine")}
           </button>
           <button
             className="ghost"
@@ -260,7 +262,7 @@ export function SequenceWorkspace() {
                 : undefined
             }
           >
-            下载
+            {t("sequence.download")}
           </button>
         </WorkbenchActionBar>
       </ToolWorkspaceLayout>
@@ -278,7 +280,7 @@ function readSequenceCleanParameters(sequence: SequenceResponse): SequenceCleanP
   } as SequenceCleanParameters;
 }
 
-function guessSequenceName(files: File[]) {
-  const stem = files[0]?.name.replace(/\.[^.]+$/, "") ?? "序列帧";
+function guessSequenceName(files: File[], fallbackName: string) {
+  const stem = files[0]?.name.replace(/\.[^.]+$/, "") ?? fallbackName;
   return stem.replace(/[_ -]*\d+$/, "").trim() || stem;
 }

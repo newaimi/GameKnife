@@ -1,0 +1,30 @@
+{
+  "actionsLabel": "工作台操作",
+  "zoomLabel": "图片缩放控制",
+  "fit": "适屏",
+  "parameters": "当前参数",
+  "resizeToolPanel": "调整工具面板宽度",
+  "resizeParameterPanel": "调整参数面板宽度",
+  "expandParameterPanel": "展开参数面板",
+  "collapseParameterPanel": "折叠参数面板",
+  "emptyPreview": "空预览区",
+  "loadingOriginal": "正在加载原图...",
+  "originalImage": "原图",
+  "processedImage": "处理后",
+  "compareHandle": "拖动查看处理前后",
+  "resultTitle": "处理结果",
+  "resultDescription": "双击打开处理后的图片。",
+  "resultFileName": "处理结果.png",
+  "previewLabel": "{{title}}预览",
+  "manualEdit": "手动编辑",
+  "close": "关闭",
+  "failure": {
+    "label": "处理失败",
+    "close": "关闭",
+    "unknownBackendError": "后端没有返回具体错误。",
+    "jobTitle": "{{title}}失败",
+    "jobMessage": "任务没有完成，下面是后端返回的原始错误内容。",
+    "jobDetail": "任务 ID：{{id}}\n错误内容：{{detail}}",
+    "request": "请求失败。"
+  }
+}

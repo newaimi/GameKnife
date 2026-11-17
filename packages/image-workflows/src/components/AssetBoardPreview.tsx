@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { ComponentCandidate } from "@gameknife/shared-types";
 import type { ManualEditSource } from "../types/manualEdit";
 import { refineImageDataEdges } from "../utils/alphaMask";
@@ -43,6 +44,7 @@ export function AssetBoardPreview({
   onChangeComponentBbox: (id: number, bbox: [number, number, number, number]) => void;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
 }) {
+  const { t } = useTranslation("workflows");
   const resolvedImageUrl = useObjectUrl(imageUrl);
   const resolvedResultUrl = useObjectUrl(resultUrl);
   const previewResultUrl = useEdgeRefinePreviewUrl(resolvedResultUrl, alphaContract, alphaFeather, alphaDefringe, alphaThreshold);
@@ -105,8 +107,8 @@ export function AssetBoardPreview({
 
     event.preventDefault();
     event.stopPropagation();
-    // 拖拽时记录起点，后续只根据这一份起点计算 bbox。
-    // 这样可以避免 React 状态连续更新后，下一帧又拿最新 bbox 当起点导致框体漂移。
+    // Capture one drag origin and calculate every later box from it. Reusing updated React state as the next
+    // origin would accumulate movement and make the region drift.
     setActiveEdit({
       componentId: component.id,
       mode,
@@ -123,12 +125,12 @@ export function AssetBoardPreview({
           <img
             className="asset-image"
             src={resolvedImageUrl}
-            alt="素材板原图"
+            alt={t("assetBoard.original")}
             style={previewResultUrl ? { clipPath: `inset(0 ${100 - compare}% 0 0)` } : undefined}
           />
           {previewResultUrl ? (
             <div className="result-layer" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}>
-              <ResultImage src={previewResultUrl} alt="素材板抠图预览" />
+              <ResultImage src={previewResultUrl} alt={t("assetBoard.cutoutPreview")} />
             </div>
           ) : null}
           {imageBox
@@ -154,7 +156,7 @@ export function AssetBoardPreview({
                       onToggle(component.id);
                     }
                   }}
-                  title={`组件 #${component.id}`}
+                  title={t("assetBoard.component", { id: component.id })}
                 >
                   #{component.id}
                   {component.nine_slice ? <NineSliceGuides component={component} /> : null}
@@ -171,10 +173,10 @@ export function AssetBoardPreview({
               <CompareDragHandle value={compare} frameRef={frameRef} onChange={onCompare} />
             </>
           ) : null}
-          {!components.length ? <span className="canvas-note">正在识别素材...</span> : null}
+          {!components.length ? <span className="canvas-note">{t("assetBoard.detecting")}</span> : null}
         </div>
       ) : (
-        <span className="canvas-note">正在加载素材板...</span>
+        <span className="canvas-note">{t("assetBoard.loading")}</span>
       )}
       {previewComponent && previewResultUrl ? (
         <ComponentPreviewModal
@@ -205,43 +207,41 @@ function ComponentPreviewModal({
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("workflows");
   const previewUrl = useComponentPreviewUrl(imageUrl, component, exportPadding);
   const [x, y, width, height] = component.bbox;
 
   const modal = (
     <div className="component-preview-backdrop no-pan" role="presentation" onClick={onClose}>
-      <section className="component-preview-modal" role="dialog" aria-modal="true" aria-label={`组件 #${component.id} 预览`} onClick={(event) => event.stopPropagation()}>
+      <section className="component-preview-modal" role="dialog" aria-modal="true" aria-label={t("assetBoard.previewLabel", { id: component.id })} onClick={(event) => event.stopPropagation()}>
         <div className="component-preview-title">
           <div>
-            <strong>组件 #{component.id}</strong>
-            <span>
-              当前框选 {width}×{height}，位置 {x} / {y}
-            </span>
+            <strong>{t("assetBoard.component", { id: component.id })}</strong>
+            <span>{t("assetBoard.bounds", { width, height, x, y })}</span>
           </div>
           <div className="component-preview-actions">
             <button
               className="primary compact"
               type="button"
               disabled={!previewUrl || manualEditDisabled}
-              onClick={() => previewUrl && void onManualEdit({ name: `组件-${component.id}.png`, url: previewUrl, sourceContext: "asset_component" })}
+              onClick={() => previewUrl && void onManualEdit({ name: t("assetBoard.fileName", { id: component.id }), url: previewUrl, sourceContext: "asset_component" })}
             >
-              手动编辑
+              {t("assetBoard.manualEdit")}
             </button>
             <button className="ghost compact" type="button" onClick={onClose}>
-              关闭
+              {t("assetBoard.close")}
             </button>
           </div>
         </div>
         <div className="component-preview-canvas">
-          {previewUrl ? <img src={previewUrl} alt={`组件 #${component.id} 裁切预览`} /> : <span>正在生成预览...</span>}
+          {previewUrl ? <img src={previewUrl} alt={t("assetBoard.cropPreview", { id: component.id })} /> : <span>{t("assetBoard.generatingPreview")}</span>}
         </div>
-        <p className="component-preview-tip">预览会带上当前导出留边，确认边缘没问题后再导出 zip。</p>
+        <p className="component-preview-tip">{t("assetBoard.previewTip")}</p>
       </section>
     </div>
   );
 
-  // 预览区支持缩放和平移，内部会挂 transform。
-  // 弹窗放到 body，可以避免 fixed 定位跟着画布一起缩放。
+  // Render the modal in body so the preview's zoom transform cannot scale fixed-position UI.
   return createPortal(modal, document.body);
 }
 
@@ -300,8 +300,8 @@ function useEdgeRefinePreviewUrl(imageUrl: string, alphaContract: number, alphaF
     image.onload = () => {
       if (cancelled) return;
 
-      // 边缘处理是纯前端预览，不写回服务端原始 cutout。
-      // 用户调小数值时可以立即恢复细节，最终导出再由后端按同一组参数处理。
+      // Edge refinement is a client-only preview and never overwrites the stored cutout. Reducing a value can
+      // restore detail immediately, while final export applies the same parameters on the backend.
       const canvas = document.createElement("canvas");
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;

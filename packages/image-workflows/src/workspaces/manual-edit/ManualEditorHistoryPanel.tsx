@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@gameknife/ui-kit";
 import type { EditorStatus, ManualEditorHandle } from "./types";
 
@@ -11,12 +12,13 @@ export function ManualEditorHistoryPanel({
   status: EditorStatus;
   hasSource: boolean;
 }) {
+  const { i18n, t } = useTranslation("manualEditor");
   return (
     <div className="editor-section">
-      <strong>历史</strong>
+      <strong>{t("history.title")}</strong>
       <div className="editor-action-row">
         <Button size="small" disabled={!hasSource} onClick={() => editorRef.current?.createSnapshot()}>
-          保存快照
+          {t("history.saveSnapshot")}
         </Button>
       </div>
       <div className="editor-history-list">
@@ -24,18 +26,18 @@ export function ManualEditorHistoryPanel({
           status.history.map((entry, index) => (
             <button className="editor-history-row" type="button" key={entry.id} onClick={() => editorRef.current?.jumpToHistory(index)}>
               <span>{entry.title}</span>
-              <em>{new Date(entry.createdAt).toLocaleTimeString()}</em>
+              <em>{new Date(entry.createdAt).toLocaleTimeString(i18n.resolvedLanguage ?? i18n.language)}</em>
             </button>
           ))
         ) : (
-          <p className="helper-text">暂无编辑记录。</p>
+          <p className="helper-text">{t("history.empty")}</p>
         )}
       </div>
       <div className="editor-history-list compact-list">
         {status.snapshots.map((snapshot) => (
           <button className="editor-history-row" type="button" key={snapshot.id} onClick={() => editorRef.current?.restoreSnapshot(snapshot.id)}>
             <span>{snapshot.title}</span>
-            <em>快照</em>
+            <em>{t("history.snapshot")}</em>
           </button>
         ))}
       </div>

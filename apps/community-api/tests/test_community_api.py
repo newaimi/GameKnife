@@ -90,7 +90,7 @@ def make_video_bytes(tmp_path: Path) -> bytes:
     video_path = tmp_path / "clip.avi"
     writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 4.0, (16, 12))
     if not writer.isOpened():
-        raise RuntimeError("测试视频编码器不可用。")
+        raise RuntimeError("The test video encoder is unavailable.")
     try:
         for index, color in enumerate([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]):
             frame = np.zeros((12, 16, 3), dtype=np.uint8)
@@ -193,7 +193,7 @@ class FakeUpscaleModelService:
         return self.install_status()
 
     def model_specs(self) -> list[dict[str, str]]:
-        return [{"key": "general", "name": "fake-real-esrgan", "role": "测试", "filename": "fake.pth"}]
+        return [{"key": "general", "name": "fake-real-esrgan", "role": "Test", "filename": "fake.pth"}]
 
     def upscale_image(
         self,
@@ -237,7 +237,7 @@ def test_community_serves_web_dist_on_same_port(tmp_path: Path) -> None:
     assert spa_response.status_code == 200
     assert api_response.status_code == 200
     assert missing_api_response.status_code == 404
-    assert missing_api_response.json()["detail"] == "接口不存在。"
+    assert missing_api_response.json()["detail"] == "API endpoint not found."
 
 
 def test_job_runtime_reports_detected_cuda_device(monkeypatch, tmp_path: Path) -> None:
@@ -303,7 +303,7 @@ def test_asset_upload_rejects_body_above_the_streaming_limit(tmp_path: Path, mon
         )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == "上传文件不能超过 50MB。"
+    assert response.json()["detail"] == "The uploaded file cannot exceed 50 MB."
 
 
 @pytest.mark.parametrize(
@@ -527,7 +527,7 @@ def test_invalid_image_returns_chinese_error(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "上传文件不是有效图片。"
+    assert response.json()["detail"] == "The uploaded file is not a valid image."
 
 
 def test_manual_edit_save_creates_new_asset_and_preserves_alpha(tmp_path: Path) -> None:
@@ -575,9 +575,9 @@ def test_manual_edit_save_rejects_invalid_image_and_missing_source(tmp_path: Pat
         )
 
     assert bad_file.status_code == 400
-    assert bad_file.json()["detail"] == "只支持 JPG、PNG 和 WebP 图片。"
+    assert bad_file.json()["detail"] == "Only JPG, PNG, and WebP images are supported."
     assert missing_source.status_code == 404
-    assert missing_source.json()["detail"] == "输入素材不存在。"
+    assert missing_source.json()["detail"] == "Input asset not found."
 
 
 def test_settings_are_readable_without_login(tmp_path: Path) -> None:
@@ -697,7 +697,7 @@ def test_model_status_read_uses_workflow_permission_without_granting_settings_wr
 def test_birefnet_install_can_start_without_login(tmp_path: Path) -> None:
     fake_birefnet = FakeBiRefNetService()
     with make_client(tmp_path) as client:
-        # 模型下载按钮调用 POST，测试里替换成 Fake 服务，避免验收接口时触发真实模型下载。
+        # The model download button calls POST; use a fake service so endpoint acceptance does not download real model files.
         client.app.state.birefnet = fake_birefnet
         response = client.post("/api/settings/birefnet/install")
 
@@ -717,7 +717,7 @@ def test_upscale_model_install_status_is_readable_without_login(tmp_path: Path) 
 def test_upscale_model_install_can_start_without_login(tmp_path: Path) -> None:
     fake_upscale = FakeUpscaleModelService()
     with make_client(tmp_path) as client:
-        # AI 超分模型和 BiRefNet 一样由设置页显式安装，任务阶段不能依赖隐式下载兜底。
+        # Like BiRefNet, AI upscale models are installed explicitly from Settings and jobs cannot rely on implicit downloads.
         client.app.state.upscale_models = fake_upscale
         response = client.post("/api/settings/upscale-models/install")
 
@@ -752,7 +752,7 @@ def test_sound_effect_unconfigured_returns_chinese_error(tmp_path: Path) -> None
         )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Stable Audio 声效服务未配置。"
+    assert response.json()["detail"] == "The Stable Audio SFX service is not configured."
 
 
 def test_sound_effect_job_creates_wav_asset(tmp_path: Path) -> None:
@@ -846,7 +846,7 @@ def test_non_pixel_upscale_requires_installed_model(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "图片放大模型尚未下载安装，请先到设置页下载安装模型文件。"
+    assert response.json()["detail"] == "Upscale models are not installed. Install the model files from Settings first."
 
 
 def test_pixel_upscale_does_not_call_ai_model_service(tmp_path: Path) -> None:
@@ -908,7 +908,7 @@ def test_background_remove_requires_installed_birefnet(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+    assert response.json()["detail"] == "BiRefNet is not installed. Install the model files from Settings first."
 
 
 def test_background_remove_job_creates_png_asset_with_fake_birefnet(tmp_path: Path) -> None:
@@ -1206,7 +1206,7 @@ def test_sequence_import_removes_object_when_asset_persistence_fails(
         stored_objects = list(client.app.state.storage.assets_dir.iterdir())
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "序列帧导入失败。"
+    assert response.json()["detail"] == "Failed to import sequence frames."
     assert stored_objects == []
 
 
@@ -1294,7 +1294,7 @@ def test_cleaning_sequence_remains_readable_and_rejects_a_second_clean_job(tmp_p
     assert readable.status_code == 200
     assert readable.json()["status"] == "cleaning"
     assert rejected.status_code == 409
-    assert rejected.json()["detail"] == "序列帧正在处理中，请稍后重试。"
+    assert rejected.json()["detail"] == "The sequence is processing. Try again later."
 
 
 def test_sequence_clean_releases_claim_when_repository_read_fails_after_claim(
@@ -1505,7 +1505,7 @@ def test_community_startup_recovery_removes_incomplete_job_objects(tmp_path: Pat
 
     assert recovered_job.status_code == 200
     assert recovered_job.json()["status"] == "failed"
-    assert recovered_job.json()["error_message"] == "服务重启，未完成任务已终止。"
+    assert recovered_job.json()["error_message"] == "The service restarted and stopped the unfinished job."
     assert removed_asset.status_code == 404
     assert output_object is not None and not output_object.exists()
 
@@ -1624,13 +1624,13 @@ def test_video_to_sequence_background_remove_requires_model_at_creation(tmp_path
         )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+    assert response.json()["detail"] == "BiRefNet is not installed. Install the model files from Settings first."
 
 
 def test_video_to_sequence_background_remove_uses_installed_birefnet(tmp_path: Path) -> None:
     fake_birefnet = FakeBiRefNetService()
     with make_client(tmp_path) as client:
-        # 视频抽帧是本地能力，remove_background 才需要模型；这里替换为已安装 Fake 服务，验证显式依赖链路可执行。
+        # Video frame extraction is local and only remove_background needs a model. Use an installed fake to verify the explicit dependency path.
         client.app.state.birefnet = fake_birefnet
         upload = client.post(
             "/api/assets/videos",
@@ -1816,8 +1816,8 @@ def test_asset_quality_check_rejects_unsupported_asset_and_foreign_snapshot(
         )
 
     assert unsupported.status_code == 400
-    assert unsupported.json()["detail"] == "当前素材类型不支持自动质量检查。"
+    assert unsupported.json()["detail"] == "Automatic quality checks do not support this asset type."
     assert missing_snapshot.status_code == 404
     assert missing_snapshot.json()["detail"] == (
-        "质量规则快照不存在，请重新打开素材详情。"
+        "The quality rules snapshot is missing. Reopen the asset details."
     )

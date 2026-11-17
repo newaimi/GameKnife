@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "@gameknife/i18n";
 import { Pause, Play } from "lucide-react";
 import type { SequenceCleanParameters, SequenceFrameResponse, SequenceResponse } from "@gameknife/shared-types";
 import { NumberField, WorkbenchPreview } from "@gameknife/ui-kit";
@@ -32,6 +34,7 @@ export function SequenceEditor({
   onDelete: (sequenceId: string) => void | Promise<void>;
   onManualEdit: (source: Pick<ManualEditSource, "name" | "url" | "sourceFileId" | "sourceContext">) => void | Promise<void>;
 }) {
+  const { t } = useTranslation("workflows");
   const [playing, setPlaying] = useState(false);
   const [showOnionSkin, setShowOnionSkin] = useState(false);
   const [showDifferenceMap, setShowDifferenceMap] = useState(false);
@@ -50,7 +53,7 @@ export function SequenceEditor({
   const previousFrame = enabledFrames[(activeIndex - 1 + enabledFrames.length) % enabledFrames.length];
   const nextFrame = enabledFrames[(activeIndex + 1) % enabledFrames.length];
   const loadPreview = useRef<(source: string) => Promise<string>>(() => Promise.resolve(""));
-  const [previews, setPreviews] = useState<{ sequenceId: string; urls: Record<string, string>; error: string }>({ sequenceId: "", urls: {}, error: "" });
+  const [previews, setPreviews] = useState<{ sequenceId: string; urls: Record<string, string>; loadFailed: boolean }>({ sequenceId: "", urls: {}, loadFailed: false });
   const previewUrls = previews.sequenceId === sequence?.id ? previews.urls : {};
   const activeUrl = previewUrls[activeFrame?.preview_url ?? ""] ?? "";
   const referenceUrl = previewUrls[referenceFrame?.preview_url ?? ""] ?? "";
@@ -60,7 +63,7 @@ export function SequenceEditor({
   const visibleFrame = activeUrl && activeFrame ? { frame: activeFrame, url: activeUrl } : presentedFrame?.sequenceId === sequence?.id ? presentedFrame : null;
   const previewSources = useMemo(() => JSON.stringify([...new Set((draftSequence?.id === sequence?.id ? frames : []).map((frame) => frame.preview_url))].sort()), [frames, draftSequence?.id, sequence?.id]);
   const differenceMap = useFrameDifferenceMap(referenceUrl, activeUrl, showDifferenceMap && Boolean(referenceFrame && activeFrame && referenceFrame.id !== activeFrame.id));
-  const diagnostics = readSequenceDiagnostics(frames, referenceFrame, activeFrame, differenceMap);
+  const diagnostics = readSequenceDiagnostics(frames, referenceFrame, activeFrame, differenceMap, t);
 
   useEffect(() => {
     const sequenceId = sequence?.id ?? "";
@@ -68,7 +71,7 @@ export function SequenceEditor({
     const objectUrls = new Set<string>();
     const failedSources = new Set<string>();
     let alive = true;
-    setPreviews({ sequenceId, urls: {}, error: "" });
+    setPreviews({ sequenceId, urls: {}, loadFailed: false });
     // The timeline already displays every frame. Share its downloads and decoded images
     // with playback, references and onion skins until the sequence or its source files change.
     const load = (source: string): Promise<string> => {
@@ -85,7 +88,7 @@ export function SequenceEditor({
         await image.decode();
         if (!alive) return "";
         failedSources.delete(source);
-        setPreviews((current) => ({ ...current, urls: { ...current.urls, [source]: url }, error: failedSources.size ? "帧预览加载失败。" : "" }));
+        setPreviews((current) => ({ ...current, urls: { ...current.urls, [source]: url }, loadFailed: failedSources.size > 0 }));
         return url;
       }).catch(() => {
         // A later play action may retry this frame without discarding successful previews.
@@ -93,7 +96,7 @@ export function SequenceEditor({
         if (objectUrls.delete(objectUrl)) URL.revokeObjectURL(objectUrl);
         if (alive) {
           failedSources.add(source);
-          setPreviews((current) => ({ ...current, error: "帧预览加载失败。" }));
+          setPreviews((current) => ({ ...current, loadFailed: true }));
         }
         return "";
       });
@@ -228,7 +231,7 @@ export function SequenceEditor({
 
   const selectNeighborFrame = (direction: -1 | 1) => {
     if (!canNavigateFrames) return;
-    // Navigation follows enabled frames so manual stepping matches playback and export.
+    // Frame navigation follows the same enabled-frame set used by playback and export.
     const currentIndex = Math.max(0, navigationFrames.findIndex((frame) => frame.id === activeFrame?.id));
     const nextIndex = (currentIndex + direction + navigationFrames.length) % navigationFrames.length;
     setPlaying(false);
@@ -250,7 +253,7 @@ export function SequenceEditor({
           </WorkbenchPreview>
         </section>
         <aside className="settings-panel">
-          <h2>序列帧</h2>
+          <h2>{t("sequence.editor.title")}</h2>
           {error ? <p className="error-text">{error}</p> : null}
         </aside>
       </>
@@ -267,19 +270,19 @@ export function SequenceEditor({
           toolbarControls={
             <>
               <button className="frame-nav" type="button" disabled={!canNavigateFrames} onClick={() => selectNeighborFrame(-1)}>
-                上一帧
+                {t("sequence.editor.previousFrame")}
               </button>
               <button className="frame-nav" type="button" disabled={!canNavigateFrames} onClick={() => selectNeighborFrame(1)}>
-                下一帧
+                {t("sequence.editor.nextFrame")}
               </button>
             </>
           }
         >
           <div className="sequence-canvas">
             {showOnionSkin && previousUrl ? <img className="onion-frame previous" src={previousUrl} alt="" aria-hidden="true" /> : null}
-            {visibleFrame ? <img className="active-frame" src={visibleFrame.url} alt={visibleFrame.frame.original_name} /> : <span>正在加载帧...</span>}
+            {visibleFrame ? <img className="active-frame" src={visibleFrame.url} alt={visibleFrame.frame.original_name ?? t("sequence.editor.currentFrame")} /> : <span>{t("sequence.editor.loadingFrame")}</span>}
             {showOnionSkin && nextUrl ? <img className="onion-frame next" src={nextUrl} alt="" aria-hidden="true" /> : null}
-            {showDifferenceMap && differenceMap.url ? <img className="difference-map" src={differenceMap.url} alt="当前帧与参考帧的差异热力图" /> : null}
+            {showDifferenceMap && differenceMap.url ? <img className="difference-map" src={differenceMap.url} alt={t("sequence.editor.differenceMapAlt")} /> : null}
             <div className="anchor-line horizontal" />
             <div className="anchor-line vertical" />
           </div>
@@ -287,14 +290,14 @@ export function SequenceEditor({
       </section>
 
       <aside className="settings-panel sequence-settings">
-        <h2>序列设置</h2>
-        <div className="sequence-toggle-group" aria-label="序列帧预览控制">
+        <h2>{t("sequence.editor.settings")}</h2>
+        <div className="sequence-toggle-group" aria-label={t("sequence.editor.previewControls")}>
           <button className="ghost compact" type="button" disabled={!enabledFrames.length} onClick={() => {
             if (!playing && (!activeFrame?.enabled || (!draftSequence.loop && activeIndex === enabledFrames.length - 1))) setActiveFrameId(enabledFrames[0].id);
             setPlaying((current) => !current);
           }}>
             {playing ? <Pause size={16} /> : <Play size={16} />}
-            {playing ? "暂停" : "播放"}
+            {playing ? t("sequence.editor.pause") : t("sequence.editor.play")}
           </button>
           <button
             className={`ghost compact ${showOnionSkin ? "active-soft" : ""}`}
@@ -302,10 +305,10 @@ export function SequenceEditor({
             aria-pressed={showOnionSkin}
             onClick={() => setShowOnionSkin((current) => !current)}
           >
-            洋葱皮
+            {t("sequence.editor.onionSkin")}
           </button>
           <button className="ghost compact" type="button" disabled={!activeFrame} onClick={lockReferenceFrame}>
-            锁参考
+            {t("sequence.editor.lockReference")}
           </button>
           <button
             className={`ghost compact ${showDifferenceMap ? "active-soft" : ""}`}
@@ -314,7 +317,7 @@ export function SequenceEditor({
             aria-pressed={showDifferenceMap}
             onClick={() => setShowDifferenceMap((current) => !current)}
           >
-            差异图
+            {t("sequence.editor.differenceMap")}
           </button>
         </div>
         <button
@@ -332,10 +335,10 @@ export function SequenceEditor({
               : undefined
           }
         >
-          编辑帧
+          {t("sequence.editor.editFrame")}
         </button>
         <label className="number-field">
-          <span>当前序列</span>
+          <span>{t("sequence.editor.currentSequence")}</span>
           <select value={sequence.id} title={sequence.name} onChange={(event) => void onSelect(event.target.value)}>
             {sequences.map((item) => (
               <option key={item.id} value={item.id}>
@@ -345,19 +348,19 @@ export function SequenceEditor({
           </select>
         </label>
         <label className="number-field">
-          <span>名称</span>
+          <span>{t("sequence.editor.name")}</span>
           <input value={draftSequence.name} title={draftSequence.name} onChange={(event) => setDraftSequence({ ...draftSequence, name: event.target.value })} />
         </label>
-        <NumberField label="FPS" value={draftSequence.fps} min={1} max={60} onChange={(fps) => setDraftSequence({ ...draftSequence, fps })} />
+        <NumberField label={t("sequence.editor.fps")} value={draftSequence.fps} min={1} max={60} onChange={(fps) => setDraftSequence({ ...draftSequence, fps })} />
         <NumberField
-          label="画布宽"
+          label={t("sequence.editor.canvasWidth")}
           value={draftSequence.canvas_width}
           min={0}
           max={4096}
           onChange={(canvas_width) => setDraftSequence({ ...draftSequence, canvas_width })}
         />
         <NumberField
-          label="画布高"
+          label={t("sequence.editor.canvasHeight")}
           value={draftSequence.canvas_height}
           min={0}
           max={4096}
@@ -365,48 +368,48 @@ export function SequenceEditor({
         />
         <label className="setting-check">
           <input type="checkbox" checked={draftSequence.loop} onChange={(event) => setDraftSequence({ ...draftSequence, loop: event.target.checked })} />
-          循环播放
+          {t("sequence.editor.loop")}
         </label>
         <label className="number-field">
-          <span>锚点策略</span>
+          <span>{t("sequence.editor.anchorMode")}</span>
           <select value={draftSequence.anchor_mode} onChange={(event) => setDraftSequence({ ...draftSequence, anchor_mode: event.target.value })}>
-            <option value="bottom_center">底部中心</option>
-            <option value="center">画布中心</option>
+            <option value="bottom_center">{t("sequence.editor.bottomCenter")}</option>
+            <option value="center">{t("sequence.editor.canvasCenter")}</option>
           </select>
         </label>
 
-        <h2>清洗参数</h2>
-        <NumberField label="Alpha 阈值" value={params.alpha_threshold} min={0} max={255} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_threshold: value }))} />
-        <NumberField label="Alpha 平滑" value={params.alpha_smoothing} min={0} max={10} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_smoothing: value }))} />
-        <NumberField label="裁切留边" value={params.trim_padding} min={0} max={80} onChange={(value) => onParamsChange((current) => ({ ...current, trim_padding: value }))} />
-        <NumberField label="画布留边" value={params.canvas_padding} min={0} max={120} onChange={(value) => onParamsChange((current) => ({ ...current, canvas_padding: value }))} />
+        <h2>{t("sequence.editor.cleanup")}</h2>
+        <NumberField label={t("sequence.editor.alphaThreshold")} value={params.alpha_threshold} min={0} max={255} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_threshold: value }))} />
+        <NumberField label={t("sequence.editor.alphaSmoothing")} value={params.alpha_smoothing} min={0} max={10} onChange={(value) => onParamsChange((current) => ({ ...current, alpha_smoothing: value }))} />
+        <NumberField label={t("sequence.editor.trimPadding")} value={params.trim_padding} min={0} max={80} onChange={(value) => onParamsChange((current) => ({ ...current, trim_padding: value }))} />
+        <NumberField label={t("sequence.editor.canvasPadding")} value={params.canvas_padding} min={0} max={120} onChange={(value) => onParamsChange((current) => ({ ...current, canvas_padding: value }))} />
         <label className="setting-check">
           <input type="checkbox" checked={params.denoise} onChange={(event) => onParamsChange((current) => ({ ...current, denoise: event.target.checked }))} />
-          去除半透明噪点
+          {t("sequence.editor.denoise")}
         </label>
-        <h2>一致性修复</h2>
+        <h2>{t("sequence.editor.consistency")}</h2>
         <label className="setting-check">
           <input type="checkbox" checked={params.color_match} onChange={(event) => onParamsChange((current) => ({ ...current, color_match: event.target.checked }))} />
-          颜色统一
+          {t("sequence.editor.colorMatch")}
         </label>
         <label className="setting-check">
           <input type="checkbox" checked={params.stabilize} onChange={(event) => onParamsChange((current) => ({ ...current, stabilize: event.target.checked }))} />
-          保守稳定
+          {t("sequence.editor.stabilize")}
         </label>
         <NumberField
-          label="稳定强度"
+          label={t("sequence.editor.stabilizeStrength")}
           value={params.stabilize_strength}
           min={0}
           max={100}
           onChange={(value) => onParamsChange((current) => ({ ...current, stabilize_strength: value }))}
         />
-        <p className="helper-text">参考帧：{referenceFrame ? `${referenceFrame.frame_index + 1} · ${referenceFrame.original_name}` : "未锁定"}</p>
+        <p className="helper-text">{t("sequence.editor.referenceFrame", { frame: referenceFrame ? `${referenceFrame.frame_index + 1} · ${referenceFrame.original_name}` : t("sequence.editor.notLocked") })}</p>
         <button className="primary install-button" type="button" disabled={!canWrite} onClick={() => void onSaveSettings(draftSequence, params)}>
-          保存设置
+          {t("sequence.editor.saveSettings")}
         </button>
         <div className="export-stack">
           <button className="ghost danger-text" type="button" disabled={!canWrite} onClick={() => void onDelete(sequence.id)}>
-            删除序列
+            {t("sequence.editor.deleteSequence")}
           </button>
         </div>
 
@@ -430,29 +433,29 @@ export function SequenceEditor({
           <div className="frame-editor">
             <strong>{activeFrame.original_name}</strong>
             <button className="ghost compact" type="button" onClick={() => reorderFrame(activeFrame.id, -1)}>
-              前移
+              {t("sequence.editor.moveEarlier")}
             </button>
             <button className="ghost compact" type="button" onClick={() => reorderFrame(activeFrame.id, 1)}>
-              后移
+              {t("sequence.editor.moveLater")}
             </button>
             <button className="ghost compact" type="button" onClick={() => updateFrame(activeFrame.id, { enabled: !activeFrame.enabled })}>
-              {activeFrame.enabled ? "停用帧" : "启用帧"}
+              {activeFrame.enabled ? t("sequence.editor.disableFrame") : t("sequence.editor.enableFrame")}
             </button>
             <label>
-              X 偏移
+              {t("sequence.editor.xOffset")}
               <input type="number" value={activeFrame.offset_x} onChange={(event) => updateFrame(activeFrame.id, { offset_x: Number(event.target.value) })} />
             </label>
             <label>
-              Y 偏移
+              {t("sequence.editor.yOffset")}
               <input type="number" value={activeFrame.offset_y} onChange={(event) => updateFrame(activeFrame.id, { offset_y: Number(event.target.value) })} />
             </label>
             <button className="primary compact" type="button" disabled={!canWrite} onClick={() => void onSaveFrames(draftFrames)}>
-              保存帧调整
+              {t("sequence.editor.saveFrameChanges")}
             </button>
           </div>
         ) : null}
         {error ? <p className="error-text">{error}</p> : null}
-        {previews.sequenceId === sequence.id && previews.error ? <p className="error-text">{previews.error}</p> : null}
+        {previews.sequenceId === sequence.id && previews.loadFailed ? <p className="error-text">{t("sequence.editor.previewLoadFailed")}</p> : null}
       </aside>
     </>
   );
@@ -485,14 +488,15 @@ function SequenceDiagnosticsPanel({
   referenceFrame: SequenceFrameResponse | null;
   differenceMap: FrameDifferenceMap;
 }) {
+  const { t } = useTranslation("workflows");
   return (
     <div className="sequence-diagnostics">
       <div className="diagnostics-heading">
         <div>
-          <strong>一致性检查</strong>
-          <span>{referenceFrame ? `参考帧 ${referenceFrame.frame_index + 1}` : "未锁定参考帧"}</span>
+          <strong>{t("sequence.diagnostics.title")}</strong>
+          <span>{referenceFrame ? t("sequence.diagnostics.referenceFrame", { frame: referenceFrame.frame_index + 1 }) : t("sequence.diagnostics.noReference")}</span>
         </div>
-        <span className={`diff-status ${differenceMap.status}`}>{differenceMap.status === "loading" ? "分析中" : differenceMap.status === "ready" ? "差异已生成" : "本地分析"}</span>
+        <span className={`diff-status ${differenceMap.status}`}>{differenceMap.status === "loading" ? t("sequence.diagnostics.analyzing") : differenceMap.status === "ready" ? t("sequence.diagnostics.ready") : t("sequence.diagnostics.local")}</span>
       </div>
       <div className="diagnostic-metrics">
         {diagnostics.metrics.map((metric) => (
@@ -595,7 +599,7 @@ function loadPreviewImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("图片读取失败。"));
+    image.onerror = () => reject(new Error("Could not read image."));
     image.src = url;
   });
 }
@@ -606,7 +610,7 @@ function drawAlignedImage(image: HTMLImageElement, width: number, height: number
   canvas.height = height;
   const context = canvas.getContext("2d");
   if (context) {
-    // 差异图使用底部中心对齐，和角色序列默认锚点一致，优先暴露角色自身漂移而不是画布尺寸差。
+    // Bottom-center alignment matches the default character anchor and emphasizes subject drift over canvas size.
     context.drawImage(image, Math.round((width - image.naturalWidth) / 2), height - image.naturalHeight);
   }
   return canvas;
@@ -617,6 +621,7 @@ function readSequenceDiagnostics(
   referenceFrame: SequenceFrameResponse | null,
   activeFrame: SequenceFrameResponse | null,
   differenceMap: FrameDifferenceMap,
+  t: TFunction,
 ): SequenceDiagnostics {
   const enabledFrames = frames.filter((frame) => frame.enabled);
   const widths = enabledFrames.map((frame) => frame.bbox[2]);
@@ -628,33 +633,33 @@ function readSequenceDiagnostics(
   const notes: SequenceDiagnostic[] = [];
 
   if (!referenceFrame) {
-    notes.push({ tone: "warn", title: "参考帧", detail: "先锁定一张最稳定的帧，再做颜色统一和差异检查。" });
+    notes.push({ tone: "warn", title: t("sequence.diagnostics.referenceTitle"), detail: t("sequence.diagnostics.referenceDetail") });
   }
   if (enabledFrames.length < 8) {
-    notes.push({ tone: "warn", title: "关键阶段", detail: "帧数偏少，走路循环容易缺少接触、交叉或过渡阶段。" });
+    notes.push({ tone: "warn", title: t("sequence.diagnostics.keyStages"), detail: t("sequence.diagnostics.fewFrames") });
   } else {
-    notes.push({ tone: "ok", title: "关键阶段", detail: "帧数够用，但交叉帧、接触帧仍需要在时间轴逐帧确认。" });
+    notes.push({ tone: "ok", title: t("sequence.diagnostics.keyStages"), detail: t("sequence.diagnostics.enoughFrames") });
   }
   if (widthJitter > 8 || heightJitter > 6) {
-    notes.push({ tone: "warn", title: "轮廓漂移", detail: "主体尺寸变化偏大，建议先清洗并开启颜色统一。" });
+    notes.push({ tone: "warn", title: t("sequence.diagnostics.outlineDrift"), detail: t("sequence.diagnostics.outlineDetail") });
   }
   if (baselineJitter > 3) {
-    notes.push({ tone: "warn", title: "脚底基线", detail: "底部位置变化明显，导出前需要统一画布和底部中心锚点。" });
+    notes.push({ tone: "warn", title: t("sequence.diagnostics.baseline"), detail: t("sequence.diagnostics.baselineDetail") });
   }
   if (differenceMap.status === "ready" && activeFrame && referenceFrame && activeFrame.id !== referenceFrame.id) {
     const tone = differenceMap.score > 18 || differenceMap.changedPct > 30 ? "danger" : differenceMap.score > 10 ? "warn" : "ok";
     notes.push({
       tone,
-      title: "当前差异",
-      detail: `与参考帧可见区域差异 ${differenceMap.score.toFixed(1)}，变化面积 ${differenceMap.changedPct.toFixed(1)}%。`,
+      title: t("sequence.diagnostics.currentDifference"),
+      detail: t("sequence.diagnostics.differenceDetail", { score: differenceMap.score.toFixed(1), changed: differenceMap.changedPct.toFixed(1) }),
     });
   }
 
   return {
     metrics: [
-      { label: "尺寸漂移", value: `${widthJitter}×${heightJitter}px` },
-      { label: "脚底漂移", value: `${baselineJitter}px` },
-      { label: "当前差异", value: differenceMap.status === "ready" ? differenceMap.score.toFixed(1) : "-" },
+      { label: t("sequence.diagnostics.sizeDrift"), value: `${widthJitter}×${heightJitter}px` },
+      { label: t("sequence.diagnostics.baselineDrift"), value: `${baselineJitter}px` },
+      { label: t("sequence.diagnostics.currentDifference"), value: differenceMap.status === "ready" ? differenceMap.score.toFixed(1) : "-" },
     ],
     notes,
   };

@@ -56,9 +56,9 @@ def test_background_remove_workflow_rejects_missing_model(tmp_path: Path) -> Non
             parameters={},
         )
     except WorkflowModelNotInstalledError as exc:
-        assert str(exc) == "BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。"
+        assert str(exc) == "BiRefNet is not installed. Install the model files from Settings first."
     else:
-        raise AssertionError("缺少模型时必须阻止创建背景移除任务。")
+        raise AssertionError("A missing model must prevent background removal job creation.")
 
 
 def test_background_remove_workflow_rejects_missing_input_asset(tmp_path: Path) -> None:
@@ -73,9 +73,9 @@ def test_background_remove_workflow_rejects_missing_input_asset(tmp_path: Path) 
             parameters={},
         )
     except WorkflowInputNotFoundError as exc:
-        assert str(exc) == "输入素材不存在。"
+        assert str(exc) == "Input asset not found."
     else:
-        raise AssertionError("输入素材不存在时必须阻止创建背景移除任务。")
+        raise AssertionError("A missing input asset must prevent background removal job creation.")
 
 
 def test_background_remove_workflow_creates_job_and_output_asset(tmp_path: Path) -> None:
@@ -233,8 +233,8 @@ def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeR
     )
     repository.create_asset(asset)
     context = RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=frozenset({"background-remove"})),
         storage=storage,

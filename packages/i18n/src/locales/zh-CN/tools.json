@@ -1,0 +1,15 @@
+{
+  "panel": "资源工具",
+  "expandPanel": "展开工具面板",
+  "collapsePanel": "折叠工具面板",
+  "permissionDenied": "当前工作区没有使用此工具的权限",
+  "items": {
+    "background-remove": "去背景",
+    "upscale": "图片放大",
+    "asset-board": "UI拆分",
+    "sequence": "序列帧",
+    "video-to-sequence": "视频转帧",
+    "sound-effect": "声效生成",
+    "manual-edit": "手动编辑"
+  }
+}

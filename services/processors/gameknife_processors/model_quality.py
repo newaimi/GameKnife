@@ -93,7 +93,7 @@ def check_glb_asset(
             QualityCheckItem(
                 code="MODEL_GLTF_PARSE",
                 status="failed",
-                message="GLB 文件无法解析或结构不完整。",
+                message="The GLB file could not be read or its structure is incomplete.",
                 metrics={},
             )
         ]
@@ -114,7 +114,7 @@ def check_glb_asset(
         QualityCheckItem(
             code="MODEL_GLTF_PARSE",
             status="passed",
-            message="GLB 2.0 文件可解析。",
+            message="The GLB 2.0 file can be read.",
             metrics={
                 "generator": metrics["generator"],
                 "size_bytes": path.stat().st_size,
@@ -128,7 +128,7 @@ def check_glb_asset(
         QualityCheckItem(
             code="MODEL_RIG_ANIMATION",
             status="passed",
-            message="已记录骨骼和动画数量。",
+            message="Bone and animation counts were recorded.",
             metrics={
                 "skin_count": metrics["skin_count"],
                 "animation_count": metrics["animation_count"],
@@ -547,11 +547,11 @@ def _geometry_check(
         code="MODEL_GEOMETRY",
         status=status,
         message=(
-            "网格包含有效顶点和三角面。"
+            "The mesh contains valid vertices and triangles."
             if status == "passed"
-            else "三角面数超过目标上限。"
+            else "The triangle count exceeds the target limit."
             if status == "warning"
-            else "网格没有可用几何体。"
+            else "The mesh has no usable geometry."
         ),
         metrics={
             "mesh_count": metrics["mesh_count"],
@@ -568,7 +568,7 @@ def _topology_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         return QualityCheckItem(
             code="MODEL_TOPOLOGY",
             status="not_checked",
-            message="网格过大或使用了暂不支持的拓扑编码，需要引擎复核。",
+            message="The mesh is too large or uses an unsupported topology encoding. Verify it in the engine.",
             metrics={},
         )
     degenerate = int(metrics["degenerate_triangles"])
@@ -581,11 +581,11 @@ def _topology_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="MODEL_TOPOLOGY",
         status=status,
         message=(
-            "未发现退化三角形、非流形边或孤立顶点。"
+            "No degenerate triangles, non-manifold edges, or isolated vertices were found."
             if status == "passed"
-            else "网格包含孤立顶点。"
+            else "The mesh contains isolated vertices."
             if status == "warning"
-            else "网格包含退化三角形或非流形边。"
+            else "The mesh contains degenerate triangles or non-manifold edges."
         ),
         metrics={
             "degenerate_triangles": degenerate,
@@ -608,9 +608,9 @@ def _normal_uv_check(
         code="MODEL_NORMAL_UV",
         status=status,
         message=(
-            "所有网格基元包含法线和所需 UV。"
+            "All mesh primitives include normals and the required UVs."
             if status == "passed"
-            else "部分网格基元缺少法线或 UV。"
+            else "Some mesh primitives lack normals or required UVs."
         ),
         metrics={"all_normals": normals, "all_uv": uv, "uv_required": require_uv},
     )
@@ -635,11 +635,11 @@ def _material_texture_check(
         code="MODEL_MATERIAL_TEXTURE",
         status=status,
         message=(
-            "材质和 PBR 纹理已包含在 GLB 中。"
+            "The GLB includes materials and PBR textures."
             if status == "passed"
-            else "部分材质缺少完整 PBR 纹理。"
+            else "Some materials are missing PBR textures."
             if status == "warning"
-            else "GLB 包含外部或无法解析的纹理。"
+            else "The GLB contains external or unreadable textures."
         ),
         metrics={
             "material_count": material_count,
@@ -670,9 +670,9 @@ def _bounds_check(metrics: Mapping[str, Any]) -> QualityCheckItem:
         code="MODEL_BOUNDS_COORDINATES",
         status="passed" if valid else "warning",
         message=(
-            "包围盒有效；glTF 坐标按米制、Y 轴向上解释。"
+            "The bounding box is valid. glTF coordinates use meters with Y up."
             if valid
-            else "POSITION accessor 缺少有效包围盒，需要引擎复核。"
+            else "A POSITION accessor lacks valid bounds. Verify it in the engine."
         ),
         metrics={
             "minimum": minimum,
@@ -725,7 +725,7 @@ def _gltf_validator_check(
         return QualityCheckItem(
             code="MODEL_GLTF_VALIDATOR",
             status="not_checked",
-            message="glTF Validator 未能完成检查。",
+            message="glTF Validator could not complete the check.",
             metrics={},
         )
     status: QualityItemStatus = (
@@ -735,11 +735,11 @@ def _gltf_validator_check(
         code="MODEL_GLTF_VALIDATOR",
         status=status,
         message=(
-            "glTF Validator 未发现规范错误或警告。"
+            "glTF Validator found no specification errors or warnings."
             if status == "passed"
-            else "glTF Validator 发现规范警告。"
+            else "glTF Validator found specification warnings."
             if status == "warning"
-            else "glTF Validator 发现规范错误。"
+            else "glTF Validator found specification errors."
         ),
         metrics={
             "validator_version": str(report.get("validatorVersion") or ""),

@@ -72,9 +72,9 @@ def test_ai_upscale_workflow_rejects_missing_model(tmp_path: Path) -> None:
             parameters={"style": "general", "scale": 2},
         )
     except WorkflowModelNotInstalledError as exc:
-        assert str(exc) == "图片放大模型尚未下载安装，请先到设置页下载安装模型文件。"
+        assert str(exc) == "Upscale models are not installed. Install the model files from Settings first."
     else:
-        raise AssertionError("AI 图片放大缺少模型时必须阻止创建任务。")
+        raise AssertionError("Missing AI upscale models must prevent job creation.")
 
 
 def test_ai_upscale_workflow_uses_installed_model(tmp_path: Path) -> None:
@@ -112,9 +112,9 @@ def test_upscale_workflow_rejects_missing_input_asset(tmp_path: Path) -> None:
             parameters={"style": "pixel", "scale": 2},
         )
     except WorkflowInputNotFoundError as exc:
-        assert str(exc) == "输入素材不存在。"
+        assert str(exc) == "Input asset not found."
     else:
-        raise AssertionError("输入素材不存在时必须阻止创建图片放大任务。")
+        raise AssertionError("A missing input asset must prevent upscale job creation.")
 
 
 def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeRepository, RequestContext, AssetRecord]:
@@ -140,8 +140,8 @@ def _make_repository_context_and_asset(tmp_path: Path) -> tuple[SQLiteGameKnifeR
     )
     repository.create_asset(asset)
     context = RequestContext(
-        principal=Principal(id="anonymous", kind="anonymous", display_name="本地用户"),
-        workspace=Workspace(id="local", kind="local", name="本地工作区"),
+        principal=Principal(id="anonymous", kind="anonymous", display_name="Local user"),
+        workspace=Workspace(id="local", kind="local", name="Local workspace"),
         permissions=AllowAllPermissionChecker(),
         capabilities=CapabilitySet(edition="community", features=frozenset({"upscale"})),
         storage=storage,

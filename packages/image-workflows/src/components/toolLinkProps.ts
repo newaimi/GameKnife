@@ -1,12 +1,12 @@
-/** 工具菜单链接可以交给 React Router 和原生浏览器链接共同消费的导航属性。 */
+/** Navigation attributes shared by React Router links and native browser links. */
 export type ToolLinkProps = {
   target?: "_blank";
   rel?: "noopener noreferrer";
 };
 
 /**
- * 根据工具注册信息生成链接属性。新标签页入口同时切断 opener，
- * 保证原工作台继续保留时，新页面不能反向控制来源页面。
+ * Builds link attributes from the tool registry. New-tab entries sever opener access so the destination cannot
+ * control the workbench that launched it.
  */
 export function readToolLinkProps(openInNewTab = false): ToolLinkProps {
   return openInNewTab ? { target: "_blank", rel: "noopener noreferrer" } : {};

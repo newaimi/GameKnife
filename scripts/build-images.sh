@@ -5,11 +5,11 @@ cd "$(dirname "$0")/.."
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "已创建 .env。请先按实际部署环境修改端口、模型 token 和代理配置。"
+  echo "Created .env. Update the ports, model token, and proxy settings for this deployment before continuing."
 fi
 
-# 这些信息会写入镜像和容器运行环境，方便设置页展示当前部署版本。
-# 统一从构建入口生成，可以避免手动 docker build 得到不可追踪的镜像。
+# These values are embedded in the image and container environment so the settings page can identify the deployment.
+# Generating them at the build entry point keeps manually built images traceable.
 export GAMEKNIFE_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 export GAMEKNIFE_BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo local)"
 export GAMEKNIFE_APP_VERSION="local-${GAMEKNIFE_BUILD_NUMBER}"

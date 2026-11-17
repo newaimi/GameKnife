@@ -1,3 +1,4 @@
+import { resources } from "@gameknife/i18n";
 import type { JobResponse, OutputAssetRef } from "@gameknife/shared-types";
 import { downloadJobOutputAsset } from "../../utils/assets";
 
@@ -22,20 +23,25 @@ export interface JobCategoryOption {
   value: string;
   label: string;
   note: string;
+  translationKey?: keyof typeof resources.en.jobs.categories;
 }
 
-export const JOB_CATEGORY_OPTIONS: JobCategoryOption[] = [
-  { value: "all", label: "全部", note: "项目任务" },
-  { value: "background", label: "抠图任务", note: "AI 去背景结果" },
-  { value: "upscale", label: "图片放大", note: "超分和像素放大" },
-  { value: "sound", label: "声效生成", note: "文字生成 WAV" },
-  { value: "asset_board", label: "素材拆分", note: "素材板抠图和导出" },
-  { value: "quality", label: "质量检查", note: "图片、UI、音频和 3D" },
-  { value: "sequence", label: "序列帧", note: "PNG 序列和 Spine 工程" },
-  { value: "export", label: "项目导出", note: "通用、Unity 和 Godot" },
-];
+const jobCategoryKeys = [
+  { value: "all", translationKey: "all" },
+  { value: "background", translationKey: "background" },
+  { value: "upscale", translationKey: "upscale" },
+  { value: "sound", translationKey: "sound" },
+  { value: "asset_board", translationKey: "assetBoard" },
+  { value: "quality", translationKey: "quality" },
+  { value: "sequence", translationKey: "sequence" },
+  { value: "export", translationKey: "export" },
+] as const;
 
-export const DATE_PICKER_WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
+// Shared callers can display the labels without a translation context.
+export const JOB_CATEGORY_OPTIONS: JobCategoryOption[] = jobCategoryKeys.map((option) => ({
+  ...option,
+  ...resources["zh-CN"].jobs.categories[option.translationKey],
+}));
 
 export async function downloadJobAsset(job: JobResponse, asset: OutputAssetRef) {
   await downloadJobOutputAsset(job, asset);
@@ -67,14 +73,14 @@ export function toDateInputValue(date: Date) {
   return `${date.getFullYear()}-${padDateNumber(date.getMonth() + 1)}-${padDateNumber(date.getDate())}`;
 }
 
-export function formatDatePickerValue(value: string) {
+export function formatDatePickerValue(value: string, language: string, emptyLabel: string) {
   const date = parseDateInput(value);
-  if (!date) return "选择日期";
-  return `${date.getFullYear()}年${padDateNumber(date.getMonth() + 1)}月${padDateNumber(date.getDate())}日`;
+  if (!date) return emptyLabel;
+  return new Intl.DateTimeFormat(language, { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
 
-export function formatDatePickerMonth(date: Date) {
-  return `${date.getFullYear()}年 ${date.getMonth() + 1}月`;
+export function formatDatePickerMonth(date: Date, language: string) {
+  return new Intl.DateTimeFormat(language, { year: "numeric", month: "long" }).format(date);
 }
 
 export function buildDatePickerDays(monthDate: Date) {

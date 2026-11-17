@@ -1,5 +1,6 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { GameKnifeAppContext, communityContext } from "@gameknife/app-context";
 import { gameKnifeApiClient } from "@gameknife/api-client";
 import {
@@ -14,6 +15,7 @@ import { CommunityShell } from "./CommunityShell";
 import { isTypingTarget, readInitialTheme, THEME_STORAGE_KEY, type ThemeMode } from "./theme";
 
 export function App() {
+  const { t } = useTranslation("common");
   const [appContext, setAppContext] = useState<AppContext>(communityContext);
   const [theme, setTheme] = useState<ThemeMode>(() => readInitialTheme());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -77,7 +79,7 @@ export function App() {
           <main className="content">
             {/* The Community shell composes public routes and global providers. The public package owns the image-asset session so tool changes preserve workbench state. */}
             <ImageAssetSessionProvider>
-              <Suspense fallback={<div className="page-panel">加载中</div>}>
+              <Suspense fallback={<div className="page-panel">{t("status.loading")}</div>}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/tools/background-remove" replace />} />
                   <Route path="/jobs" element={<CommunityJobsPage />} />

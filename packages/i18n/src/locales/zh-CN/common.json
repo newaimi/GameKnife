@@ -1,0 +1,41 @@
+{
+  "brand": "游刃",
+  "navigation": {
+    "mainMenu": "主菜单",
+    "home": "首页",
+    "jobs": "任务",
+    "settings": "设置",
+    "help": "帮助",
+    "openMenu": "打开菜单",
+    "closeMenu": "关闭菜单"
+  },
+  "theme": {
+    "switchToDark": "切换到暗色模式",
+    "switchToLight": "切换到亮色模式"
+  },
+  "language": {
+    "switcherLabel": "界面语言",
+    "english": "英语",
+    "simplifiedChinese": "简体中文",
+    "switchToEnglish": "切换到英语",
+    "switchToSimplifiedChinese": "切换到简体中文"
+  },
+  "actions": {
+    "upload": "上传",
+    "process": "处理",
+    "download": "下载",
+    "refresh": "刷新",
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "retry": "重试"
+  },
+  "status": {
+    "loading": "加载中",
+    "available": "可用",
+    "unavailable": "不可用",
+    "unknown": "未知",
+    "configured": "已配置",
+    "notConfigured": "未配置"
+  }
+}

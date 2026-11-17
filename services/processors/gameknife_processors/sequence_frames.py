@@ -51,15 +51,15 @@ class SequenceFrameProcessor:
     ) -> tuple[ProcessResult, list[VideoFrameExtractionOutput]]:
         remove_background = bool(parameters.get("remove_background", False))
         if remove_background and model is None:
-            # remove_background 是独立能力，处理器不能自己创建模型或触发下载。
-            # 路由层负责安装状态检查，任务层必须显式传入已配置的本地模型服务。
-            raise RuntimeError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+            # Background removal is independently selectable, so this processor cannot create a model service or start a download.
+            # Routes validate installation and jobs must receive an explicitly configured local model service.
+            raise RuntimeError("BiRefNet is not installed. Install the model files from Settings first.")
 
         started = time.perf_counter()
         output_dir.mkdir(parents=True, exist_ok=True)
         capture = cv2.VideoCapture(str(video_path))
         if not capture.isOpened():
-            raise RuntimeError("视频文件无法读取。")
+            raise RuntimeError("The video file could not be read.")
 
         try:
             source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0) or 24.0
@@ -75,7 +75,7 @@ class SequenceFrameProcessor:
                 video_duration = total_frames / source_fps
                 clip_end_second = video_duration if duration_seconds is None else min(video_duration, start_second + float(duration_seconds))
                 if clip_end_second <= start_second:
-                    raise RuntimeError("视频裁切区间不正确，请让结束时间大于开始时间。")
+                    raise RuntimeError("The video clip range is invalid. The end time must be later than the start time.")
                 frame_count = max(1, min(max_frames, int(round((clip_end_second - start_second) * target_fps))))
                 start_frame = min(total_frames - 1, int(round(start_second * source_fps)))
                 end_frame = min(total_frames - 1, max(start_frame, int(round(clip_end_second * source_fps)) - 1))
@@ -108,7 +108,7 @@ class SequenceFrameProcessor:
             capture.release()
 
         if not outputs:
-            raise RuntimeError("视频没有可抽取的画面。")
+            raise RuntimeError("The video contains no extractable frames.")
 
         return (
             ProcessResult(
@@ -133,9 +133,9 @@ class SequenceFrameProcessor:
         parameters: dict[str, Any],
     ) -> tuple[ProcessResult, list[SequenceFrameOutput]]:
         if bool(parameters.get("remove_background", False)):
-            # 序列帧清洗可以独立处理透明 PNG。只有视频抽帧这类显式请求才需要 AI 去背景。
-            # 当前模型服务尚未迁完时直接失败，避免任务阶段隐式下载 BiRefNet。
-            raise RuntimeError("BiRefNet 模型尚未下载安装，请先到设置页下载安装模型文件。")
+            # Sequence cleanup can process transparent PNG files independently. Only explicit requests such as video extraction need background removal.
+            # Fail when the model service is unavailable so job execution never downloads BiRefNet implicitly.
+            raise RuntimeError("BiRefNet is not installed. Install the model files from Settings first.")
 
         started = time.perf_counter()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -262,7 +262,7 @@ class SequenceFrameProcessor:
                 "frame_count": len(enabled_frames),
                 "canvas_size": [sheet.width, sheet.height],
                 "fps": int(sequence["fps"]),
-                "warnings": ["Spine 导出为逐帧切换附件，不包含骨骼绑定和蒙皮权重。"],
+                "warnings": ["The Spine export switches frame attachments and contains no bone bindings or skin weights."],
             },
             duration_ms=int((time.perf_counter() - started) * 1000),
             device="CPU",
@@ -346,8 +346,8 @@ class SequenceFrameProcessor:
     def _sample_indices(self, start_frame: int, end_frame: int, frame_count: int, loop: bool) -> list[int]:
         if frame_count <= 1:
             return [start_frame]
-        # 循环动画不取裁切段最后一帧，避免首尾重复导致游戏循环播放时停顿一帧。
-        # 非循环动作保留结束帧，受击、死亡这类动作需要最后姿态。
+        # Looping animations omit the final frame so duplicate endpoints do not pause for one frame during playback.
+        # Non-looping actions keep the final pose needed by actions such as hit reactions and deaths.
         last = max(start_frame, end_frame - 1 if loop else end_frame)
         if last == start_frame:
             return [start_frame for _ in range(frame_count)]
@@ -407,8 +407,8 @@ class SequenceFrameProcessor:
             return
         if bool(parameters.get("color_match", False)):
             for item in prepared:
-                # 逐帧生成或抠图后的角色容易有亮度跳变，这里只做主体颜色统计匹配。
-                # 不改变图像结构，避免把序列帧清洗变成不可控的生成式重绘。
+                # Generated or background-removed frames can vary in brightness, so match only foreground color statistics.
+                # Preserve image structure so sequence cleanup never becomes uncontrolled generative repainting.
                 item["image"] = self._match_color_to_reference(
                     item["image"],
                     item["alpha"],
@@ -449,7 +449,7 @@ class SequenceFrameProcessor:
         scale = reference_stats["std"] / current_stats["std"]
         rgb = pixels[:, :, :3]
         matched = (rgb - current_stats["mean"]) * scale + reference_stats["mean"]
-        # 只改主体可见区域的颜色，透明边缘仍交给 Alpha 清洗，避免边缘脏色被放大。
+        # Change color only inside the visible subject and leave transparent edges to alpha cleanup so fringe colors are not amplified.
         rgb[mask] = np.clip(matched[mask], 0, 255)
         pixels[:, :, :3] = rgb
         return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8), mode="RGBA")
@@ -502,7 +502,7 @@ class SequenceFrameProcessor:
         binary = np.where(alpha >= threshold, alpha, 0).astype(np.uint8)
         if int(parameters.get("denoise", 0)):
             kernel = np.ones((3, 3), dtype=np.uint8)
-            # 抽帧或模型输出常见孤立半透明噪点，开运算能先去掉小碎点再交给平滑处理。
+            # Extracted or generated frames often contain isolated translucent noise; opening removes small fragments before smoothing.
             binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
         return smooth_alpha(binary, int(parameters.get("alpha_smoothing", 0)))
 
@@ -544,13 +544,13 @@ class SequenceFrameProcessor:
     def _build_sequence_warnings(self, prepared: list[dict[str, Any]]) -> list[str]:
         warnings: list[str] = []
         if len(prepared) < 6:
-            warnings.append("序列帧数量偏少，走路循环可能缺少接触、交叉或过渡关键帧。")
+            warnings.append("The sequence has few frames and may lack contact, passing, or transition poses for a walk cycle.")
         widths = [item["image"].width for item in prepared]
         heights = [item["image"].height for item in prepared]
         if widths and max(widths) - min(widths) > 8:
-            warnings.append("主体宽度变化较大，播放时可能出现轮廓闪烁。")
+            warnings.append("The subject width varies significantly and may cause outline flicker during playback.")
         if heights and max(heights) - min(heights) > 6:
-            warnings.append("主体高度变化较大，建议检查脚底基线和头部稳定性。")
+            warnings.append("The subject height varies significantly. Check the foot baseline and head stability.")
         return warnings
 
     def _build_sprite_sheet(self, frames: list[Any]) -> tuple[Image.Image, list[dict[str, Any]]]:

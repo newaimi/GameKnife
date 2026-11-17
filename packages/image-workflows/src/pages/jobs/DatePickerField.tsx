@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  DATE_PICKER_WEEKDAYS,
   buildDatePickerDays,
   formatDatePickerMonth,
   formatDatePickerValue,
@@ -10,17 +10,19 @@ import {
 } from "./jobHistory";
 
 export function DatePickerField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const { i18n, t } = useTranslation("jobs");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => parseDateInput(value) ?? new Date());
   const selectedDate = parseDateInput(value);
   const selectedTime = selectedDate?.getTime();
   const days = useMemo(() => buildDatePickerDays(visibleMonth), [visibleMonth]);
+  const weekdays = t("calendar.weekdays", { returnObjects: true }) as unknown as string[];
 
   useEffect(() => {
     if (!open) return;
-    // 浏览器原生日历弹层样式不可控，暗色模式下会直接使用系统控件。
-    // 自维护可见月份后，任务页在亮暗主题下都能保持和原工程一致的视觉状态。
+    // Native calendar popovers cannot be styled consistently across themes.
+    // Keeping the visible month here gives both themes the same project-specific UI.
     setVisibleMonth(selectedDate ?? new Date());
   }, [open, selectedTime]);
 
@@ -50,22 +52,22 @@ export function DatePickerField({ label, value, onChange }: { label: string; val
     <div className="date-picker" ref={rootRef}>
       <span className="date-picker-label">{label}</span>
       <button className={`date-trigger ${open ? "active" : ""}`} type="button" onClick={() => setOpen((current) => !current)}>
-        <span>{formatDatePickerValue(value)}</span>
-        <strong>日历</strong>
+        <span>{formatDatePickerValue(value, i18n.resolvedLanguage ?? i18n.language, t("calendar.chooseDate"))}</span>
+        <strong>{t("calendar.calendar")}</strong>
       </button>
       {open ? (
         <div className="date-popover">
           <div className="date-picker-header">
-            <button type="button" aria-label="上个月" onClick={() => moveMonth(-1)}>
+            <button type="button" aria-label={t("calendar.previousMonth")} onClick={() => moveMonth(-1)}>
               ‹
             </button>
-            <strong>{formatDatePickerMonth(visibleMonth)}</strong>
-            <button type="button" aria-label="下个月" onClick={() => moveMonth(1)}>
+            <strong>{formatDatePickerMonth(visibleMonth, i18n.resolvedLanguage ?? i18n.language)}</strong>
+            <button type="button" aria-label={t("calendar.nextMonth")} onClick={() => moveMonth(1)}>
               ›
             </button>
           </div>
           <div className="date-weekdays">
-            {DATE_PICKER_WEEKDAYS.map((weekday) => (
+            {weekdays.map((weekday) => (
               <span key={weekday}>{weekday}</span>
             ))}
           </div>
@@ -91,10 +93,10 @@ export function DatePickerField({ label, value, onChange }: { label: string; val
                 setOpen(false);
               }}
             >
-              清空
+              {t("calendar.clear")}
             </button>
             <button type="button" onClick={() => selectDate(new Date())}>
-              今天
+              {t("calendar.today")}
             </button>
           </div>
         </div>

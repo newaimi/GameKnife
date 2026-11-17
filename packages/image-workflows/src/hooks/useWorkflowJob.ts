@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { TaskSubmissionOptions } from "@gameknife/api-client";
+import { useTranslation } from "react-i18next";
 import type { JobResponse } from "@gameknife/shared-types";
 import { readJobFailureDialog, readRequestFailureDialog } from "../components/FailureDialog";
 import { useWorkflowSubmission, WorkflowSubmissionCancelledError } from "../context/WorkflowSubmission";
@@ -22,6 +23,8 @@ export interface WorkflowJobRunOptions<TJob extends JobResponse> {
 
 export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
   const submissionProvider = useWorkflowSubmission();
+  const { t: tWorkbench } = useTranslation("workbench");
+  const { t: tJobs } = useTranslation("jobs");
   const [job, setJob] = useState<TJob | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -50,8 +53,8 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
         idempotencyPayload: options.idempotencyPayload,
         createJob: options.createJob,
       });
-      // 任务创建成功后立即写入页面状态，用户可以马上看到队列状态和任务编号。
-      // 轮询完成后再覆盖为最终结果，避免长任务期间工作台看起来像没有响应。
+      // Publish the created job immediately so the queue state and job ID are visible during long-running work.
+      // Replace it with the final response after polling to keep the workbench responsive without duplicating state.
       setJob(options.mapJob ? options.mapJob(created) : (created as TJob));
       const polled = await waitForJob(created.id, options.polling);
       const finished = options.mapJob ? options.mapJob(polled) : (polled as TJob);
@@ -61,7 +64,7 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
       if (finished.status === "success") {
         options.onSuccess?.(finished);
       } else if (finished.status === "failed") {
-        setFailureDialog(readJobFailureDialog(finished));
+        setFailureDialog(readJobFailureDialog(finished, tWorkbench, tJobs));
       }
       return finished;
     } catch (exc) {
@@ -69,13 +72,13 @@ export function useWorkflowJob<TJob extends JobResponse = JobResponse>() {
         return null;
       }
       setError(readMessage(exc));
-      setFailureDialog(readRequestFailureDialog(options.failureTitle, options.failureMessage, exc));
+      setFailureDialog(readRequestFailureDialog(options.failureTitle, options.failureMessage, exc, tWorkbench));
       return null;
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
-  }, [submissionProvider]);
+  }, [submissionProvider, tJobs, tWorkbench]);
 
   return {
     job,

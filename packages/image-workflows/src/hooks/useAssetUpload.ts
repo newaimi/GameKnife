@@ -17,8 +17,8 @@ export function useAssetUpload({ uploadAsset, asset: controlledAsset, onAssetCha
   const asset = controlledAsset === undefined ? localAsset : controlledAsset;
   const setAsset = useCallback(
     (nextAsset: SetStateAction<AssetResponse | null>) => {
-      // 上传 Hook 同时服务共享图片素材和独立视频素材。
-      // 受控模式只把结果交回上层会话，避免每个工具页各自保存一份过期素材。
+      // The upload hook supports shared images and standalone video assets. Controlled mode returns the result to
+      // the owning session so individual tools cannot retain stale copies.
       if (controlledAsset === undefined) {
         setLocalAsset(nextAsset);
         return;

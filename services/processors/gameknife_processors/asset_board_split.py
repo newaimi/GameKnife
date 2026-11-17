@@ -128,7 +128,7 @@ class AssetBoardSplitProcessor:
                     cutout,
                     parameters,
                 )
-                # 文件名同时使用来源板名称和组件名称，组件清单可以直接映射引擎资源。
+                # Names include the source board and component so the manifest can map directly to engine assets.
                 filename = f"{export_name_stem}_{name}.png"
                 buffer = io.BytesIO()
                 component_image.save(buffer, format="PNG")
@@ -285,7 +285,7 @@ class AssetBoardSplitProcessor:
     def _component_state(raw_state: object) -> str:
         state = str(raw_state or "normal").strip().lower()
         if state not in {"normal", "hover", "pressed", "disabled", "selected"}:
-            raise ValueError("组件状态无效。")
+            raise ValueError("The component state is invalid.")
         return state
 
     @staticmethod
@@ -298,16 +298,16 @@ class AssetBoardSplitProcessor:
         if raw_value is None:
             return None
         if not isinstance(raw_value, (list, tuple)) or len(raw_value) != 4:
-            raise ValueError("九宫格边界必须包含左、上、右、下四个值。")
+            raise ValueError("The nine-slice bounds must specify left, top, right, and bottom.")
         try:
             left, top, right, bottom = (int(value) for value in raw_value)
         except (TypeError, ValueError) as exc:
-            raise ValueError("九宫格边界必须是整数。") from exc
+            raise ValueError("The nine-slice bounds must be integers.") from exc
         if min(left, top, right, bottom) < 0:
-            raise ValueError("九宫格边界不能小于 0。")
+            raise ValueError("The nine-slice bounds must be nonnegative.")
         x, y, width, height = component.bbox
         if left + right >= width or top + bottom >= height:
-            raise ValueError("九宫格边界必须保留可拉伸的中心区域。")
+            raise ValueError("The nine-slice bounds must leave a stretchable center.")
         padding = max(0, int(parameters.get("export_padding", 8)))
         crop_left = max(0, x - padding)
         crop_top = max(0, y - padding)

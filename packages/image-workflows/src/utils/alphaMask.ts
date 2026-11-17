@@ -24,8 +24,8 @@ function contractImageDataAlpha(imageData: ImageData, amount: number, feather: n
   const mask = readAlphaMask(alpha, threshold);
   const distance = readEdgeDistance(mask, imageData.width, imageData.height);
 
-  // 浏览器端实时预览采用近似距离场，和后端 OpenCV 距离场保持相同意图。
-  // 它比逐圈腐蚀更适合斜线和弧线，去边色后不会把台阶边缘强调得那么明显。
+  // The browser preview approximates the backend OpenCV distance field. It handles diagonals and curves more
+  // smoothly than repeated erosion and avoids emphasizing stair-step edges after defringing.
   for (let index = 0; index < alpha.length; index += 1) {
     const alphaIndex = index * 4 + 3;
     const edgeDistance = distance[index];

@@ -92,12 +92,12 @@ test("ordinary uploads and CRUD requests never receive task submission headers",
 
 test("structured API errors preserve status, code, and user-facing message", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => jsonResponse({ detail: { code: "QUOTE_EXPIRED", message: "报价已过期。" } }, 409);
+  globalThis.fetch = async () => jsonResponse({ detail: { code: "QUOTE_EXPIRED", message: "The quote has expired." } }, 409);
   try {
     const client = new GameKnifeApiClient({ baseUrl: "https://studio.test" });
     await assert.rejects(
       () => client.createBackgroundRemoveJob("asset-1", {}, submission),
-      (error) => error instanceof ApiClientError && error.status === 409 && error.code === "QUOTE_EXPIRED" && error.message === "报价已过期。",
+      (error) => error instanceof ApiClientError && error.status === 409 && error.code === "QUOTE_EXPIRED" && error.message === "The quote has expired.",
     );
   } finally {
     globalThis.fetch = originalFetch;

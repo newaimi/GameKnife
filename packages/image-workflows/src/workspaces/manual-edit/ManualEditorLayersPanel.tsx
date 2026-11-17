@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, Eye, EyeOff, Trash2 } from "lucide-react";
 import { Button, IconButton } from "@gameknife/ui-kit";
 import type { EditorStatus, ManualEditorHandle } from "./types";
 
 /**
- * 图层名称和透明度先保存在输入草稿中，提交时才写入编辑历史。局部草稿放在图层面板内，
- * 可以防止每次键入都让整张画布控制器重新组织状态，也让页面控制器只保留跨面板数据。
+ * Keeps layer name and opacity drafts local until they are committed to editor history. Local drafts avoid
+ * rebuilding the canvas controller on each keystroke and keep the page controller focused on cross-panel state.
  */
 export function ManualEditorLayersPanel({
   editorRef,
@@ -16,6 +17,7 @@ export function ManualEditorLayersPanel({
   status: EditorStatus;
   hasSource: boolean;
 }) {
+  const { t } = useTranslation("manualEditor");
   const skipNameCommitRef = useRef<Set<string>>(new Set());
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [opacityDrafts, setOpacityDrafts] = useState<Record<string, number>>({});
@@ -29,7 +31,7 @@ export function ManualEditorLayersPanel({
   function commitName(layerId: string, currentName: string) {
     const draftName = nameDrafts[layerId];
     if (draftName === undefined) return;
-    const nextName = draftName.trim() || "图层";
+    const nextName = draftName.trim() || t("layers.defaultName");
     if (nextName !== currentName) editorRef.current?.updateLayerName(layerId, nextName);
     discardName(layerId);
   }
@@ -51,32 +53,32 @@ export function ManualEditorLayersPanel({
 
   return (
     <div className="editor-section">
-      <strong>图层</strong>
+      <strong>{t("layers.title")}</strong>
       <div className="editor-action-row">
         <Button size="small" disabled={!hasSource} onClick={() => editorRef.current?.createLayer()}>
-          新建
+          {t("layers.create")}
         </Button>
         <Button size="small" disabled={!status.activeLayerId} onClick={() => editorRef.current?.duplicateLayer()}>
-          复制层
+          {t("layers.duplicate")}
         </Button>
         <Button size="small" disabled={!status.activeLayerId} onClick={() => status.activeLayerId && editorRef.current?.mergeLayerDown(status.activeLayerId)}>
-          向下合并
+          {t("layers.mergeDown")}
         </Button>
         <Button size="small" disabled={!status.activeLayerId} onClick={() => editorRef.current?.flattenLayers()}>
-          扁平
+          {t("layers.flatten")}
         </Button>
       </div>
       <div className="editor-layer-list">
         {status.layers.length ? (
           status.layers.map((layer) => (
             <div className={`editor-layer-row ${layer.active ? "active" : ""}`} key={layer.id}>
-              <IconButton label={layer.visible ? "隐藏图层" : "显示图层"} onClick={() => editorRef.current?.toggleLayerVisibility(layer.id)}>
+              <IconButton label={layer.visible ? t("layers.hide") : t("layers.show")} onClick={() => editorRef.current?.toggleLayerVisibility(layer.id)}>
                 {layer.visible ? <Eye size={15} /> : <EyeOff size={15} />}
               </IconButton>
               <input
                 type="text"
                 value={nameDrafts[layer.id] ?? layer.name}
-                aria-label={`${layer.name}名称`}
+                aria-label={t("layers.name", { name: layer.name })}
                 onFocus={() => editorRef.current?.setActiveLayer(layer.id)}
                 onChange={(event) => setNameDrafts((current) => ({ ...current, [layer.id]: event.target.value }))}
                 onBlur={() => {
@@ -99,17 +101,17 @@ export function ManualEditorLayersPanel({
                   }
                 }}
               />
-              <IconButton label="上移图层" onClick={() => editorRef.current?.moveLayer(layer.id, "up")}>
+              <IconButton label={t("layers.moveUp")} onClick={() => editorRef.current?.moveLayer(layer.id, "up")}>
                 <ChevronUp size={15} />
               </IconButton>
-              <IconButton label="下移图层" onClick={() => editorRef.current?.moveLayer(layer.id, "down")}>
+              <IconButton label={t("layers.moveDown")} onClick={() => editorRef.current?.moveLayer(layer.id, "down")}>
                 <ChevronDown size={15} />
               </IconButton>
-              <IconButton label="删除图层" variant="danger" onClick={() => editorRef.current?.deleteLayer(layer.id)}>
+              <IconButton label={t("layers.delete")} variant="danger" onClick={() => editorRef.current?.deleteLayer(layer.id)}>
                 <Trash2 size={15} />
               </IconButton>
               <label>
-                <span>透明度</span>
+                <span>{t("layers.opacity")}</span>
                 <input
                   type="range"
                   min={0}
@@ -123,7 +125,7 @@ export function ManualEditorLayersPanel({
             </div>
           ))
         ) : (
-          <p className="helper-text">导入图片后显示图层。</p>
+          <p className="helper-text">{t("layers.empty")}</p>
         )}
       </div>
     </div>
